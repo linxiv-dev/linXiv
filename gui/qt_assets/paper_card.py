@@ -30,8 +30,8 @@ from gui.theme import (
     RADIUS_LG,
     SPACE_MD, SPACE_XS,
 )
-from storage.db import set_has_pdf, set_pdf_path
-from storage.paths import pdf_dir
+from service import paper as paper_svc
+from storage.paths import pdf_dir  # TODO: expose via service layer
 
 _ACCENT_HOVER = "#7ba3f5"
 
@@ -79,8 +79,7 @@ def _material_checkbox_qss() -> str:
     """
 
 _PDF_DIR = pdf_dir()
-
-# TODO: differentiate physics sub-categories; add more non-CS fields
+#TODO: USE COLOR CONFIG
 CAT_COLORS: dict[str, str] = {
     "cs.LG": "#5b8dee", "cs.AI": "#7b6dee", "cs.CV": "#4db8c0",
     "cs.CL": "#ee8d5b", "cs.NE": "#5bbf8a", "physics": "#bf8a5b",
@@ -456,8 +455,8 @@ class PaperCard(QFrame):
         self._worker.start()
 
     def _on_download_done(self, paper_id: str, version: int, path: str) -> None:
-        set_pdf_path(paper_id, path)
-        set_has_pdf(paper_id, version, True)
+        paper_svc.set_pdf_path(paper_id, path)
+        paper_svc.set_has_pdf(paper_id, version, True)
         if self._pdf_btn is not None:
             self._pdf_btn.setEnabled(True)
         self._refresh_pdf_btn()
@@ -480,8 +479,8 @@ class PaperCard(QFrame):
         if not path:
             return
         pid, ver = self._row["paper_id"], self._row["version"]
-        set_pdf_path(pid, path)
-        set_has_pdf(pid, ver, True)
+        paper_svc.set_pdf_path(pid, path)
+        paper_svc.set_has_pdf(pid, ver, True)
         self._refresh_pdf_btn()
 
     # ── Notes (row mode) ──────────────────────────────────────────────────────
@@ -490,7 +489,7 @@ class PaperCard(QFrame):
         if self._project_id is None:
             return 0
         try:
-            from storage.notes import count_paper_notes
+            from storage.notes import count_paper_notes  # TODO: expose via service.note
             return count_paper_notes(self._row["paper_id"], self._project_id)
         except Exception:
             return 0

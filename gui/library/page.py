@@ -25,8 +25,10 @@ from formats.bibtex import BibTeXFormat
 from formats.csv_fmt import CSVFormat
 from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
-from storage.db import delete_paper, list_papers, repair_paper, save_paper_metadata, save_papers_metadata, set_has_pdf, set_pdf_path
-from storage.paths import pdf_dir
+from service import paper as paper_svc
+from service import project as project_svc
+from service.models.project import Q, Status
+from storage.paths import pdf_dir  # TODO: expose via service layer
 from gui.qt_assets import PaperCard, SelectionBar, AddPaperManuallyDialog
 from gui.qt_assets.note_card import note_card
 from gui.qt_assets.paper_card import _DownloadWorker
@@ -206,7 +208,7 @@ class PaperDetailView(QWidget):
         self._body_layout.addSpacing(SPACE_SM)
 
         try:
-            from storage.projects import filter_projects, Status
+            from storage.projects import filter_projects  # TODO: expose via service.project
             all_projects = filter_projects()
             containing = [p for p in all_projects
                           if paper_id in (p.paper_ids or [])
@@ -272,7 +274,7 @@ class PaperDetailView(QWidget):
         self._body_layout.addSpacing(SPACE_SM)
 
         try:
-            from storage.notes import get_notes
+            from storage.notes import get_notes  # TODO: expose via service.note
             all_notes = get_notes(paper_id, all_projects=True)
         except Exception:
             all_notes = []
@@ -292,9 +294,8 @@ class PaperDetailView(QWidget):
             missing_ids = note_proj_ids - set(proj_names)
             if missing_ids:
                 try:
-                    from storage.projects import get_project
                     for pid in missing_ids:
-                        p = get_project(pid)
+                        p = project_svc.get_project_details(pid)
                         if p and p.id is not None:
                             proj_names[p.id] = p.name
                 except Exception:
@@ -320,9 +321,8 @@ class PaperDetailView(QWidget):
         old_paper_id = self._current_row["paper_id"]
         try:
             meta = dlg.get_metadata(old_paper_id)
-            new_paper_id = repair_paper(old_paper_id, meta)
-            from storage.db import get_paper
-            new_row = get_paper(new_paper_id)
+            new_paper_id = paper_svc.repair_paper(old_paper_id, meta)
+            new_row = paper_svc.get_paper(new_paper_id)
             if new_row is not None:
                 self.load(new_row)
         except Exception as e:
@@ -388,8 +388,8 @@ class PaperDetailView(QWidget):
         self._pdf_worker.start()
 
     def _on_download_done(self, paper_id: str, version: int, path: str) -> None:
-        set_pdf_path(paper_id, path)
-        set_has_pdf(paper_id, version, True)
+        paper_svc.set_pdf_path(paper_id, path)
+        paper_svc.set_has_pdf(paper_id, version, True)
         if self._pdf_btn is not None:
             self._pdf_btn.setEnabled(True)
         self._refresh_pdf_btn()
@@ -414,8 +414,8 @@ class PaperDetailView(QWidget):
         if not path:
             return
         pid, ver = self._current_row["paper_id"], self._current_row["version"]
-        set_pdf_path(pid, path)
-        set_has_pdf(pid, ver, True)
+        paper_svc.set_pdf_path(pid, path)
+        paper_svc.set_has_pdf(pid, ver, True)
         self._refresh_pdf_btn()
 
     # ── Notes ─────────────────────────────────────────────────────────────────
@@ -631,7 +631,7 @@ class LibraryPage(QWidget):
     # ── Data ──────────────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
-        self._all_rows = list_papers(latest_only=True)
+        self._all_rows = paper_svc.list_papers(latest_only=True)
         self._apply_filter()
 
     def _apply_filter(self) -> None:
@@ -698,8 +698,7 @@ class LibraryPage(QWidget):
         Does not change cross-tab Back: if the user opened this paper via ``open_paper``
         from another tab (e.g. Graph), that return path stays active.
         """
-        from storage.db import get_paper
-        row = get_paper(paper_id)
+        row = paper_svc.get_paper(paper_id)
         if row is None:
             return
         self._open_detail(row)
@@ -715,8 +714,7 @@ class LibraryPage(QWidget):
 
     def open_paper(self, paper_id: str) -> None:
         """Open the detail view for a paper (e.g. from Graph). Back returns to prior shell tab."""
-        from storage.db import get_paper
-        row = get_paper(paper_id)
+        row = paper_svc.get_paper(paper_id)
         if row is not None:
             self._paper_detail_back_goes_to_prior_shell_tab = True
             self._open_detail(row)
@@ -911,15 +909,14 @@ class LibraryPage(QWidget):
 
     def _on_pdf_metadata_done(self, meta, path: str) -> None:
         self._pdf_queue.pop(0)
-        from storage.db import get_paper
-        existing = get_paper(meta.paper_id)
+        existing = paper_svc.get_paper(meta.paper_id)
         if existing is None:
-            save_papers_metadata([meta])
+            paper_svc.save_papers_metadata([meta])
             self._pdf_added += 1
         else:
             self._pdf_skipped += 1
-        set_pdf_path(meta.paper_id, path)
-        set_has_pdf(meta.paper_id, meta.version, True)
+        paper_svc.set_pdf_path(meta.paper_id, path)
+        paper_svc.set_has_pdf(meta.paper_id, meta.version, True)
         if self._pdf_queue:
             self._start_next_pdf()
         else:
@@ -953,15 +950,14 @@ class LibraryPage(QWidget):
             return
         try:
             meta = dlg.get_metadata()
-            from storage.db import get_paper
-            if get_paper(meta.paper_id) is not None:
+            if paper_svc.get_paper(meta.paper_id) is not None:
                 QMessageBox.warning(
                     self, "Already in Library",
                     f"A paper with ID '{meta.paper_id}' is already in the library.\n"
                     "Edit it using the Repair button on its detail page.",
                 )
                 return
-            save_paper_metadata(meta)
+            paper_svc.save_paper_metadata(meta)
             self.refresh()
         except Exception as e:
             print(f"[import_manual] {e}")
@@ -976,14 +972,13 @@ class LibraryPage(QWidget):
 
     def _finish_import(self, papers) -> None:
         from PyQt6.QtWidgets import QMessageBox
-        from storage.db import get_paper
         added = skipped = 0
         for meta in papers:
-            existing = get_paper(meta.paper_id)
+            existing = paper_svc.get_paper(meta.paper_id)
             if existing is not None:
                 skipped += 1
             else:
-                save_papers_metadata([meta])
+                paper_svc.save_papers_metadata([meta])
                 added += 1
         self.refresh()
         QMessageBox.information(
@@ -995,7 +990,7 @@ class LibraryPage(QWidget):
         if not self._selected:
             return
         from PyQt6.QtWidgets import QDialog, QComboBox, QDialogButtonBox, QMessageBox
-        from storage.projects import filter_projects, Q
+        from storage.projects import filter_projects  # TODO: expose via service.project
 
         projects = filter_projects(Q("status = 'active'"))
         if not projects:
@@ -1062,8 +1057,8 @@ class LibraryPage(QWidget):
                     print(f"Error removing PDF: {path}")
                     print(f"Error: {e}")
                     pass
-            set_pdf_path(card.paper_id(), "")
-            set_has_pdf(card.paper_id(), card._row["version"], False)
+            paper_svc.set_pdf_path(card.paper_id(), "")
+            paper_svc.set_has_pdf(card.paper_id(), card._row["version"], False)
         self.refresh()
 
     def _on_remove_from_library(self) -> None:
@@ -1080,6 +1075,6 @@ class LibraryPage(QWidget):
             return
 
         for pid in list(self._selected):
-            delete_paper(pid)
+            paper_svc.delete_paper(pid)
         self._selected.clear()
         self.refresh()

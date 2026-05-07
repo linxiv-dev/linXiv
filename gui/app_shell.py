@@ -13,11 +13,11 @@ from gui.setup import SetupPage
 from gui.settings import SettingsPage
 from gui.doi import DoiPage
 from gui.search import SearchPage
-from storage.db import init_db
+from service import paper as paper_svc
 
 
 def run_shell() -> None:
-    init_db()
+    paper_svc.init_db()
     app = QApplication(sys.argv)
     app.setApplicationName("Linxiv")
     app.setStyle(QStyleFactory.create("Fusion"))

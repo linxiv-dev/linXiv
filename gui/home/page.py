@@ -11,7 +11,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from storage.db import get_tags, list_papers
+from service import paper as paper_svc
+from storage.db import get_tags  # TODO: expose via service.paper
 from gui.qt_assets import PaperCard
 from gui.qt_assets.styles import BTN_PANEL_SM as _BTN_PANEL_SM
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
@@ -94,7 +95,7 @@ class HomePage(QWidget):
         self._load()
 
     def _load(self) -> None:
-        papers   = list_papers(latest_only=True)
+        papers   = paper_svc.list_papers(latest_only=True)
         tags     = get_tags()
         total    = len(papers)
         with_pdf = sum(1 for p in papers if p["has_pdf"])
