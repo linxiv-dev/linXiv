@@ -24,7 +24,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from storage.projects import color_to_hex
+from service import paper as paper_svc
+from service import project as project_svc
+from service.models.project import Project, Q, Status
 
 from gui.qt_assets import PaperCard, ElidedLabel, SelectionBar
 from gui.qt_assets.note_card import note_card
@@ -87,7 +89,6 @@ class _PdfMetadataWorker(QThread):
 
 
 # ── New-project dialog ────────────────────────────────────────────────────────
-#  NOTE: GOD FILE, semi-necessary?
 class NewProjectDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -166,7 +167,7 @@ class NewProjectDialog(QDialog):
         return row
 
     def _swatch_css(self, color: int, checked: bool) -> str:
-        hex_color = color_to_hex(color)
+        hex_color = project_svc.color_to_hex(color)
         border = "#ffffff" if checked else hex_color
         return (
             f"QPushButton {{ background: {hex_color}; border-radius: 14px;"
@@ -188,9 +189,8 @@ class NewProjectDialog(QDialog):
         raw = self._project_tags.text().strip()
         project_tags = [t.strip() for t in raw.split(",") if t.strip()] if raw else []
 
-        from storage.projects import Project, ensure_projects_db
-        from storage.notes import ensure_notes_db
-        ensure_projects_db()
+        from storage.notes import ensure_notes_db  # TODO: expose via service.note
+        project_svc.ensure_projects_db()
         ensure_notes_db()
 
         p = Project(name=name, description=desc, color=self._color, project_tags=project_tags)
@@ -249,8 +249,7 @@ class AddPaperDialog(QDialog):
         self._load_papers()
 
     def _load_papers(self) -> None:
-        from storage.db import list_papers
-        self._all_papers = list_papers()
+        self._all_papers = paper_svc.list_papers()
         already = set(self._project.paper_ids)
         self._papers = [r for r in self._all_papers if r["paper_id"] not in already]
         self._populate(self._papers)
@@ -459,7 +458,7 @@ class NoteEditorDialog(QDialog):
         )
 
     def _on_save(self) -> None:
-        from storage.notes import Note, ensure_notes_db
+        from storage.notes import Note, ensure_notes_db  # TODO: expose via service.note
         ensure_notes_db()
         if self._note is not None:
             self._note.title   = self._note_title.text().strip()
@@ -552,7 +551,7 @@ class NotesDialog(QDialog):
                 self._retire_card(w)
         self._cards.clear()
 
-        from storage.notes import get_notes, ensure_notes_db
+        from storage.notes import get_notes, ensure_notes_db  # TODO: expose via service.note
         ensure_notes_db()
         notes = get_notes(self._paper_id, project_id=self._project_id)
 
@@ -618,7 +617,7 @@ class NotesDialog(QDialog):
             paper_id=self._paper_id, project_id=self._project_id, parent=self.window() or self
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            from storage.notes import get_notes, ensure_notes_db
+            from storage.notes import get_notes, ensure_notes_db  # TODO: expose via service.note
             ensure_notes_db()
             notes = get_notes(self._paper_id, project_id=self._project_id)
             new_notes = [n for n in notes if n.id not in self._cards]
@@ -794,7 +793,7 @@ class ProjectDetailView(QWidget):
         self._delete_confirming = False
         self._delete_btn.setText("Delete")
 
-        hex_color = color_to_hex(project.color) if project.color is not None else _ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else _ACCENT
         self._color_stripe.setStyleSheet(f"background: {hex_color}; border-radius: 3px;")
         self._title_lbl.setText(project.name)
         self._title_lbl.adjustSize()
@@ -823,10 +822,9 @@ class ProjectDetailView(QWidget):
         if paper_ids:
             assert self._project is not None  # paper_ids is non-empty only when _project is set
             self._empty_papers_lbl.setVisible(False)
-            from storage.db import get_paper
             rendered_count = 0
             for pid in paper_ids:
-                row = get_paper(pid)
+                row = paper_svc.get_paper(pid)
                 if row is None:
                     continue
                 rendered_count += 1
@@ -873,12 +871,12 @@ class ProjectDetailView(QWidget):
             w = item.widget()
             if isinstance(w, PaperCard) and w.paper_id() in self._selected_pids:
                 w.start_download_if_needed()
-
+    #TODO: move to QT assets, too many imports for this spot
     def _on_add_to_project(self) -> None:
         if not self._selected_pids:
             return
         from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
-        from storage.projects import filter_projects, Q
+        from storage.projects import filter_projects  # TODO: expose via service.project
 
         projects = filter_projects(Q("status = 'active'"))
         if not projects:
@@ -957,15 +955,14 @@ class ProjectDetailView(QWidget):
             else:
                 self._start_next_pdf()
             return
-        from storage.db import get_paper, save_papers_metadata, set_has_pdf, set_pdf_path
-        existing = get_paper(meta.paper_id)
+        existing = paper_svc.get_paper(meta.paper_id)
         if existing is None:
-            save_papers_metadata([meta])
+            paper_svc.save_papers_metadata([meta])
             self._pdf_added += 1
         else:
             self._pdf_skipped += 1
-        set_pdf_path(meta.paper_id, path)
-        set_has_pdf(meta.paper_id, meta.version, True)
+        paper_svc.set_pdf_path(meta.paper_id, path)
+        paper_svc.set_has_pdf(meta.paper_id, meta.version, True)
         try:
             self._project.add_paper(meta.paper_id)
         except Exception:
@@ -1048,7 +1045,7 @@ class ProjectCard(QFrame):
 
         stripe = QWidget()
         stripe.setFixedWidth(6)
-        hex_color = color_to_hex(project.color) if project.color is not None else _ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else _ACCENT
         stripe.setStyleSheet(f"background: {hex_color}; border-radius: 10px 0 0 10px;")
         outer.addWidget(stripe)
 
@@ -1093,7 +1090,7 @@ class ProjectCard(QFrame):
         if project.id is None:
             return 0
         try:
-            from storage.notes import count_project_notes
+            from storage.notes import count_project_notes  # TODO: expose via service.note
             return count_project_notes(project.id)
         except Exception:
             return 0
@@ -1214,9 +1211,9 @@ class ProjectsPage(QWidget):
                 item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
 
         try:
-            from storage.projects import filter_projects, ensure_projects_db, Q, Status
-            from storage.notes import ensure_notes_db
-            ensure_projects_db()
+            from storage.projects import filter_projects  # TODO: expose via service.project
+            from storage.notes import ensure_notes_db  # TODO: expose via service.note
+            project_svc.ensure_projects_db()
             ensure_notes_db()
             projects = filter_projects(Q("status = ?", Status.ACTIVE))
         except Exception:

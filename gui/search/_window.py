@@ -9,11 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 import arxiv
-from storage.db import (
-    save_paper, save_paper_metadata, delete_paper,
-    get_paper, set_has_pdf, set_pdf_path, parse_entry_id,
-    search_full_text,
-)
+from service import paper as paper_svc
 from sources.base import PaperMetadata
 from sources.arxiv_downloads import cleanup_pdfs as _cleanup_pdfs, saved_pdfs_size
 from gui.views import TexView, PdfWindow
@@ -393,8 +389,8 @@ class SearchPage(QWidget):
         self._results = results
         for paper in results:
             row_widget = _ResultRow(paper.title)
-            paper_id, _ = parse_entry_id(paper.entry_id)
-            row_widget.set_checked(get_paper(paper_id) is not None)
+            paper_id, _ = paper_svc.parse_entry_id(paper.entry_id)
+            row_widget.set_checked(paper_svc.get_paper(paper_id) is not None)
             row_widget._checkbox.stateChanged.connect(
                 lambda state, p=paper: self._on_checkbox_changed(p, state)
             )
@@ -410,7 +406,7 @@ class SearchPage(QWidget):
         self._meta_results = results
         for paper in results:
             row_widget = _ResultRow(paper.title, source=paper.source)
-            row_widget.set_checked(get_paper(paper.paper_id) is not None)
+            row_widget.set_checked(paper_svc.get_paper(paper.paper_id) is not None)
             row_widget._checkbox.stateChanged.connect(
                 lambda state, p=paper: self._on_meta_checkbox_changed(p, state)
             )
@@ -433,7 +429,7 @@ class SearchPage(QWidget):
 
     def _on_local_search(self, query: str, limit: int) -> None:
         try:
-            rows = search_full_text(query, limit=limit)
+            rows = paper_svc.search_full_text(query, limit=limit)
         except Exception as exc:
             self._set_busy(False)
             self._status.setText(f"FTS error: {exc}")
@@ -456,9 +452,9 @@ class SearchPage(QWidget):
     def _on_meta_checkbox_changed(self, paper: PaperMetadata, state: int) -> None:
         if state == Qt.CheckState.Checked.value:
             tags = self._parse_tags()
-            save_paper_metadata(paper, tags=tags if tags else None)
+            paper_svc.save_paper_metadata(paper, tags=tags if tags else None)
         else:
-            delete_paper(paper.paper_id)
+            paper_svc.delete_paper(paper.paper_id)
 
     def _parse_tags(self) -> list[str]:
         raw = self._tag_input.text().strip()
@@ -469,10 +465,10 @@ class SearchPage(QWidget):
     def _on_checkbox_changed(self, paper: arxiv.Result, state: int) -> None:
         if state == Qt.CheckState.Checked.value:
             tags = self._parse_tags()
-            save_paper(paper, tags=tags if tags else None)
+            paper_svc.save_paper(paper, tags=tags if tags else None)
         else:
-            paper_id, _ = parse_entry_id(paper.entry_id)
-            delete_paper(paper_id)
+            paper_id, _ = paper_svc.parse_entry_id(paper.entry_id)
+            paper_svc.delete_paper(paper_id)
 
     def _on_select(self, row: int) -> None:
         # Determine which result list is active
@@ -527,7 +523,7 @@ class SearchPage(QWidget):
                 self._clear_sidebar()
                 return
             paper_arxiv = self._results[row]
-            key = parse_entry_id(paper_arxiv.entry_id)
+            key = paper_svc.parse_entry_id(paper_arxiv.entry_id)
             self._current_paper_key = key
             authors = ", ".join(a.name for a in paper_arxiv.authors[:5])
             if len(paper_arxiv.authors) > 5:
@@ -545,7 +541,7 @@ class SearchPage(QWidget):
             return
 
         # Show linked indicator if paper has an external pdf_path
-        db_row = get_paper(key[0], key[1])
+        db_row = paper_svc.get_paper(key[0], key[1])
         if db_row and db_row["pdf_path"]:
             self._linked_indicator.setText("Linked")
         else:
@@ -564,7 +560,7 @@ class SearchPage(QWidget):
         key = self._current_paper_key
         # Check for linked external PDF first
         if key:
-            db_row = get_paper(key[0], key[1])
+            db_row = paper_svc.get_paper(key[0], key[1])
             if db_row and db_row["pdf_path"] and os.path.isfile(db_row["pdf_path"]):
                 self._pdf_window.load_pdf(db_row["pdf_path"], is_external=True)
                 return
@@ -623,7 +619,7 @@ class SearchPage(QWidget):
             return
         paper_id, version = self._current_paper_key
         # Check if the paper is saved in the DB first
-        row = get_paper(paper_id, version)
+        row = paper_svc.get_paper(paper_id, version)
         if row is None:
             self._status.setText("Save the paper first before linking a PDF.")
             return
@@ -632,7 +628,7 @@ class SearchPage(QWidget):
         )
         if not path:
             return
-        set_pdf_path(paper_id, path)
+        paper_svc.set_pdf_path(paper_id, path)
         self._linked_indicator.setText("Linked")
         self._status.setText(f"Linked PDF: {os.path.basename(path)}")
 
@@ -653,8 +649,7 @@ class SearchPage(QWidget):
             for key in self._saved_papers
         }
         # Also keep any PDF that's already recorded in the DB (e.g. downloaded via Library page)
-        from storage.db import list_papers as _list_papers
-        for row in _list_papers():
+        for row in paper_svc.list_papers():
             pdf_path = row["pdf_path"] if "pdf_path" in row.keys() else None
             if pdf_path and os.path.isfile(pdf_path):
                 keep.add(pdf_path)
@@ -665,11 +660,11 @@ class SearchPage(QWidget):
         # Update has_pdf flag in DB
         for key in self._saved_papers:
             path = self._paper_pdf_paths.get(key) or self._pdf_path_for_key(key)
-            set_has_pdf(key[0], key[1], os.path.isfile(path))
+            paper_svc.set_has_pdf(key[0], key[1], os.path.isfile(path))
         for path in deleted:
             fname = os.path.splitext(os.path.basename(path))[0]  # e.g. '2204.12985v4'
-            key = parse_entry_id(fname)
-            set_has_pdf(key[0], key[1], False)
+            key = paper_svc.parse_entry_id(fname)
+            paper_svc.set_has_pdf(key[0], key[1], False)
 
         print(f"[cleanup] kept: {self._saved_papers} | deleted {len(deleted)} file(s): {deleted}")
         return deleted

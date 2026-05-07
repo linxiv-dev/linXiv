@@ -22,7 +22,8 @@ from formats.csv_fmt import CSVFormat
 from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
 from gui.theme import FONT_SECONDARY, FONT_TERTIARY, SPACE_XS, SPACE_SM
-from storage.db import get_categories, get_graph_data, get_tags, list_papers
+from service import paper as paper_svc
+from storage.db import get_tags  # TODO: expose via service.paper
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 # TODO: Break down into smaller chunks
@@ -238,7 +239,7 @@ class GraphPage(QWidget):
         self._load_dropdowns()
 
     def _load_graph(self) -> None:
-        nodes, edges = get_graph_data()
+        nodes, edges = paper_svc.get_graph_data()
 
         # Generate tag nodes from paper tags
         seen_tag_ids: set[str] = set()
@@ -256,7 +257,7 @@ class GraphPage(QWidget):
 
         # Augment paper nodes with project membership
         try:
-            from storage.projects import filter_projects
+            from storage.projects import filter_projects  # TODO: expose via service.project
             paper_to_projects: dict[str, list[int]] = {}
             for proj in filter_projects():
                 if proj.id is not None:
@@ -271,15 +272,15 @@ class GraphPage(QWidget):
         self._graph_view.set_graph_data(nodes, edges)
 
     def _load_paper_list(self) -> None:
-        papers = list_papers(latest_only=True)
+        papers = paper_svc.list_papers(latest_only=True)
         self._paper_list.load_papers(papers)
 
     def _load_dropdowns(self) -> None:
-        categories = get_categories()
+        categories = paper_svc.get_categories()
         tags = get_tags()
         proj_data: list[dict] = []
         try:
-            from storage.projects import filter_projects, color_to_hex, Status
+            from storage.projects import filter_projects, color_to_hex, Status  # TODO: expose via service.project
             for p in filter_projects():
                 if p.id is not None and p.status != Status.DELETED:
                     proj_data.append({

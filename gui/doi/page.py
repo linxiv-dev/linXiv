@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from storage.db import get_paper, save_paper_metadata
+from service import paper as paper_svc
 from sources import _resolve_doi
 from sources.base import PaperMetadata
 
@@ -202,7 +202,7 @@ class DoiPage(QWidget):
         src = meta.source or ""
         self._source_lbl.setText(f"via {source_labels.get(src, src)}: {meta.paper_id}")
 
-        already = get_paper(meta.paper_id) is not None
+        already = paper_svc.get_paper(meta.paper_id) is not None
         if already:
             self._save_btn.setText("Already in library")
             self._save_btn.setEnabled(False)
@@ -220,7 +220,7 @@ class DoiPage(QWidget):
     def _on_save(self) -> None:
         if self._result is None:
             return
-        save_paper_metadata(self._result)
+        paper_svc.save_paper_metadata(self._result)
         self._save_btn.setText("Saved ✓")
         self._save_btn.setEnabled(False)
         self._status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_GREEN}; background: transparent;")
