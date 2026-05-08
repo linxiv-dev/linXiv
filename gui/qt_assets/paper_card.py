@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import urllib.parse
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFontMetrics
@@ -30,8 +29,8 @@ from gui.theme import (
     RADIUS_LG,
     SPACE_MD, SPACE_XS,
 )
+import service.files as _files
 from service import paper as paper_svc
-from storage.paths import pdf_dir  # TODO: expose via service layer
 
 _ACCENT_HOVER = "#7ba3f5"
 
@@ -78,7 +77,6 @@ def _material_checkbox_qss() -> str:
         }}
     """
 
-_PDF_DIR = pdf_dir()
 #TODO: USE COLOR CONFIG
 CAT_COLORS: dict[str, str] = {
     "cs.LG": "#5b8dee", "cs.AI": "#7b6dee", "cs.CV": "#4db8c0",
@@ -96,39 +94,38 @@ class _DownloadWorker(QThread):
 
     _RETRY_DELAYS = (5, 15, 30)  # seconds before each retry on HTTP 429
 
-    def __init__(self, paper_id: str, version: int) -> None:
+    def __init__(self, paper_id: int, source_id: str, version: int) -> None:
         super().__init__()
-        self.paper_id = paper_id
-        self.version  = version
+        self.paper_id  = paper_id   # PAPER.PAPER_ID integer — used for file path
+        self.source_id = source_id  # text arxiv ID — used for URL and signals
+        self.version   = version
 
     def run(self) -> None:
         import time
         import urllib.error
-        import urllib.request
         from sources.fetch_paper_metadata import _check_ratelimit, _record_ratelimit
-        _PDF_DIR.mkdir(parents=True, exist_ok=True)
-        dest = _PDF_DIR / f"{self.paper_id}v{self.version}.pdf"
-        url  = f"https://arxiv.org/pdf/{self.paper_id}v{self.version}"
-        req  = urllib.request.Request(url, headers={"User-Agent": "linXiv/1.0"})
+        url = f"https://arxiv.org/pdf/{self.source_id}v{self.version}"
         _check_ratelimit()  # wait out any rate limit recorded by prior API calls
         for delay in (None, *self._RETRY_DELAYS):
             if delay is not None:
-                self.rate_limited.emit(self.paper_id, self.version)
+                self.rate_limited.emit(self.source_id, self.version)
                 time.sleep(delay)
             try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    dest.write_bytes(resp.read())
-                self.finished.emit(self.paper_id, self.version, str(dest))
+                path = _files.download_pdf(self.paper_id, self.version, url)
+                if path is None:
+                    self.failed.emit(self.source_id, self.version, "download failed")
+                    return
+                self.finished.emit(self.source_id, self.version, path)
                 return
             except urllib.error.HTTPError as e:
                 if e.code != 429:
-                    self.failed.emit(self.paper_id, self.version, str(e))
+                    self.failed.emit(self.source_id, self.version, str(e))
                     return
                 _record_ratelimit()  # inform API calls that arXiv is rate limiting
             except Exception as e:
-                self.failed.emit(self.paper_id, self.version, str(e))
+                self.failed.emit(self.source_id, self.version, str(e))
                 return
-        self.failed.emit(self.paper_id, self.version, "rate limited")
+        self.failed.emit(self.source_id, self.version, "rate limited")
 
 
 # ── Elided label (row / compact modes) ───────────────────────────────────────
@@ -405,11 +402,8 @@ class PaperCard(QFrame):
     # ── PDF (card mode) ───────────────────────────────────────────────────────
 
     def local_pdf_path(self) -> str | None:
-        p = self._row["pdf_path"] if "pdf_path" in self._row.keys() else None
-        if p and os.path.isfile(p):
-            return p
-        std = _PDF_DIR / f"{self._row['paper_id']}v{self._row['version']}.pdf"
-        return str(std) if std.is_file() else None
+        custom = self._row["pdf_path"] if "pdf_path" in self._row.keys() else None
+        return _files.pdf_path(self._row["paper_id"], self._row["version"], custom)
 
     def _refresh_pdf_btn(self) -> None:
         if self._pdf_btn is None:
@@ -447,8 +441,8 @@ class PaperCard(QFrame):
             return
         self._pdf_btn.setText("Downloading…")
         self._pdf_btn.setEnabled(False)
-        pid, ver = self._row["paper_id"], self._row["version"]
-        self._worker = _DownloadWorker(pid, ver)
+        pid, sid, ver = self._row["paper_id"], self._row["source_id"], self._row["version"]
+        self._worker = _DownloadWorker(pid, sid, ver)
         self._worker.finished.connect(self._on_download_done)
         self._worker.failed.connect(self._on_download_failed)
         self._worker.rate_limited.connect(self._on_download_rate_limited)
@@ -489,8 +483,8 @@ class PaperCard(QFrame):
         if self._project_id is None:
             return 0
         try:
-            from storage.notes import count_paper_notes  # TODO: expose via service.note
-            return count_paper_notes(self._row["paper_id"], self._project_id)
+            from service.note import count_paper_notes
+            return count_paper_notes(self._row["source_fk"], self._project_id)
         except Exception:
             return 0
 
@@ -504,9 +498,9 @@ class PaperCard(QFrame):
         from gui.projects.page import NotesDialog
         host = self.window()
         dlg = NotesDialog(
-            self._row["paper_id"],
+            self._row["source_fk"],
             self._project_id,
-            self._row["title"] or self._row["paper_id"],
+            self._row["title"] or self._row["source_id"],
             host,
         )
         dlg.exec()

@@ -34,9 +34,8 @@ def tmp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(notes, "_connect", patched_connect)
 
     # Initialise the schema in the temp DB.
-    db.init_db()
-    projects.init_projects_db()
-    notes.init_notes_db()
+    db.init_db()            # creates PAPER_ROOTS, LIBRARY_NOTE, PROJECT, etc.
+    projects.init_projects_db()  # creates projects + project_papers
 
     return db_file
 
@@ -44,9 +43,13 @@ def tmp_db(tmp_path, monkeypatch):
 @pytest.fixture()
 def note_projects(tmp_db):
     """Extend tmp_db with 10 pre-created projects so notes.project_id FK
-    constraints (REFERENCES projects(id)) are satisfied when tests use
-    hard-coded project IDs like 1, 2, 5, 7, 8."""
+    constraints are satisfied when tests use hard-coded project IDs 1-10."""
+    import sqlite3
     from storage.projects import Project
     for i in range(10):
-        Project(name=f"Dummy {i + 1}").save()
+        p = Project(name=f"Dummy {i + 1}")
+        p.save()
+        # LIBRARY_NOTE.PROJECT_FK references PROJECT(PROJECT_FK) (new schema table)
+        with sqlite3.connect(tmp_db) as conn:
+            conn.execute("INSERT OR IGNORE INTO PROJECT (PROJECT_FK) VALUES (?)", (p.id,))
     return tmp_db

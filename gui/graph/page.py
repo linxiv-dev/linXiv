@@ -23,7 +23,7 @@ from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
 from gui.theme import FONT_SECONDARY, FONT_TERTIARY, SPACE_XS, SPACE_SM
 from service import paper as paper_svc
-from storage.db import get_tags  # TODO: expose via service.paper
+from service.tag import list_all_tags
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 # TODO: Break down into smaller chunks
@@ -257,12 +257,21 @@ class GraphPage(QWidget):
 
         # Augment paper nodes with project membership
         try:
-            from storage.projects import filter_projects  # TODO: expose via service.project
+            from service.project import filter_projects
+            from service.paper import get_paper_root
+            sfk_to_source_id: dict[int, str] = {}
+            for node in nodes:
+                if node["type"] == "paper":
+                    root = get_paper_root(node["id"])
+                    if root is not None:
+                        sfk_to_source_id[int(root["SOURCE_FK"])] = node["id"]
             paper_to_projects: dict[str, list[int]] = {}
             for proj in filter_projects():
                 if proj.id is not None:
-                    for pid in (proj.paper_ids or []):
-                        paper_to_projects.setdefault(pid, []).append(proj.id)
+                    for sfk in proj.source_fks:
+                        source_id = sfk_to_source_id.get(sfk)
+                        if source_id:
+                            paper_to_projects.setdefault(source_id, []).append(proj.id)
             for node in nodes:
                 if node["type"] == "paper":
                     node["project_ids"] = paper_to_projects.get(node["id"], [])
@@ -277,10 +286,10 @@ class GraphPage(QWidget):
 
     def _load_dropdowns(self) -> None:
         categories = paper_svc.get_categories()
-        tags = get_tags()
+        tags = list_all_tags()
         proj_data: list[dict] = []
         try:
-            from storage.projects import filter_projects, color_to_hex, Status  # TODO: expose via service.project
+            from service.project import filter_projects, color_to_hex, Status
             for p in filter_projects():
                 if p.id is not None and p.status != Status.DELETED:
                     proj_data.append({

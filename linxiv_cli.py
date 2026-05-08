@@ -161,7 +161,7 @@ def cmd_project_list(args: argparse.Namespace) -> None:
         projects = filter_projects(~Q("status = ?", Status.DELETED))
     _output([{
         "id": p.id, "name": p.name, "description": p.description,
-        "status": p.status.value, "paper_count": len(p.paper_ids),
+        "status": p.status.value, "paper_count": p.paper_count,
     } for p in projects])
 
 
@@ -180,27 +180,30 @@ def cmd_project_add_paper(args: argparse.Namespace) -> None:
     if p is None:
         print(json.dumps({"error": f"Project {args.project_id} not found"}), file=sys.stderr)
         sys.exit(1)
-    if args.paper_id not in p.paper_ids:
-        p.paper_ids.append(args.paper_id)
-        p.save()
-    _output({"project_id": p.id, "paper_id": args.paper_id, "paper_count": len(p.paper_ids)})
+    root = db.get_paper_root(args.paper_id)
+    if root is None:
+        print(json.dumps({"error": f"Paper {args.paper_id} not found in database"}), file=sys.stderr)
+        sys.exit(1)
+    p.add_paper(int(root["SOURCE_FK"]))
+    _output({"project_id": p.id, "paper_id": args.paper_id, "paper_count": p.paper_count})
 
 
 def cmd_create_note(args: argparse.Namespace) -> None:
     from storage.notes import Note
 
-    if db.get_paper(args.paper_id) is None:
+    root = db.get_paper_root(args.paper_id)
+    if root is None:
         print(json.dumps({"error": f"Paper {args.paper_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
 
     note = Note(
-        paper_id=args.paper_id,
+        source_fk=int(root["SOURCE_FK"]),
         project_id=args.project_id,
         title=args.title or "",
         content=args.content,
     )
     note.save()
-    _output({"id": note.id, "paper_id": note.paper_id, "project_id": note.project_id, "title": note.title})
+    _output({"id": note.id, "source_fk": note.source_fk, "project_id": note.project_id, "title": note.title})
 
 
 # Argument parsing

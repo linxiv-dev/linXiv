@@ -7,6 +7,9 @@ from storage.notes import (
     get_notes as _get_notes,
     get_notes_by_paper_id as _get_notes_by_paper_id,
     get_project_notes as _get_project_notes,
+    count_paper_notes as _count_paper_notes,
+    count_project_notes as _count_project_notes,
+    ensure_notes_db as _ensure_notes_db,
     Note as _StorageNote,
 )
 
@@ -31,6 +34,7 @@ class NoteIn:
     source_fk:  int
     title:       str
     content:     str
+    note_id:     int | None = None
     paper_id:    int | None = None
     project_fk:  int | None = None
 
@@ -71,6 +75,7 @@ def get_many(notes: Notes) -> list[NoteDetails]:
 def upsert(note: NoteIn) -> int | None:
     """Insert or update a note. Returns NOTE_SK."""
     storage_note = _StorageNote(
+        id=note.note_id,
         source_fk=note.source_fk,
         paper_id_fk=note.paper_id,
         project_id=note.project_fk,
@@ -99,6 +104,18 @@ def delete(note: Note) -> None:
 # ---------------------------------------------------------------------------
 # Low-level reads
 # ---------------------------------------------------------------------------
+
+def count_paper_notes(source_fk: int, project_id: int | None = None) -> int:
+    return _count_paper_notes(source_fk, project_id)
+
+
+def count_project_notes(project_id: int) -> int:
+    return _count_project_notes(project_id)
+
+
+def ensure_notes_db() -> None:
+    _ensure_notes_db()
+
 
 def get_note_details(note: Note) -> Optional[NoteDetails]:
     if note.note_id is None:

@@ -134,6 +134,10 @@ def ensure_projects_db() -> None:
     _ensure_projects_db()
 
 
+def filter_projects(condition: Q | None = None) -> list[_StorageProject]:
+    return _filter_projects(condition)
+
+
 # ---------------------------------------------------------------------------
 # Low-level / legacy
 # ---------------------------------------------------------------------------
@@ -159,7 +163,7 @@ class ProjectUpdate(ProjectClass):
     values, besides project id number, ProjectClass should be used for calling
     for updates
     """
-    name:         str|None
+    name:         str|None            = None
     description:  str|None           = ""
     color:        Optional[int]|None = None
     project_tags: list[str]|None     = field(default_factory=list)

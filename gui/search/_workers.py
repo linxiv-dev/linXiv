@@ -1,11 +1,13 @@
+from pathlib import Path
+
 from PyQt6.QtCore import QThread, pyqtSignal
 import arxiv
-from storage.paths import pdf_dir
+import service.files as _files
 from sources import search_papers
 from sources import ArxivSource, OpenAlexSource
 from sources.arxiv_downloads import download_pdf
 
-_PDF_DIR = pdf_dir()
+_PDF_DIR: Path = Path(_files.managed_pdf_dir())
 
 
 class _SearchWorker(QThread):
@@ -70,8 +72,10 @@ class _PdfWorker(QThread):
 
     def run(self) -> None:
         try:
-            _PDF_DIR.mkdir(parents=True, exist_ok=True)
-            path = download_pdf(self.paper, dirpath=str(_PDF_DIR))
+            import os
+            pdf_dir = _files.managed_pdf_dir()
+            os.makedirs(pdf_dir, exist_ok=True)
+            path = download_pdf(self.paper, dirpath=pdf_dir)
             self.done.emit(path)
         except Exception as e:
             print(f"[pdf] {e}")

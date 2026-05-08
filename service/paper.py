@@ -253,6 +253,16 @@ def get_paper_root(source_id: str) -> sqlite3.Row | None:
     return db.get_paper_root(source_id)
 
 
+def ensure_paper_root(source_id: str) -> int:
+    """Insert PAPER_ROOTS row if absent. Returns SOURCE_FK."""
+    return db.ensure_paper_root(source_id)
+
+
+def get_source_id(source_fk: int) -> str | None:
+    """Return SOURCE_ID (text paper ID) for a given SOURCE_FK, or None."""
+    return db.get_source_id(source_fk)
+
+
 # ---------------------------------------------------------------------------
 # Multi-paper reads
 # ---------------------------------------------------------------------------

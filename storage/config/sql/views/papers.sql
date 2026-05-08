@@ -5,6 +5,7 @@ CREATE VIEW papers AS
 SELECT
     p.PAPER_ID          AS paper_id,
     p.SOURCE_ID         AS source_id,
+    p.SOURCE_FK         AS source_fk,
     p.VERSION           AS version,
     p.TITLE             AS title,
     m.URL               AS url,
