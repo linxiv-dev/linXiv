@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from gui.graph import GraphView
 from gui.theme import TABLE_BG, TABLE_TEXT, TABLE_GRID
 from service import paper as paper_svc
-from storage.db import get_tags  # TODO: expose via service.paper
+from service.tag import list_all_tags
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
 
     def _load_dropdowns(self) -> None:
         categories = paper_svc.get_categories()
-        tags = get_tags()
+        tags = list_all_tags()
         self._graph_view.set_filter_options(categories, tags)
 
     # ── Toolbar actions ───────────────────────────────────────────────────────

@@ -26,7 +26,8 @@ from PyQt6.QtWidgets import (
 
 from service import paper as paper_svc
 from service import project as project_svc
-from service.models.project import Project, Q, Status
+from service.project import Q, Status
+from storage.projects import Project
 
 from gui.qt_assets import PaperCard, ElidedLabel, SelectionBar
 from gui.qt_assets.note_card import note_card
@@ -189,7 +190,7 @@ class NewProjectDialog(QDialog):
         raw = self._project_tags.text().strip()
         project_tags = [t.strip() for t in raw.split(",") if t.strip()] if raw else []
 
-        from storage.notes import ensure_notes_db  # TODO: expose via service.note
+        from service.note import ensure_notes_db
         project_svc.ensure_projects_db()
         ensure_notes_db()
 
@@ -373,7 +374,7 @@ def _make_notes_qtext_preview(parent: QWidget | None) -> QTextBrowser:
 class NoteEditorDialog(QDialog):
     """Split-pane note editor: raw Markdown editor + QTextBrowser preview (no WebEngine).
 
-    Add mode:  NoteEditorDialog(paper_id=..., project_id=..., parent=...)
+    Add mode:  NoteEditorDialog(source_fk=..., project_id=..., parent=...)
     Edit mode: NoteEditorDialog(note=..., parent=...)
     """
 
@@ -381,13 +382,13 @@ class NoteEditorDialog(QDialog):
         self,
         *,
         note=None,
-        paper_id: str | None = None,
+        source_fk: int | None = None,
         project_id: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._note       = note
-        self._paper_id   = note.paper_id   if note else paper_id
+        self._source_fk  = note.source_fk  if note else source_fk
         self._project_id = note.project_id if note else project_id
 
         mode = "Edit Note" if note else "Add Note"
@@ -458,21 +459,25 @@ class NoteEditorDialog(QDialog):
         )
 
     def _on_save(self) -> None:
-        from storage.notes import Note, ensure_notes_db  # TODO: expose via service.note
-        ensure_notes_db()
+        import service.note as note_svc
         if self._note is not None:
-            self._note.title   = self._note_title.text().strip()
-            self._note.content = self._editor.toPlainText().strip()
-            self._note.save()
-        else:
-            if self._paper_id is None:
-                return
-            Note(
-                paper_id   = self._paper_id,
-                project_id = self._project_id,
+            note_svc.upsert(note_svc.NoteIn(
+                note_id    = self._note.note_id,
+                source_fk  = self._note.source_fk,
+                paper_id   = self._note.paper_id_fk,
+                project_fk = self._note.project_id,
                 title      = self._note_title.text().strip(),
                 content    = self._editor.toPlainText().strip(),
-            ).save()
+            ))
+        else:
+            if self._source_fk is None:
+                return
+            note_svc.upsert(note_svc.NoteIn(
+                source_fk  = self._source_fk,
+                project_fk = self._project_id,
+                title      = self._note_title.text().strip(),
+                content    = self._editor.toPlainText().strip(),
+            ))
         self.accept()
 
 
@@ -482,10 +487,10 @@ class NoteEditorDialog(QDialog):
 class NotesDialog(QDialog):
     """Shows all notes for a paper in a project, with add and delete actions."""
 
-    def __init__(self, paper_id: str, project_id: int, paper_title: str,
+    def __init__(self, source_fk: int, project_id: int, paper_title: str,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._paper_id   = paper_id
+        self._source_fk  = source_fk
         self._project_id = project_id
         self._cards: dict[int, QFrame] = {}
         self._retired_cards: list[QWidget] = []
@@ -551,17 +556,16 @@ class NotesDialog(QDialog):
                 self._retire_card(w)
         self._cards.clear()
 
-        from storage.notes import get_notes, ensure_notes_db  # TODO: expose via service.note
-        ensure_notes_db()
-        notes = get_notes(self._paper_id, project_id=self._project_id)
+        import service.note as note_svc
+        notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
 
         if notes:
             self._empty_lbl.setVisible(False)
             for note in notes:
                 card = note_card(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.id is not None:
-                    self._cards[note.id] = card
+                if note.note_id is not None:
+                    self._cards[note.note_id] = card
         else:
             self._empty_lbl.setVisible(True)
 
@@ -586,7 +590,7 @@ class NotesDialog(QDialog):
         super().closeEvent(event)
 
     def _pop_and_recreate(self, note) -> None:
-        note_id = note.id
+        note_id = note.note_id
         old_card = self._cards.pop(note_id, None) if note_id is not None else None
         if old_card is not None:
             idx = self._notes_layout.indexOf(old_card)
@@ -604,8 +608,9 @@ class NotesDialog(QDialog):
             self._pop_and_recreate(note)
 
     def _delete_note(self, note) -> None:
-        note_id = note.id
-        note.delete()
+        import service.note as note_svc
+        note_id = note.note_id
+        note_svc.delete(note_svc.Note(note_id=note_id))
         card = self._cards.pop(note_id, None) if note_id is not None else None
         if card is not None:
             self._retire_card(card)
@@ -614,19 +619,18 @@ class NotesDialog(QDialog):
 
     def _on_add(self) -> None:
         dlg = NoteEditorDialog(
-            paper_id=self._paper_id, project_id=self._project_id, parent=self.window() or self
+            source_fk=self._source_fk, project_id=self._project_id, parent=self.window() or self
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            from storage.notes import get_notes, ensure_notes_db  # TODO: expose via service.note
-            ensure_notes_db()
-            notes = get_notes(self._paper_id, project_id=self._project_id)
-            new_notes = [n for n in notes if n.id not in self._cards]
+            import service.note as note_svc
+            notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
+            new_notes = [n for n in notes if n.note_id not in self._cards]
             self._empty_lbl.setVisible(False)
             for note in new_notes:
                 card = note_card(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.id is not None:
-                    self._cards[note.id] = card
+                if note.note_id is not None:
+                    self._cards[note.note_id] = card
 
 
 # ── Project detail view ───────────────────────────────────────────────────────
@@ -876,7 +880,7 @@ class ProjectDetailView(QWidget):
         if not self._selected_pids:
             return
         from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
-        from storage.projects import filter_projects  # TODO: expose via service.project
+        from service.project import filter_projects
 
         projects = filter_projects(Q("status = 'active'"))
         if not projects:
@@ -1090,7 +1094,7 @@ class ProjectCard(QFrame):
         if project.id is None:
             return 0
         try:
-            from storage.notes import count_project_notes  # TODO: expose via service.note
+            from service.note import count_project_notes
             return count_project_notes(project.id)
         except Exception:
             return 0
@@ -1211,8 +1215,8 @@ class ProjectsPage(QWidget):
                 item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
 
         try:
-            from storage.projects import filter_projects  # TODO: expose via service.project
-            from storage.notes import ensure_notes_db  # TODO: expose via service.note
+            from service.project import filter_projects
+            from service.note import ensure_notes_db
             project_svc.ensure_projects_db()
             ensure_notes_db()
             projects = filter_projects(Q("status = ?", Status.ACTIVE))

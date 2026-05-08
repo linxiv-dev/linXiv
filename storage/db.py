@@ -74,6 +74,21 @@ def _connect(db_path: str = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+def ensure_paper_root(source_id: str) -> int:
+    """Insert PAPER_ROOTS row if absent. Returns SOURCE_FK."""
+    with _connect() as conn:
+        return _ensure_paper_root_row(conn, source_id)
+
+
+def get_source_id(source_fk: int) -> str | None:
+    """Return SOURCE_ID for a given SOURCE_FK, or None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_FK = ?", (source_fk,)
+        ).fetchone()
+    return str(row["SOURCE_ID"]) if row else None
+
+
 def _ensure_paper_root_row(conn: sqlite3.Connection, source_id: str) -> int:
     conn.execute("INSERT OR IGNORE INTO PAPER_ROOTS (SOURCE_ID) VALUES (?)", (source_id,))
     row = conn.execute("SELECT SOURCE_FK FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,)).fetchone()

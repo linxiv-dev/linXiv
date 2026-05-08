@@ -125,7 +125,7 @@ def _ensure_project_membership_table() -> None:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS project_papers (
                 project_id INTEGER   NOT NULL REFERENCES projects(id)          ON DELETE CASCADE,
-                paper_id   TEXT      NOT NULL REFERENCES paper_roots(paper_id) ON DELETE CASCADE,
+                paper_id   INTEGER   NOT NULL REFERENCES PAPER_ROOTS(SOURCE_FK) ON DELETE CASCADE,
                 position   INTEGER,
                 added_at   TIMESTAMP,
                 note       TEXT,
@@ -142,7 +142,7 @@ def _ensure_project_membership_table() -> None:
             "CREATE INDEX IF NOT EXISTS idx_project_papers_paper_id ON project_papers(paper_id)"
         )
 
-        fks = {row["table"] for row in conn.execute("PRAGMA foreign_key_list(project_papers)")}
+        fks = {row["table"].lower() for row in conn.execute("PRAGMA foreign_key_list(project_papers)")}
         if "paper_roots" not in fks:
             conn.execute("""
                 DELETE FROM project_papers

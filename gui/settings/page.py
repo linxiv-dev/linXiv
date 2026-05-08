@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 import user_settings as _user_settings
-from storage.paths import pdf_dir as _pdf_dir
+import service.files as _files
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
@@ -339,14 +339,7 @@ class SettingsPage(QWidget):
         inner.addSpacing(SPACE_SM)
 
         def _pdf_used_mb() -> float:
-            d = _pdf_dir()
-            if not d.is_dir():
-                return 0.0
-            return sum(
-                os.path.getsize(d / f)
-                for f in os.listdir(d)
-                if f.lower().endswith(".pdf") and os.path.isfile(d / f)
-            ) / 1024 ** 2
+            return _files.pdf_storage_mb()
 
         limit_spin = QSpinBox()
         limit_spin.setRange(100, 100_000)

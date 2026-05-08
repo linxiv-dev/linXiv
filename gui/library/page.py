@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -27,8 +26,8 @@ from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
 from service import paper as paper_svc
 from service import project as project_svc
-from service.models.project import Q, Status
-from storage.paths import pdf_dir  # TODO: expose via service layer
+from service.project import Q, Status
+import service.files as _files
 from gui.qt_assets import PaperCard, SelectionBar, AddPaperManuallyDialog
 from gui.qt_assets.note_card import note_card
 from gui.qt_assets.paper_card import _DownloadWorker
@@ -147,7 +146,8 @@ class PaperDetailView(QWidget):
                 if widget:
                     widget.deleteLater()
 
-        paper_id = row["paper_id"]
+        paper_id  = row["paper_id"]
+        source_fk = row["source_fk"]
 
         # ── Title ─────────────────────────────────────────────────────────────
         title_lbl = QLabel(row["title"] or "(untitled)")
@@ -208,10 +208,13 @@ class PaperDetailView(QWidget):
         self._body_layout.addSpacing(SPACE_SM)
 
         try:
-            from storage.projects import filter_projects  # TODO: expose via service.project
+            from service.project import filter_projects
+            from service.paper import get_paper_root
+            root = get_paper_root(paper_id)
+            source_fk = int(root["SOURCE_FK"]) if root is not None else None
             all_projects = filter_projects()
             containing = [p for p in all_projects
-                          if paper_id in (p.paper_ids or [])
+                          if source_fk is not None and source_fk in p.source_fks
                           and p.status != Status.DELETED]
         except Exception:
             containing = []
@@ -261,7 +264,10 @@ class PaperDetailView(QWidget):
         add_note_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_note_btn.setStyleSheet(_BTN)
         add_note_btn.setFixedHeight(BTN_H_SM)
-        add_note_btn.clicked.connect(lambda: self._add_note(paper_id))
+        if source_fk:
+            add_note_btn.clicked.connect(lambda: self._add_note(source_fk))
+        else:
+            add_note_btn.setEnabled(False)
         notes_hdr = QHBoxLayout()
         notes_hdr.setContentsMargins(0, 0, 0, 0)
         notes_hdr.addWidget(self._section_label("Notes"))
@@ -274,8 +280,8 @@ class PaperDetailView(QWidget):
         self._body_layout.addSpacing(SPACE_SM)
 
         try:
-            from storage.notes import get_notes  # TODO: expose via service.note
-            all_notes = get_notes(paper_id, all_projects=True)
+            import service.note as note_svc
+            all_notes = note_svc.get_notes(note_svc.Notes(source_fk=source_fk))
         except Exception:
             all_notes = []
 
@@ -339,11 +345,8 @@ class PaperDetailView(QWidget):
     def _local_pdf_path(self) -> str | None:
         if self._current_row is None:
             return None
-        p = self._current_row["pdf_path"] if "pdf_path" in self._current_row.keys() else None
-        if p and os.path.isfile(p):
-            return p
-        std = pdf_dir() / f"{self._current_row['paper_id']}v{self._current_row['version']}.pdf"
-        return str(std) if std.is_file() else None
+        custom = self._current_row["pdf_path"] if "pdf_path" in self._current_row.keys() else None
+        return _files.pdf_path(self._current_row["paper_id"], self._current_row["version"], custom)
 
     def _is_arxiv(self) -> bool:
         if self._current_row is None:
@@ -380,8 +383,8 @@ class PaperDetailView(QWidget):
             return
         self._pdf_btn.setText("Downloading…")
         self._pdf_btn.setEnabled(False)
-        pid, ver = self._current_row["paper_id"], self._current_row["version"]
-        self._pdf_worker = _DownloadWorker(pid, ver)
+        pid, sid, ver = self._current_row["paper_id"], self._current_row["source_id"], self._current_row["version"]
+        self._pdf_worker = _DownloadWorker(pid, sid, ver)
         self._pdf_worker.finished.connect(self._on_download_done)
         self._pdf_worker.failed.connect(self._on_download_failed)
         self._pdf_worker.rate_limited.connect(self._on_download_rate_limited)
@@ -420,9 +423,9 @@ class PaperDetailView(QWidget):
 
     # ── Notes ─────────────────────────────────────────────────────────────────
 
-    def _add_note(self, paper_id: str) -> None:
+    def _add_note(self, source_fk: int) -> None:
         from gui.projects import NoteEditorDialog
-        dlg = NoteEditorDialog(paper_id=paper_id, parent=self)
+        dlg = NoteEditorDialog(source_fk=source_fk, parent=self)
         if dlg.exec() and self._current_row is not None:
             self.load(self._current_row)
 
@@ -443,7 +446,8 @@ class PaperDetailView(QWidget):
             self.load(self._current_row)
 
     def _delete_note(self, note) -> None:
-        note.delete()
+        import service.note as note_svc
+        note_svc.delete(note_svc.Note(note_id=note.note_id))
         if self._current_row is not None:
             self.load(self._current_row)
 
@@ -990,7 +994,7 @@ class LibraryPage(QWidget):
         if not self._selected:
             return
         from PyQt6.QtWidgets import QDialog, QComboBox, QDialogButtonBox, QMessageBox
-        from storage.projects import filter_projects  # TODO: expose via service.project
+        from service.project import filter_projects
 
         projects = filter_projects(Q("status = 'active'"))
         if not projects:
@@ -1046,17 +1050,14 @@ class LibraryPage(QWidget):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        linxiv_pdf_dir = pdf_dir().resolve()
         for card in affected:
             path = card.local_pdf_path()
-            if path and os.path.isfile(path):
+            if path:
                 try:
-                    if Path(path).resolve().is_relative_to(linxiv_pdf_dir):
-                        os.remove(path)
+                    _files.delete_pdf(path)
                 except OSError as e:
-                    print(f"Error removing PDF: {path}")
-                    print(f"Error: {e}")
-                    pass
+                    print(f"[remove_pdfs] Error removing PDF: {path}")
+                    print(f"[remove_pdfs] {e}")
             paper_svc.set_pdf_path(card.paper_id(), "")
             paper_svc.set_has_pdf(card.paper_id(), card._row["version"], False)
         self.refresh()

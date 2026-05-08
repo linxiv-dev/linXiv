@@ -7,6 +7,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import storage.db as _db
+
 from storage.projects import (
     color_to_hex,
     color_from_hex,
@@ -15,6 +17,14 @@ from storage.projects import (
     Status,
     filter_projects,
 )
+
+
+def _sfk(label: str) -> int:
+    """Insert or get a PAPER_ROOTS row, return its SOURCE_FK integer."""
+    with _db._connect() as conn:
+        conn.execute("INSERT OR IGNORE INTO PAPER_ROOTS (SOURCE_ID) VALUES (?)", (label,))
+        row = conn.execute("SELECT SOURCE_FK FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (label,)).fetchone()
+    return int(row[0])
 
 
 # ---------------------------------------------------------------------------
@@ -98,33 +108,34 @@ class TestQ:
 # Project.save / filter_projects
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("tmp_db")
 class TestProjectSaveAndFilter:
-    def test_save_assigns_id(self, tmp_db):
+    def test_save_assigns_id(self):
         p = Project(name="My Project")
         assert p.id is None
         p.save()
         assert p.id is not None
 
-    def test_save_sets_created_at(self, tmp_db):
+    def test_save_sets_created_at(self):
         p = Project(name="Timestamped")
         p.save()
         assert p.created_at is not None
 
-    def test_saved_project_returned_by_filter(self, tmp_db):
+    def test_saved_project_returned_by_filter(self):
         p = Project(name="Findable")
         p.save()
         results = filter_projects()
         names = [proj.name for proj in results]
         assert "Findable" in names
 
-    def test_filter_no_condition_returns_all(self, tmp_db):
+    def test_filter_no_condition_returns_all(self):
         Project(name="Alpha").save()
         Project(name="Beta").save()
         results = filter_projects()
         names = {proj.name for proj in results}
         assert {"Alpha", "Beta"}.issubset(names)
 
-    def test_filter_by_status_active(self, tmp_db):
+    def test_filter_by_status_active(self):
         active = Project(name="Active One", status=Status.ACTIVE)
         active.save()
         archived = Project(name="Archived One", status=Status.ARCHIVED)
@@ -134,7 +145,7 @@ class TestProjectSaveAndFilter:
         assert "Active One" in names
         assert "Archived One" not in names
 
-    def test_filter_not_deleted(self, tmp_db):
+    def test_filter_not_deleted(self):
         live = Project(name="Live")
         live.save()
         dead = Project(name="Dead")
@@ -145,33 +156,32 @@ class TestProjectSaveAndFilter:
         assert "Live" in names
         assert "Dead" not in names
 
-    def test_update_existing_project(self, tmp_db):
+    def test_update_existing_project(self):
         p = Project(name="Original Name")
         p.save()
         first_id = p.id
         p.name = "Updated Name"
         p.save()
-        # id should stay the same
         assert p.id == first_id
         results = filter_projects()
         names = [proj.name for proj in results]
         assert "Updated Name" in names
         assert "Original Name" not in names
 
-    def test_project_color_round_trip(self, tmp_db):
+    def test_project_color_round_trip(self):
         p = Project(name="Colorful", color=0x5b8dee)
         p.save()
         results = filter_projects(Q("name = ?", "Colorful"))
         assert len(results) == 1
         assert results[0].color == 0x5b8dee
 
-    def test_project_status_default_is_active(self, tmp_db):
+    def test_project_status_default_is_active(self):
         p = Project(name="Default Status")
         p.save()
         results = filter_projects(Q("name = ?", "Default Status"))
         assert results[0].status == Status.ACTIVE
 
-    def test_project_description_persisted(self, tmp_db):
+    def test_project_description_persisted(self):
         p = Project(name="Described", description="A useful project")
         p.save()
         results = filter_projects(Q("name = ?", "Described"))
@@ -182,56 +192,57 @@ class TestProjectSaveAndFilter:
 # Project.add_paper
 # ---------------------------------------------------------------------------
 
+@pytest.mark.usefixtures("tmp_db")
 class TestProjectAddPaper:
-    def test_add_paper_appears_in_paper_ids(self, tmp_db):
+    def test_add_paper_appears_in_paper_ids(self):
         p = Project(name="Paper Collector")
         p.save()
-        p.add_paper("2204.12985")
-        assert "2204.12985" in p.paper_ids
+        p.add_paper(_sfk("2204.12985"))
+        assert _sfk("2204.12985") in p.source_fks
 
-    def test_add_paper_persisted_to_db(self, tmp_db):
+    def test_add_paper_persisted_to_db(self):
         p = Project(name="Persisted Papers")
         p.save()
-        p.add_paper("2301.00001")
+        p.add_paper(_sfk("2301.00001"))
         results = filter_projects(Q("name = ?", "Persisted Papers"))
-        assert "2301.00001" in results[0].paper_ids
+        assert _sfk("2301.00001") in results[0].source_fks
 
-    def test_add_paper_no_duplicate(self, tmp_db):
+    def test_add_paper_no_duplicate(self):
         p = Project(name="No Dupes")
         p.save()
-        p.add_paper("2204.12985")
-        p.add_paper("2204.12985")
-        assert p.paper_ids.count("2204.12985") == 1
+        p.add_paper(_sfk("2204.12985"))
+        p.add_paper(_sfk("2204.12985"))
+        assert p.source_fks.count(_sfk("2204.12985")) == 1
 
-    def test_add_multiple_papers(self, tmp_db):
+    def test_add_multiple_papers(self):
         p = Project(name="Multi Papers")
         p.save()
-        p.add_paper("2204.12985")
-        p.add_paper("2301.00001")
-        assert "2204.12985" in p.paper_ids
-        assert "2301.00001" in p.paper_ids
-        assert len(p.paper_ids) == 2
+        p.add_paper(_sfk("2204.12985"))
+        p.add_paper(_sfk("2301.00001"))
+        assert _sfk("2204.12985") in p.source_fks
+        assert _sfk("2301.00001") in p.source_fks
+        assert len(p.source_fks) == 2
 
     def test_add_paper_before_save_raises(self):
         p = Project(name="Unsaved")
         with pytest.raises(ValueError, match="saved"):
-            p.add_paper("2204.12985")
+            p.add_paper(1)
 
-    def test_add_paper_at_position(self, tmp_db):
+    def test_add_paper_at_position(self):
         p = Project(name="Ordered Papers")
         p.save()
-        p.add_paper("2204.12985")
-        p.add_paper("2301.00001")
-        p.add_paper("1905.00001", position=0)
-        assert p.paper_ids[0] == "1905.00001"
+        p.add_paper(_sfk("2204.12985"))
+        p.add_paper(_sfk("2301.00001"))
+        p.add_paper(_sfk("1905.00001"), position=0)
+        assert p.source_fks[0] == _sfk("1905.00001")
 
-    def test_paper_count_property(self, tmp_db):
+    def test_paper_count_property(self):
         p = Project(name="Counter")
         p.save()
         assert p.paper_count == 0
-        p.add_paper("2204.12985")
+        p.add_paper(_sfk("2204.12985"))
         assert p.paper_count == 1
-        p.add_paper("2301.00001")
+        p.add_paper(_sfk("2301.00001"))
         assert p.paper_count == 2
 
 
@@ -242,20 +253,21 @@ class TestProjectAddPaper:
 class TestProjectMembershipSourceOfTruth:
     def test_add_paper_in_memory_and_db(self, tmp_db):
         """After add_paper(), the paper_id must appear both in the in-memory
-        paper_ids list AND in the project_papers bridge table (single source of truth)."""
+        source_fks list AND in the project_papers bridge table (single source of truth)."""
         p = Project(name="Source of Truth Test")
         p.save()
-        p.add_paper("2204.12985")
+        sfk = _sfk("2204.12985")
+        p.add_paper(sfk)
 
-        assert "2204.12985" in p.paper_ids
+        assert sfk in p.source_fks
 
         conn = sqlite3.connect(tmp_db)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT paper_id FROM project_papers WHERE project_id = ? AND paper_id = ?",
-            (p.id, "2204.12985"),
+            (p.id, sfk),
         ).fetchone()
         conn.close()
 
         assert row is not None
-        assert row["paper_id"] == "2204.12985"
+        assert row["paper_id"] == sfk
