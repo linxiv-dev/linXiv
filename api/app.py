@@ -7,6 +7,7 @@ Serves ``/api/...`` routes and, for the graph viewer, static files under
 
 from __future__ import annotations
 
+import datetime
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,6 +38,7 @@ from storage.db import (
     save_paper_metadata,
 )
 from sources import resolve_doi, fetch_paper_metadata, search_papers
+from service.paper import ensure_paper_root, get_paper_root, get_source_id
 from storage.notes import Note, ensure_notes_db, get_notes
 from storage.projects import (
     Project,
@@ -70,7 +72,17 @@ def _paper_row_dict(row) -> dict:
             out[k] = v.isoformat()
         else:
             out[k] = v
+    out["paper_id"] = row["source_id"]  # expose text ID as paper_id
     return out
+
+
+def _sfks_to_paper_ids(source_fks: list[int]) -> list[str]:
+    result: list[str] = []
+    for sfk in source_fks:
+        sid = get_source_id(sfk)
+        if sid is not None:
+            result.append(sid)
+    return result
 
 
 def _arxiv_result_summary(p: arxiv.Result) -> dict:
@@ -205,9 +217,9 @@ def api_projects() -> dict:
                 "description": p.description or "",
                 "color_hex": color_to_hex(p.color) if p.color else None,
                 "project_tags": p.project_tags or [],
-                "paper_ids": p.paper_ids or [],
+                "paper_ids": _sfks_to_paper_ids(p.source_fks),
                 "status": p.status.value,
-                "paper_count": len(p.paper_ids or []),
+                "paper_count": p.paper_count,
             }
         )
     return {"projects": out}
@@ -251,7 +263,7 @@ def api_project_get(project_id: int) -> dict:
         "description": p.description or "",
         "color_hex": color_to_hex(p.color) if p.color else None,
         "project_tags": p.project_tags or [],
-        "paper_ids": p.paper_ids or [],
+        "paper_ids": _sfks_to_paper_ids(p.source_fks),
         "status": p.status.value,
     }
 
@@ -294,7 +306,10 @@ def api_project_add_paper(project_id: int, body: ProjectPaperBody) -> dict:
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    p.add_paper(body.paper_id.strip())
+    root = get_paper_root(body.paper_id.strip())
+    if root is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    p.add_paper(int(root["SOURCE_FK"]))
     return {"ok": True}
 
 
@@ -303,7 +318,10 @@ def api_project_remove_paper(project_id: int, paper_id: str) -> dict:
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    p.remove_paper(paper_id)
+    root = get_paper_root(paper_id)
+    if root is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    p.remove_paper(int(root["SOURCE_FK"]))
     return {"ok": True}
 
 
@@ -384,17 +402,20 @@ def api_notes(
     project_id: int | None = None,
     all_projects: bool = Query(default=False),
 ) -> dict:
-    notes = get_notes(paper_id, project_id=project_id, all_projects=all_projects)
+    root = get_paper_root(paper_id)
+    if root is None:
+        return {"notes": []}
+    notes = get_notes(int(root["SOURCE_FK"]), project_id=project_id, all_projects=all_projects)
     return {
         "notes": [
             {
-                "id": n.id,
-                "paper_id": n.paper_id,
+                "id": n.note_id,
+                "source_fk": n.source_fk,
                 "project_id": n.project_id,
                 "title": n.title,
                 "content": n.content,
-                "created_at": n.created_at.isoformat() if n.created_at else None,
-                "updated_at": n.updated_at.isoformat() if n.updated_at else None,
+                "created_at": n.created_at.isoformat() if isinstance(n.created_at, datetime.datetime) else n.created_at,
+                "updated_at": n.updated_at.isoformat() if isinstance(n.updated_at, datetime.datetime) else n.updated_at,
             }
             for n in notes
         ]
@@ -403,8 +424,9 @@ def api_notes(
 
 @app.post("/api/notes")
 def api_note_create(body: NoteCreate) -> dict:
+    source_fk = ensure_paper_root(body.paper_id.strip())
     n = Note(
-        paper_id=body.paper_id.strip(),
+        source_fk=source_fk,
         project_id=body.project_id,
         title=body.title,
         content=body.content,

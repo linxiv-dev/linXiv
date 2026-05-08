@@ -356,10 +356,7 @@ def repair_paper(old_paper_id: str, meta: PaperMetadata) -> str:
                 "UPDATE PAPER SET SOURCE_ID = ? WHERE SOURCE_ID = ?",
                 (new_id, old_paper_id),
             )
-            conn.execute(
-                "UPDATE project_papers SET paper_id = ? WHERE paper_id = ?",
-                (new_id, old_paper_id),
-            )
+            # PROJECT_TO_PAPER uses SOURCE_FK (integer) so no rename needed here
 
         row = conn.execute(
             "SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? ORDER BY VERSION DESC LIMIT 1",

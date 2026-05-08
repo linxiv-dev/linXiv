@@ -179,16 +179,16 @@ def note_counts_by_paper_for_project(project_id: int) -> dict[int, int]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT pp.paper_id AS source_fk, COALESCE(n.cnt, 0) AS note_count
-            FROM project_papers pp
+            SELECT pp.SOURCE_FK AS source_fk, COALESCE(n.cnt, 0) AS note_count
+            FROM PROJECT_TO_PAPER pp
             LEFT JOIN (
                 SELECT SOURCE_FK, COUNT(*) AS cnt
                 FROM LIBRARY_NOTE
                 WHERE PROJECT_FK = ?
                 GROUP BY SOURCE_FK
-            ) AS n ON n.SOURCE_FK = pp.paper_id
-            WHERE pp.project_id = ?
-            ORDER BY pp.position
+            ) AS n ON n.SOURCE_FK = pp.SOURCE_FK
+            WHERE pp.PROJECT_FK = ?
+            ORDER BY pp.PROJECT_TO_PAPER_FK
             """,
             (project_id, project_id),
         ).fetchall()
