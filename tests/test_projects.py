@@ -252,8 +252,7 @@ class TestProjectAddPaper:
 
 class TestProjectMembershipSourceOfTruth:
     def test_add_paper_in_memory_and_db(self, tmp_db):
-        """After add_paper(), the paper_id must appear both in the in-memory
-        source_fks list AND in the project_papers bridge table (single source of truth)."""
+        """After add_paper(), the source_fk must appear both in-memory and in PROJECT_TO_PAPER."""
         p = Project(name="Source of Truth Test")
         p.save()
         sfk = _sfk("2204.12985")
@@ -264,10 +263,10 @@ class TestProjectMembershipSourceOfTruth:
         conn = sqlite3.connect(tmp_db)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT paper_id FROM project_papers WHERE project_id = ? AND paper_id = ?",
+            "SELECT SOURCE_FK FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ? AND SOURCE_FK = ?",
             (p.id, sfk),
         ).fetchone()
         conn.close()
 
         assert row is not None
-        assert row["paper_id"] == sfk
+        assert row["SOURCE_FK"] == sfk

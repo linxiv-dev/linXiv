@@ -34,8 +34,7 @@ def tmp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(notes, "_connect", patched_connect)
 
     # Initialise the schema in the temp DB.
-    db.init_db()            # creates PAPER_ROOTS, LIBRARY_NOTE, PROJECT, etc.
-    projects.init_projects_db()  # creates projects + project_papers
+    db.init_db()  # creates PROJECT, PROJECT_TO_PAPER, PAPER_ROOTS, LIBRARY_NOTE, etc.
 
     return db_file
 
