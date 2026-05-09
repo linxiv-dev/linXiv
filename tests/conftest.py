@@ -1,54 +1,55 @@
-"""Shared fixtures for the test suite."""
-import pytest
-import sys
-import os
+"""Shared fixtures — each test gets a fresh, isolated SQLite DB."""
+from __future__ import annotations
 
-# Make sure the project root is on the path so db/projects can be imported.
+import importlib
+import os
+import sqlite3
+import sys
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from storage.config.core import apply_sql_schema
 
-@pytest.fixture()
+
+@pytest.fixture(autouse=True)
 def tmp_db(tmp_path, monkeypatch):
-    """
-    Redirect all DB calls to a fresh temporary SQLite file for the duration of
-    a test.
-
-    Both db._connect and projects._connect (which is the same function object
-    imported into projects via `from db import _connect`) need to be patched so
-    that every call in either module ends up at the temp DB.
-    """
-    import storage.db as db
-    import storage.projects as projects
-    import storage.notes as notes
-
+    """Redirect every storage call to a fresh temp DB; make init helpers no-ops."""
     db_file = str(tmp_path / "test.db")
 
-    real_connect = db._connect
+    conn = sqlite3.connect(db_file, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn.row_factory = sqlite3.Row
+    apply_sql_schema(conn)
+    conn.close()
 
-    def patched_connect(db_path=None):
-        del db_path
-        return real_connect(db_file)
+    def _fake_connect(db_path: str = db_file) -> sqlite3.Connection:
+        c = sqlite3.connect(db_file, detect_types=sqlite3.PARSE_DECLTYPES)
+        c.row_factory = sqlite3.Row
+        c.execute("PRAGMA foreign_keys = ON")
+        return c
 
-    monkeypatch.setattr(db, "_connect", patched_connect)
-    monkeypatch.setattr(projects, "_connect", patched_connect)
-    monkeypatch.setattr(notes, "_connect", patched_connect)
+    for mod_name in ["storage.db", "storage.projects", "storage.notes", "storage.tags", "storage.authors"]:
+        mod = importlib.import_module(mod_name)
+        if hasattr(mod, "_connect"):
+            monkeypatch.setattr(mod, "_connect", _fake_connect)
 
-    # Initialise the schema in the temp DB.
-    db.init_db()  # creates PROJECT, PROJECT_TO_PAPER, PAPER_ROOTS, LIBRARY_NOTE, etc.
+    monkeypatch.setattr("service.paper.init_db", lambda: None)
+    monkeypatch.setattr("service.project.ensure_projects_db", lambda: None)
+    monkeypatch.setattr("service.note.ensure_notes_db", lambda: None)
 
-    return db_file
+    pdf_dir = tmp_path / "pdfs"
+    pdf_dir.mkdir()
+    monkeypatch.setattr("service.files._pdf_dir", lambda: pdf_dir)
+
+    yield db_file
 
 
 @pytest.fixture()
 def note_projects(tmp_db):
-    """Extend tmp_db with 10 pre-created projects so notes.project_id FK
-    constraints are satisfied when tests use hard-coded project IDs 1-10."""
-    import sqlite3
+    """Pre-create 10 projects so test_notes.py FK constraints are satisfied."""
     from storage.projects import Project
     for i in range(10):
         p = Project(name=f"Dummy {i + 1}")
         p.save()
-        # LIBRARY_NOTE.PROJECT_FK references PROJECT(PROJECT_FK) (new schema table)
-        with sqlite3.connect(tmp_db) as conn:
-            conn.execute("INSERT OR IGNORE INTO PROJECT (PROJECT_FK) VALUES (?)", (p.id,))
     return tmp_db
