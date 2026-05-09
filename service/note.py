@@ -7,6 +7,7 @@ from storage.notes import (
     get_notes as _get_notes,
     get_notes_by_paper_id as _get_notes_by_paper_id,
     get_project_notes as _get_project_notes,
+    list_all_notes as _list_all_notes,
     count_paper_notes as _count_paper_notes,
     count_project_notes as _count_project_notes,
     ensure_notes_db as _ensure_notes_db,
@@ -134,4 +135,4 @@ def get_notes(notes: Notes) -> list[NoteDetails]:
         return _get_notes_by_paper_id(notes.paper_id)
     elif notes.project_fk is not None:
         return _get_project_notes(notes.project_fk)
-    return []
+    return _list_all_notes()
