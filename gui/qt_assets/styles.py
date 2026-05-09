@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import user_settings as _us
 from gui.theme import ACCENT, BORDER, MUTED, PANEL, TEXT
 from gui.theme import FONT_BODY, FONT_SECONDARY, FONT_TERTIARY
 from gui.theme import RADIUS_MD, RADIUS_SM, SPACE_SM, SPACE_XS
@@ -19,8 +20,18 @@ _theme = {
     "RADIUS_MD": RADIUS_MD, "RADIUS_SM": RADIUS_SM, "SPACE_SM": SPACE_SM, "SPACE_XS": SPACE_XS,
 }
 
+_btn_overrides: dict[str, str] = _us.get("button_color_overrides") or {}
+_SUCCESS = _btn_overrides.get("success", "#4caf7d")
+_DANGER  = _btn_overrides.get("danger",  "#e05c5c")
+
+
 def _t(key: str) -> str:
-    return _raw[key].format_map(_theme)
+    result = _raw[key].format_map(_theme)
+    if _SUCCESS != "#4caf7d":
+        result = result.replace("#4caf7d", _SUCCESS)
+    if _DANGER != "#e05c5c":
+        result = result.replace("#e05c5c", _DANGER)
+    return result
 
 
 # ── Primary / dialog buttons ──────────────────────────────────────────────────
