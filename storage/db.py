@@ -509,6 +509,9 @@ def list_papers(latest_only: bool = True, limit: int | None = None, offset: int 
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params = [limit, offset]
+        elif offset:
+            sql += " LIMIT -1 OFFSET ?"
+            params = [offset]
         return conn.execute(sql, params).fetchall()
 
 

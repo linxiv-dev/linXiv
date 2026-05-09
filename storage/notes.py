@@ -162,6 +162,14 @@ def count_paper_notes(source_fk: int, project_id: Optional[int] = None) -> int:
     return row[0] if row else 0
 
 
+def list_all_notes() -> list[NoteDetails]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM LIBRARY_NOTE ORDER BY CREATED_AT ASC"
+        ).fetchall()
+    return [Note.from_row(row).to_details() for row in rows]
+
+
 def get_notes_by_paper_id(paper_id: int) -> list[NoteDetails]:
     with _connect() as conn:
         rows = conn.execute(
