@@ -38,7 +38,10 @@ def run_shell() -> None:
     shell.add_page("Search", search_page)
     shell.add_page("Add by DOI", DoiPage())
     shell.add_page("Setup", SetupPage())
-    shell.add_page("Settings", SettingsPage())
+    shell.add_page("Settings", SettingsPage(
+        on_theme_change=shell.mark_all_dirty,
+        on_apply_all=shell.apply_all,
+    ))
 
     def _on_navigate_to_project(project) -> None:
         paper_id = library_page.take_paper_id_for_project_return()

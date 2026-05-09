@@ -21,6 +21,7 @@ from formats.bibtex import BibTeXFormat
 from formats.csv_fmt import CSVFormat
 from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
+import gui.theme as _theme
 from gui.theme import FONT_SECONDARY, FONT_TERTIARY, SPACE_XS, SPACE_SM
 from service import paper as paper_svc
 from service.tag import list_all_tags
@@ -306,6 +307,14 @@ class GraphPage(QWidget):
 
     def refresh(self) -> None:
         self._load_all()
+
+    def refresh_styles(self) -> None:
+        self._selection_lbl.setStyleSheet(
+            f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px;"
+        )
+        self._paper_list._status_lbl.setStyleSheet(
+            f"color: {_theme.MUTED}; font-size: {FONT_TERTIARY}px; padding: 2px 6px;"
+        )
 
     def _clear_filters(self) -> None:
         self._graph_view.clear_filters()
