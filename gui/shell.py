@@ -12,12 +12,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .theme import BG as _BG, TEXT as _TEXT, FONT_BODY, NAV_WIDTH, SPACE_XS, SPACE_MD, SPACE_SM
+from .theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER, TEXT as _TEXT, ACCENT as _ACCENT
+from .theme import FONT_BODY, NAV_WIDTH, SPACE_XS, SPACE_MD, SPACE_SM
 
 _SIDEBAR_STYLE = f"""
-    QWidget#sidebar {{ background: #1a1a2e; }}
+    QWidget#sidebar {{ background: {_PANEL}; }}
     QPushButton {{
-        color: #ccccdd;
+        color: {_TEXT};
         background: transparent;
         border: none;
         padding: {SPACE_MD}px {SPACE_SM}px;
@@ -25,8 +26,8 @@ _SIDEBAR_STYLE = f"""
         font-size: {FONT_BODY}px;
         text-align: left;
     }}
-    QPushButton:hover   {{ background: #2a2a4a; }}
-    QPushButton:checked {{ background: #5b8dee; color: #ffffff; }}
+    QPushButton:hover   {{ background: {_BORDER}; }}
+    QPushButton:checked {{ background: {_ACCENT}; color: #ffffff; }}
 """
 
 
