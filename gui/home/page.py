@@ -15,6 +15,7 @@ from service import paper as paper_svc
 from service.tag import list_all_tags
 from gui.qt_assets import PaperCard
 from gui.qt_assets.styles import BTN_PANEL_SM as _BTN_PANEL_SM
+import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
@@ -42,12 +43,12 @@ class HomePage(QWidget):
         outer.setSpacing(SPACE_XL)
 
         # ── Header ────────────────────────────────────────────────────────────
-        title = QLabel("linXiv")
-        title.setStyleSheet(f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;")
-        subtitle = QLabel("Your arXiv paper collection")
-        subtitle.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
-        outer.addWidget(title)
-        outer.addWidget(subtitle)
+        self._title_lbl = QLabel("linXiv")
+        self._title_lbl.setStyleSheet(f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;")
+        self._subtitle_lbl = QLabel("Your arXiv paper collection")
+        self._subtitle_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
+        outer.addWidget(self._title_lbl)
+        outer.addWidget(self._subtitle_lbl)
 
         # ── Stat cards ────────────────────────────────────────────────────────
         self._stats_container = QWidget()
@@ -59,15 +60,15 @@ class HomePage(QWidget):
 
         # ── Recent papers ─────────────────────────────────────────────────────
         recent_hdr = QHBoxLayout()
-        recent_lbl = QLabel("Recent papers")
-        recent_lbl.setStyleSheet(
+        self._recent_lbl = QLabel("Recent papers")
+        self._recent_lbl.setStyleSheet(
             f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_TEXT}; background: transparent;"
         )
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedWidth(80)
         refresh_btn.setStyleSheet(_BTN_PANEL_SM)
         refresh_btn.clicked.connect(self._load)
-        recent_hdr.addWidget(recent_lbl)
+        recent_hdr.addWidget(self._recent_lbl)
         recent_hdr.addStretch()
         recent_hdr.addWidget(refresh_btn)
         outer.addLayout(recent_hdr)
@@ -92,6 +93,19 @@ class HomePage(QWidget):
     # ── Data ──────────────────────────────────────────────────────────────────
 
     def refresh(self) -> None:
+        self._load()
+
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.ACCENT}; background: transparent;"
+        )
+        self._subtitle_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._recent_lbl.setStyleSheet(
+            f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;"
+        )
         self._load()
 
     def _load(self) -> None:
