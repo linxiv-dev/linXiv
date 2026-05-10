@@ -477,7 +477,7 @@ class TestGetGraphData:
         nodes, edges = db.get_graph_data()
         paper_nodes = [n for n in nodes if n.get("type") == "paper"]
         assert len(paper_nodes) == 1
-        assert paper_nodes[0]["id"] == "2204.12985"
+        assert isinstance(paper_nodes[0]["id"], int)
         assert paper_nodes[0]["label"] == "My Paper"
 
     def test_author_node_present(self):
@@ -489,7 +489,9 @@ class TestGetGraphData:
     def test_edge_connects_paper_to_author(self):
         db.save_paper(_make_result("2204.12985v1", authors=["Alice Smith"]))
         nodes, edges = db.get_graph_data()
-        assert any(e["source"] == "2204.12985" and "Alice Smith" in e["target"] for e in edges)
+        paper_nodes = [n for n in nodes if n.get("type") == "paper"]
+        paper_id = paper_nodes[0]["id"]
+        assert any(e["source"] == paper_id and "Alice Smith" in e["target"] for e in edges)
 
     def test_shared_author_has_single_node(self):
         db.save_paper(_make_result("2204.12985v1", authors=["Shared Author"]))
