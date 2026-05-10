@@ -145,17 +145,27 @@ class ElidedLabel(QLabel):
         self._full_text = text
         self._relayout()
 
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        if not self._full_text or width <= 0:
+            return self.fontMetrics().lineSpacing()
+        fm = self.fontMetrics()
+        n = min(len(self._wrap(self._full_text, fm, width)), self._MAX_LINES)
+        return fm.lineSpacing() * n
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._relayout()
 
     def _relayout(self) -> None:
         if not self._full_text:
-            super().setText("")
+            self._set_if_changed("")
             return
         w = self.width()
         if w <= 0:
-            super().setText(self._full_text)
+            self._set_if_changed(self._full_text)
             return
         fm = self.fontMetrics()
         lines = self._wrap(self._full_text, fm, w)
@@ -169,7 +179,11 @@ class ElidedLabel(QLabel):
             if fm.horizontalAdvance(ln) > w else ln
             for ln in lines
         ]
-        super().setText("\n".join(lines))
+        self._set_if_changed("\n".join(lines))
+
+    def _set_if_changed(self, text: str) -> None:
+        if super().text() != text:
+            super().setText(text)
 
     @staticmethod
     def _wrap(text: str, fm: QFontMetrics, width: int) -> list[str]:
