@@ -34,6 +34,7 @@ from gui.qt_assets.note_card import note_card
 from gui.library.page import LibraryPage
 from gui.shell import AppShell
 from gui.views import PdfWindow
+import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
@@ -57,6 +58,7 @@ _PRESET_COLORS: list[int] = [
     0x1abc9c,  # teal
 ]
 
+import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
     BTN_PRIMARY as _BTN_STYLE, BTN_MUTED as _BTN_MUTED_STYLE,
     BTN_DANGER as _BTN_DANGER,
@@ -251,22 +253,22 @@ class AddPaperDialog(QDialog):
 
     def _load_papers(self) -> None:
         self._all_papers = paper_svc.list_papers()
-        already = set(self._project.paper_ids)
-        self._papers = [r for r in self._all_papers if r["paper_id"] not in already]
+        already = set(self._project.source_fks)
+        self._papers = [r for r in self._all_papers if r["source_fk"] not in already]
         self._populate(self._papers)
 
     def _populate(self, papers) -> None:
         self._list.clear()
         for row in papers:
-            item = QListWidgetItem(f"{row['title']}  [{row['paper_id']}]")
-            item.setData(Qt.ItemDataRole.UserRole, row["paper_id"])
+            item = QListWidgetItem(f"{row['title']}  [{row['source_id']}]")
+            item.setData(Qt.ItemDataRole.UserRole, row["source_fk"])
             self._list.addItem(item)
 
     def _apply_filter(self, text: str) -> None:
         q = text.lower()
         filtered = [
             r for r in self._papers
-            if q in r["title"].lower() or q in r["paper_id"].lower()
+            if q in r["title"].lower() or q in r["source_id"].lower()
         ] if q else self._papers
         self._populate(filtered)
 
@@ -637,13 +639,13 @@ class NotesDialog(QDialog):
 
 class ProjectDetailView(QWidget):
     back_requested    = pyqtSignal()
-    navigate_to_paper = pyqtSignal(str)   # paper_id
+    navigate_to_paper = pyqtSignal(int)   # source_fk
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
         self._project = None
-        self._selected_pids: set[str] = set()
+        self._selected_pids: set[int] = set()
         self._pdf_worker: _PdfMetadataWorker | None = None
         self._pdf_window = PdfWindow(self)
         self._pdf_queue:  list[str] = []
@@ -792,6 +794,20 @@ class ProjectDetailView(QWidget):
         self._paper_action_bar.clear_requested.connect(self._clear_paper_selection)
         outer.addWidget(self._paper_action_bar)
 
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.TEXT}; background: transparent;"
+        )
+        self._desc_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.ACCENT}; background: transparent;")
+        self._papers_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;")
+        self._empty_papers_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._archive_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._delete_btn.setStyleSheet(_qt_styles.BTN_DANGER)
+        self._add_paper_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._import_pdf_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+
     def load(self, project) -> None:
         self._project = project
         self._delete_confirming = False
@@ -820,7 +836,7 @@ class ProjectDetailView(QWidget):
             if item.widget():  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
                 item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
 
-        paper_ids = self._project.paper_ids if self._project else []
+        paper_ids = self._project.source_fks if self._project and self._project.source_fks else []
         self._papers_lbl.setText(f"Papers  ({len(paper_ids)})")
 
         if paper_ids:
@@ -828,13 +844,16 @@ class ProjectDetailView(QWidget):
             self._empty_papers_lbl.setVisible(False)
             rendered_count = 0
             for pid in paper_ids:
-                row = paper_svc.get_paper(pid)
+                source_id = paper_svc.get_source_id(pid)
+                if source_id is None:
+                    continue
+                row = paper_svc.get_paper(source_id)
                 if row is None:
                     continue
                 rendered_count += 1
                 card = PaperCard(row, pdf_window=self._pdf_window, project_id=self._project.id)
                 card.double_clicked.connect(
-                    lambda r: self.navigate_to_paper.emit(r["paper_id"])
+                    lambda r: self.navigate_to_paper.emit(r["source_fk"])
                 )
                 card.selection_toggled.connect(self._on_card_selection_toggled)
                 self._papers_layout.insertWidget(self._papers_layout.count() - 1, card)
@@ -842,11 +861,11 @@ class ProjectDetailView(QWidget):
         else:
             self._empty_papers_lbl.setVisible(True)
 
-    def _on_card_selection_toggled(self, paper_id: str, selected: bool) -> None:
+    def _on_card_selection_toggled(self, source_fk: int, selected: bool) -> None:
         if selected:
-            self._selected_pids.add(paper_id)
+            self._selected_pids.add(source_fk)
         else:
-            self._selected_pids.discard(paper_id)
+            self._selected_pids.discard(source_fk)
         self._paper_action_bar.set_count(len(self._selected_pids))
 
     def _clear_paper_selection(self) -> None:
@@ -863,8 +882,8 @@ class ProjectDetailView(QWidget):
     def _remove_selected_papers(self) -> None:
         if self._project is None or not self._selected_pids:
             return
-        for pid in list(self._selected_pids):
-            self._project.remove_paper(pid)
+        for source_fk in list(self._selected_pids):
+            self._project.remove_paper(source_fk)
         self._rebuild_papers()
 
     def _on_bulk_download(self) -> None:
@@ -1107,7 +1126,7 @@ class ProjectCard(QFrame):
 # ── Projects page ─────────────────────────────────────────────────────────────
 
 class ProjectsPage(QWidget):
-    navigate_to_paper = pyqtSignal(str)   # paper_id — bubbled from ProjectDetailView
+    navigate_to_paper = pyqtSignal(int)   # source_fk — bubbled from ProjectDetailView
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1115,13 +1134,14 @@ class ProjectsPage(QWidget):
         self._app_shell: AppShell | None = None
         self._library_page: LibraryPage | None = None
         self._project_detail_prior_shell_tab = False
-        self._return_to_library_paper_id: str | None = None
+        self._return_to_library_paper_id: int | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         self._inner = QStackedWidget()
-        self._inner.addWidget(self._build_list_page())   # index 0
+        self._list_page_widget = self._build_list_page()
+        self._inner.addWidget(self._list_page_widget)   # index 0
 
         self._detail_view = ProjectDetailView()
         self._detail_view.back_requested.connect(self._on_back)
@@ -1143,6 +1163,23 @@ class ProjectsPage(QWidget):
         self._return_to_library_paper_id = None
         self._inner.setCurrentIndex(0)
 
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._list_page_widget.setStyleSheet(f"background: {_theme.BG};")
+        self._proj_title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.ACCENT}; background: transparent;"
+        )
+        self._proj_subtitle_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._add_proj_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._refresh_proj_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._empty_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._detail_view.refresh_styles()
+        self._refresh()
+
     # ── List page ─────────────────────────────────────────────────────────────
 
     def _build_list_page(self) -> QWidget:
@@ -1155,22 +1192,22 @@ class ProjectsPage(QWidget):
         header = QHBoxLayout()
         col = QVBoxLayout()
         col.setSpacing(SPACE_XS)
-        title = QLabel("Projects")
+        self._proj_title_lbl = title = QLabel("Projects")
         title.setStyleSheet(
             f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;"
         )
-        subtitle = QLabel("Organise papers into focused reading projects")
+        self._proj_subtitle_lbl = subtitle = QLabel("Organise papers into focused reading projects")
         subtitle.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
         col.addWidget(title)
         col.addWidget(subtitle)
 
-        add_btn = QPushButton("＋  New Project")
+        self._add_proj_btn = add_btn = QPushButton("＋  New Project")
         add_btn.setFixedSize(160, 40)
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.setStyleSheet(_BTN_STYLE)
         add_btn.clicked.connect(self._on_add)
 
-        refresh_btn = QPushButton("Refresh")
+        self._refresh_proj_btn = refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedHeight(40)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.setStyleSheet(_BTN_MUTED_STYLE)
@@ -1239,7 +1276,7 @@ class ProjectsPage(QWidget):
         project,
         *,
         opened_from_other_shell_tab: bool = False,
-        return_to_library_paper_id: str | None = None,
+        return_to_library_paper_id: int | None = None,
     ) -> None:
         """Navigate directly to a project's detail view (callable from other pages).
 

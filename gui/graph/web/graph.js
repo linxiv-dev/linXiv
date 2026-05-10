@@ -321,7 +321,7 @@ function loadGraph(data) {
     _visibleTagIds    = null;
 
     const simNodes = nodes.map(n => ({
-        id: n.id,
+        id: String(n.id),
         x:  (Math.random() - 0.5) * 800,
         y:  (Math.random() - 0.5) * 800,
     }));
@@ -332,11 +332,11 @@ function loadGraph(data) {
 
     const cyElements = [
         ...nodes.map(n => {
-            const sn = _simNodeById.get(n.id);
+            const sn = _simNodeById.get(String(n.id));
             return {
                 group: 'nodes',
                 data: {
-                    id:          n.id,
+                    id:          String(n.id),
                     label:       n.label,
                     type:        n.type,
                     category:    n.category    || null,
@@ -350,7 +350,7 @@ function loadGraph(data) {
         }),
         ...edges.map(e => ({
             group: 'edges',
-            data: { source: e.source, target: e.target },
+            data: { source: String(e.source), target: String(e.target) },
         })),
     ];
 
@@ -716,7 +716,7 @@ function _applyAllStyles() {
 
 function highlightNode(nodeId) {
     _selectedIds.clear();
-    if (nodeId !== null) _selectedIds.add(nodeId);
+    if (nodeId !== null) _selectedIds.add(String(nodeId));
     _applyAllStyles();
     _notifySelectionChanged();
 }
