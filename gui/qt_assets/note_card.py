@@ -30,7 +30,8 @@ def note_card(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFra
 
     hdr.addStretch()
     if note.created_at:
-        date_lbl = QLabel(datetime.fromisoformat(note.created_at).strftime("%Y-%m-%d"))
+        _dt = note.created_at if isinstance(note.created_at, datetime) else datetime.fromisoformat(note.created_at)
+        date_lbl = QLabel(_dt.strftime("%Y-%m-%d"))
         date_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
         hdr.addWidget(date_lbl)
 
