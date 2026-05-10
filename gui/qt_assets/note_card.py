@@ -6,7 +6,7 @@ from gui.theme import ACCENT as _ACCENT, BORDER as _BORDER, MUTED as _MUTED, PAN
 from gui.theme import CARD_PAD_H, CARD_PAD_V, FONT_TERTIARY, NOTE_HEIGHT, RADIUS_LG, SPACE_XS
 from gui.qt_assets.styles import BTN_NOTE_ACCENT, BTN_NOTE_DELETE
 from gui.views import MarkdownView
-
+from datetime import datetime
 
 def note_card(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFrame:
     card = QFrame()
@@ -30,7 +30,7 @@ def note_card(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFra
 
     hdr.addStretch()
     if note.created_at:
-        date_lbl = QLabel(note.created_at.strftime("%Y-%m-%d"))
+        date_lbl = QLabel(datetime.fromisoformat(note.created_at).strftime("%Y-%m-%d"))
         date_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
         hdr.addWidget(date_lbl)
 
