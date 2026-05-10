@@ -336,31 +336,47 @@ def save_papers_metadata(papers: list[PaperMetadata], tags: list[str] | None = N
         return [_insert_metadata(conn, meta, tags) for meta in papers]
 
 
-def repair_paper(old_paper_id: str, meta: PaperMetadata) -> str:
-    """In-place repair of a paper's metadata, migrating all FK references if paper_id changes.
+def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
+    """In-place repair of a paper's metadata, migrating SOURCE_ID if paper_id changes.
 
-    If old_paper_id != meta.paper_id the new ID is inserted into paper_roots, all child
-    rows (papers, notes, project_papers, papers_fts) are renamed, and the old root is
-    deleted.  The latest version's editable fields are then updated in-place so that
-    version history, pdf_path, has_pdf, full_text, and source are all preserved.
-    Returns the final paper_id.
+    Keyed by SOURCE_FK (stable integer) so the caller never needs to track the old
+    string ID.  Version history, pdf_path, has_pdf, full_text, and source are preserved.
     """
     new_id = meta.paper_id
     with _connect() as conn:
-        if new_id != old_paper_id:
+        root = conn.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_FK = ?", (source_fk,)
+        ).fetchone()
+        if root is None:
+            return
+        old_id = str(root["SOURCE_ID"])
+        if new_id != old_id:
+            # PAPER_TO_TAG references (SOURCE_ID, VERSION) — update before PAPER
+            # so the FK constraint isn't violated mid-transaction.
             conn.execute(
-                "UPDATE PAPER_ROOTS SET SOURCE_ID = ? WHERE SOURCE_ID = ?",
-                (new_id, old_paper_id),
+                "UPDATE PAPER_TO_TAG SET SOURCE_ID = ? WHERE SOURCE_ID = ?",
+                (new_id, old_id),
             )
             conn.execute(
-                "UPDATE PAPER SET SOURCE_ID = ? WHERE SOURCE_ID = ?",
-                (new_id, old_paper_id),
+                "UPDATE PAPER_ROOTS SET SOURCE_ID = ? WHERE SOURCE_FK = ?",
+                (new_id, source_fk),
+            )
+            conn.execute(
+                "UPDATE PAPER SET SOURCE_ID = ? WHERE SOURCE_FK = ?",
+                (new_id, source_fk),
             )
             # PROJECT_TO_PAPER uses SOURCE_FK (integer) so no rename needed here
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+            ).fetchone():
+                conn.execute(
+                    "UPDATE papers_fts SET paper_id = ? WHERE paper_id = ?",
+                    (new_id, old_id),
+                )
 
         row = conn.execute(
-            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? ORDER BY VERSION DESC LIMIT 1",
-            (new_id,),
+            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_FK = ? ORDER BY VERSION DESC LIMIT 1",
+            (source_fk,),
         ).fetchone()
         if row is not None:
             pid = row["PAPER_ID"]
@@ -378,7 +394,6 @@ def repair_paper(old_paper_id: str, meta: PaperMetadata) -> str:
                 (meta.authors, meta.published, meta.doi, meta.url,
                  meta.summary, meta.tags, pid),
             )
-    return new_id
 
 
 def set_has_pdf(source_id: str, version: int, has: bool) -> None:

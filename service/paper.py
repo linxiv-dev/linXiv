@@ -300,9 +300,9 @@ def save_paper_metadata(meta: PaperMetadata, tags: list[str] | None = None) -> t
 def save_papers_metadata(metas: list[PaperMetadata], tags: list[str] | None = None) -> list[tuple[str, int]]:
     return db.save_papers_metadata(metas, tags)
 
-def repair_paper(old_source_id: str, meta: PaperMetadata) -> str:
-    """Re-write a paper's metadata in-place, migrating FK references if source_id changes."""
-    return db.repair_paper(old_source_id, meta)
+def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
+    """Re-write a paper's metadata in-place, migrating SOURCE_ID if paper_id changes."""
+    db.repair_paper(source_fk, meta)
 
 def delete_paper(source_id: str) -> None:
     db.delete_paper(source_id)

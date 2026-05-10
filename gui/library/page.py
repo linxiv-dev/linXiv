@@ -333,13 +333,16 @@ class PaperDetailView(QWidget):
         dlg.load_from_row(self._current_row)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        old_paper_id = self._current_row["paper_id"]
+        source_fk    = self._current_row["source_fk"]
+        old_source_id = self._current_row["source_id"]
         try:
-            meta = dlg.get_metadata(old_paper_id)
-            new_paper_id = paper_svc.repair_paper(old_paper_id, meta)
-            new_row = paper_svc.get_paper(new_paper_id)
-            if new_row is not None:
-                self.load(new_row)
+            meta = dlg.get_metadata(old_source_id)
+            paper_svc.repair_paper(source_fk, meta)
+            new_source_id = paper_svc.get_source_id(source_fk)
+            if new_source_id:
+                new_row = paper_svc.get_paper(new_source_id)
+                if new_row is not None:
+                    self.load(new_row)
         except Exception as e:
             print(f"[repair] {e}")
             QMessageBox.critical(self, "Repair Failed", str(e))

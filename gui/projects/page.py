@@ -986,10 +986,12 @@ class ProjectDetailView(QWidget):
             self._pdf_skipped += 1
         paper_svc.set_pdf_path(meta.paper_id, path)
         paper_svc.set_has_pdf(meta.paper_id, meta.version, True)
-        try:
-            self._project.add_paper(meta.paper_id)
-        except Exception:
-            pass
+        root = paper_svc.get_paper_root(meta.paper_id)
+        if root is not None:
+            try:
+                self._project.add_paper(int(root["SOURCE_FK"]))
+            except Exception:
+                pass
         if self._pdf_queue:
             self._start_next_pdf()
         else:
