@@ -54,9 +54,9 @@ def run_shell() -> None:
 
     library_page.navigate_to_project.connect(_on_navigate_to_project)
 
-    def _on_navigate_to_paper(paper_id: str) -> None:
+    def _on_navigate_to_paper(source_fk: int) -> None:
         shell.go_to_widget(library_page)
-        library_page.open_paper(paper_id)
+        library_page.open_paper(source_fk)
 
     # Home double-click, Projects double-click, Graph right-click all open Library detail.
     home_page.navigate_to_paper.connect(_on_navigate_to_paper)

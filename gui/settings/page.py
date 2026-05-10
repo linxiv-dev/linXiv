@@ -152,6 +152,19 @@ class _ColorPicker(QWidget):
     def hex_color(self) -> str:
         return self._color
 
+    def refresh_styles(self) -> None:
+        self._field.setStyleSheet(
+            f"QLineEdit {{ background: {_theme.PANEL}; border: 1px solid {_theme.BORDER}; "
+            f"border-radius: {RADIUS_SM}px; color: {_theme.TEXT}; font-size: {FONT_SECONDARY}px; "
+            f"padding: 2px 6px; }}"
+            f"QLineEdit:focus {{ border-color: {_theme.ACCENT}; }}"
+        )
+        self._swatch.setStyleSheet(
+            f"QPushButton {{ background: {self._color}; border: 1px solid {_theme.BORDER}; "
+            f"border-radius: {RADIUS_SM}px; }}"
+            f"QPushButton:hover {{ border-color: {_theme.TEXT}; }}"
+        )
+
     def _refresh_swatch(self) -> None:
         self._swatch.setStyleSheet(
             f"QPushButton {{ background: {self._color}; border: 1px solid {_BORDER}; "
@@ -241,6 +254,14 @@ class _CollapsibleSection(QWidget):
     def add_widget(self, w: QWidget) -> None:
         self._body_layout.addWidget(w)
 
+    def refresh_styles(self) -> None:
+        self._toggle_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; text-align: left; "
+            f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px; font-weight: 600; "
+            f"letter-spacing: 1px; padding: 4px 0px; }}"
+            f"QPushButton:hover {{ color: {_theme.TEXT}; }}"
+        )
+
     def _header_text(self) -> str:
         arrow = "▾" if self._expanded else "▸"
         return f"{arrow}  {self._title}".replace("&", "&&")
@@ -266,6 +287,8 @@ class _ThemeCard(QWidget):
         self._on_self_refresh = on_self_refresh
         self._on_apply_all = on_apply_all
         self._swatches: dict[str, _ColorPicker] = {}
+        self._sections: list[_CollapsibleSection] = []
+        self._color_row_labels: list[tuple[QLabel, QLabel]] = []
         self._current = self._merged_colors()
 
         outer = QVBoxLayout(self)
@@ -273,7 +296,7 @@ class _ThemeCard(QWidget):
         outer.setSpacing(SPACE_SM)
 
         # ── Preset chips ──────────────────────────────────────────────────────
-        preset_hdr = QLabel("Theme preset")
+        self._preset_hdr = preset_hdr = QLabel("Theme preset")
         preset_hdr.setStyleSheet(
             f"color: {_TEXT}; font-size: {FONT_BODY}px; font-weight: 600;"
         )
@@ -301,12 +324,14 @@ class _ThemeCard(QWidget):
         for key in ("BG", "PANEL", "BORDER"):
             surfaces.add_widget(self._make_color_row(key))
         outer.addWidget(surfaces)
+        self._sections.append(surfaces)
 
         # ── Text & Accent ─────────────────────────────────────────────────────
         text_accent = _CollapsibleSection("Text & Accent")
         for key in ("ACCENT", "TEXT", "MUTED"):
             text_accent.add_widget(self._make_color_row(key))
         outer.addWidget(text_accent)
+        self._sections.append(text_accent)
 
         # ── Button colors ─────────────────────────────────────────────────────
         btn_overrides: dict[str, str] = _user_settings.get("button_color_overrides") or {}
@@ -316,6 +341,7 @@ class _ThemeCard(QWidget):
                 self._make_color_row(key, override=btn_overrides.get(key), semantic=True)
             )
         outer.addWidget(button_colors)
+        self._sections.append(button_colors)
 
         # ── Footer ────────────────────────────────────────────────────────────
         footer = QHBoxLayout()
@@ -335,6 +361,19 @@ class _ThemeCard(QWidget):
         footer.addWidget(apply_all_btn)
         footer.addWidget(reset_btn)
         outer.addLayout(footer)
+
+    def refresh_styles(self) -> None:
+        self._preset_hdr.setStyleSheet(
+            f"color: {_theme.TEXT}; font-size: {FONT_BODY}px; font-weight: 600;"
+        )
+        self._refresh_chip_styles()
+        for section in self._sections:
+            section.refresh_styles()
+        for picker in self._swatches.values():
+            picker.refresh_styles()
+        for name_lbl, desc_lbl in self._color_row_labels:
+            name_lbl.setStyleSheet(f"color: {_theme.TEXT}; font-size: {FONT_BODY}px;")
+            desc_lbl.setStyleSheet(f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px;")
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -389,6 +428,7 @@ class _ThemeCard(QWidget):
         desc_lbl.setStyleSheet(f"color: {_MUTED}; font-size: {FONT_SECONDARY}px;")
         text_col.addWidget(name_lbl)
         text_col.addWidget(desc_lbl)
+        self._color_row_labels.append((name_lbl, desc_lbl))
 
         h.addLayout(text_col, stretch=1)
         h.addWidget(picker, alignment=Qt.AlignmentFlag.AlignVCenter)
@@ -529,7 +569,7 @@ class SettingsPage(QWidget):
         limit_mb_init = _user_settings.get("pdf_save_limit_mb")
         pct_init = min(100, int(used_mb / limit_mb_init * 100)) if limit_mb_init else 0
 
-        usage_bar = QProgressBar()
+        self._usage_bar = usage_bar = QProgressBar()
         usage_bar.setRange(0, 100)
         usage_bar.setValue(pct_init)
         usage_bar.setTextVisible(False)
@@ -540,7 +580,7 @@ class SettingsPage(QWidget):
             f"QProgressBar::chunk {{ background: {'#c0392b' if pct_init >= 90 else _MUTED}; border-radius: 4px; }}"
         )
 
-        usage_label = QLabel(f"{used_mb:.1f} / {limit_mb_init} MB  ({pct_init}%)")
+        self._usage_label = usage_label = QLabel(f"{used_mb:.1f} / {limit_mb_init} MB  ({pct_init}%)")
         usage_label.setStyleSheet(f"color: {_MUTED}; font-size: {FONT_SECONDARY}px;")
 
         usage_widget = QWidget()
@@ -590,11 +630,12 @@ class SettingsPage(QWidget):
         self._section_labels.append(_appear_lbl)
         inner.addWidget(_appear_lbl)
         inner.addSpacing(SPACE_SM)
-        inner.addWidget(_ThemeCard(
+        self._theme_card = _ThemeCard(
             on_theme_change=self._on_theme_change,
             on_self_refresh=self.refresh_styles,
             on_apply_all=self._on_apply_all,
-        ))
+        )
+        inner.addWidget(self._theme_card)
 
         inner.addStretch()
         scroll.setWidget(content)
@@ -622,5 +663,12 @@ class SettingsPage(QWidget):
             f"background: {t.PANEL}; border: 1px solid {t.BORDER}; "
             f"border-radius: 6px; color: {t.TEXT}; font-size: {FONT_BODY}px; padding: 4px 10px;"
         )
+        pct = self._usage_bar.value()
+        self._usage_bar.setStyleSheet(
+            f"QProgressBar {{ background: {t.BORDER}; border-radius: 4px; border: none; }}"
+            f"QProgressBar::chunk {{ background: {'#c0392b' if pct >= 90 else t.MUTED}; border-radius: 4px; }}"
+        )
+        self._usage_label.setStyleSheet(f"color: {t.MUTED}; font-size: {FONT_SECONDARY}px;")
         self._metadata_card.refresh_styles()
         self._storage_card.refresh_styles()
+        self._theme_card.refresh_styles()

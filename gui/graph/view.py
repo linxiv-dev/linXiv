@@ -15,8 +15,8 @@ class _GraphPage(QWebEnginePage):
 
 
 class GraphView(QWebEngineView):
-    node_clicked       = pyqtSignal(str)   # emits paper_id on left-click
-    node_right_clicked = pyqtSignal(str)   # emits paper_id on right-click
+    node_clicked       = pyqtSignal(int)   # emits source_fk on left-click
+    node_right_clicked = pyqtSignal(int)   # emits source_fk on right-click
     selection_changed  = pyqtSignal(int)   # emits count of selected nodes
 
     def __init__(self, parent=None):
@@ -76,7 +76,7 @@ class GraphView(QWebEngineView):
         """Call JS filterGraph with the given options dict."""
         self.run_js(f"filterGraph({json.dumps(opts)})")
 
-    def highlight_node(self, node_id: str | None) -> None:
+    def highlight_node(self, node_id: int | None) -> None:
         """Highlight a single node by id, dimming all others."""
         self.run_js(f"highlightNode({json.dumps(node_id)})")
 
@@ -103,11 +103,9 @@ class GraphView(QWebEngineView):
     def _on_console_message(self, message: str) -> None:
         """Parse JS console messages and emit signals for graph events."""
         if message.startswith("GRAPHVIEW_PAPER_CLICKED:"):
-            paper_id = message[len("GRAPHVIEW_PAPER_CLICKED:"):]
-            self.node_clicked.emit(paper_id)
+            self.node_clicked.emit(int(message[len("GRAPHVIEW_PAPER_CLICKED:"):]))
         elif message.startswith("GRAPHVIEW_PAPER_RIGHT_CLICKED:"):
-            paper_id = message[len("GRAPHVIEW_PAPER_RIGHT_CLICKED:"):]
-            self.node_right_clicked.emit(paper_id)
+            self.node_right_clicked.emit(int(message[len("GRAPHVIEW_PAPER_RIGHT_CLICKED:"):]))
         elif message.startswith("GRAPHVIEW_SELECTION_COUNT:"):
             count = int(message[len("GRAPHVIEW_SELECTION_COUNT:"):])
             self.selection_changed.emit(count)

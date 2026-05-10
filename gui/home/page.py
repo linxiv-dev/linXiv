@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from service import paper as paper_svc
 from service.tag import list_all_tags
 from gui.qt_assets import PaperCard
+import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import BTN_PANEL_SM as _BTN_PANEL_SM
 import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
@@ -32,7 +33,7 @@ _RECENT_N = 10
 class HomePage(QWidget):
     """Landing page: stat cards + recent papers list."""
 
-    navigate_to_paper = pyqtSignal(str)   # paper_id
+    navigate_to_paper = pyqtSignal(int)   # source_fk
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -64,7 +65,7 @@ class HomePage(QWidget):
         self._recent_lbl.setStyleSheet(
             f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_TEXT}; background: transparent;"
         )
-        refresh_btn = QPushButton("Refresh")
+        self._refresh_btn = refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedWidth(80)
         refresh_btn.setStyleSheet(_BTN_PANEL_SM)
         refresh_btn.clicked.connect(self._load)
@@ -106,6 +107,7 @@ class HomePage(QWidget):
         self._recent_lbl.setStyleSheet(
             f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;"
         )
+        self._refresh_btn.setStyleSheet(_qt_styles.BTN_PANEL_SM)
         self._load()
 
     def _load(self) -> None:
@@ -139,7 +141,7 @@ class HomePage(QWidget):
         for p in papers[:_RECENT_N]:
             card = PaperCard(p, parent=self._recent_widget)
             card.double_clicked.connect(
-                lambda _row, pid=p["paper_id"]: self.navigate_to_paper.emit(pid)
+                lambda _row, pid=p["source_fk"]: self.navigate_to_paper.emit(pid)
             )
             self._recent_layout.insertWidget(self._recent_layout.count() - 1, card)
 
@@ -149,8 +151,8 @@ class HomePage(QWidget):
         card = QFrame()
         card.setStyleSheet(f"""
             QFrame {{
-                background: {_PANEL};
-                border: 1px solid {_BORDER};
+                background: {_theme.PANEL};
+                border: 1px solid {_theme.BORDER};
                 border-radius: {RADIUS_LG}px;
             }}
             QLabel {{ border: none; background: transparent; }}
@@ -160,11 +162,11 @@ class HomePage(QWidget):
         lay.setSpacing(SPACE_XS)
 
         num = QLabel(value)
-        num.setStyleSheet(f"font-size: 30px; font-weight: bold; color: {_ACCENT};")
+        num.setStyleSheet(f"font-size: 30px; font-weight: bold; color: {_theme.ACCENT};")
         num.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl = QLabel(label)
-        lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED}; letter-spacing: 0.05em;")
+        lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED}; letter-spacing: 0.05em;")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lay.addWidget(num)

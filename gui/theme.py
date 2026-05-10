@@ -87,3 +87,5 @@ def reload() -> None:
     ACCENT = _new["ACCENT"]
     TEXT   = _new["TEXT"]
     MUTED  = _new["MUTED"]
+    from gui.qt_assets import styles as _styles
+    _styles.reload()
