@@ -466,7 +466,7 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
     with _connect() as conn:
         paper_nodes = [
             {
-                "id":        row["source_id"],
+                "id":        row["source_fk"],
                 "label":     row["title"],
                 "type":      "paper",
                 "category":  row["category"],
@@ -477,13 +477,23 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
                 "doi":       row["doi"],
                 "summary":   row["summary"],
             }
-            for row in conn.execute(
-                "SELECT source_id, title, category, tags, has_pdf, published, url, doi, summary FROM latest_papers"
-            )
+            for row in conn.execute("""
+                SELECT r.SOURCE_FK AS source_fk, p.TITLE AS title, p.CATEGORY AS category,
+                       m.TAGS AS tags, p.HAS_PDF AS has_pdf, m.PUBLISHED AS published,
+                       m.URL AS url, m.DOI AS doi, m.SUMMARY AS summary
+                FROM PAPER_ROOTS r
+                JOIN PAPER p ON p.SOURCE_FK = r.SOURCE_FK
+                JOIN PAPER_META m ON m.PAPER_ID = p.PAPER_ID
+                WHERE p.VERSION = (SELECT MAX(VERSION) FROM PAPER WHERE SOURCE_FK = r.SOURCE_FK)
+            """)
         ]
         author_rows = conn.execute("""
-            SELECT p.source_id, je.value AS author_name
-            FROM latest_papers p, json_each(p.authors) je
+            SELECT r.SOURCE_FK AS source_fk, je.value AS author_name
+            FROM PAPER_ROOTS r
+            JOIN PAPER p ON p.SOURCE_FK = r.SOURCE_FK
+            JOIN PAPER_META m ON m.PAPER_ID = p.PAPER_ID,
+                 json_each(m.AUTHORS) je
+            WHERE p.VERSION = (SELECT MAX(VERSION) FROM PAPER WHERE SOURCE_FK = r.SOURCE_FK)
         """).fetchall()
 
     seen_authors: set[str] = set()
@@ -495,7 +505,7 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
         if author_id not in seen_authors:
             author_nodes.append({"id": author_id, "label": name, "type": "author"})
             seen_authors.add(author_id)
-        edges.append({"source": row["source_id"], "target": author_id})
+        edges.append({"source": row["source_fk"], "target": author_id})
 
     return paper_nodes + author_nodes, edges
 

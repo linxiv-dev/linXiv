@@ -74,3 +74,18 @@ TABLE_GRID = "#ffffff"
 NAV_WIDTH       = 120   # sidebar navigation width
 NOTE_HEIGHT     = 150   # note preview (MarkdownView) height
 ABSTRACT_HEIGHT = 200   # abstract / summary view height
+
+
+def reload() -> None:
+    """Re-read user_settings and update the module-level colour constants in place."""
+    global BG, PANEL, BORDER, ACCENT, TEXT, MUTED
+    overrides: dict[str, str] = _us.get("theme_overrides") or {}
+    _new = {**_DEFAULTS, **overrides}
+    BG     = _new["BG"]
+    PANEL  = _new["PANEL"]
+    BORDER = _new["BORDER"]
+    ACCENT = _new["ACCENT"]
+    TEXT   = _new["TEXT"]
+    MUTED  = _new["MUTED"]
+    from gui.qt_assets import styles as _styles
+    _styles.reload()

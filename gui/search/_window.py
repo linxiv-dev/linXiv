@@ -13,6 +13,7 @@ from service import paper as paper_svc
 from sources.base import PaperMetadata
 from sources.arxiv_downloads import cleanup_pdfs as _cleanup_pdfs, saved_pdfs_size
 from gui.views import TexView, PdfWindow
+import gui.theme as _theme
 from gui.theme import (
     BG,
     PANEL,
@@ -96,6 +97,49 @@ class SearchPage(QWidget):
         self._save_limit_bytes: int = user_settings.get("pdf_save_limit_mb") * 1024 ** 2
 
         self._build_ui()
+
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"""
+            background: {_theme.BG}; color: {_theme.TEXT};
+            QLineEdit, QComboBox, QSpinBox {{
+                border: 1px solid {_theme.BORDER};
+                border-radius: 4px;
+                padding: 2px 4px;
+                background: {_theme.PANEL};
+                color: {_theme.TEXT};
+            }}
+            QListWidget {{
+                border: 1px solid {_theme.BORDER};
+                background: {_theme.PANEL};
+                color: {_theme.TEXT};
+            }}
+            QListWidget::item:selected {{
+                background: {_theme.ACCENT};
+                color: #ffffff;
+            }}
+            QListWidget::item:hover {{
+                background: {_theme.BORDER};
+            }}
+            QPushButton {{
+                background: {_theme.PANEL};
+                color: {_theme.TEXT};
+                border: 1px solid {_theme.BORDER};
+                border-radius: 4px;
+                padding: 2px 8px;
+            }}
+            QPushButton:hover {{ background: {_theme.BORDER}; }}
+            QPushButton:disabled {{ color: {_theme.MUTED}; }}
+            QCheckBox {{ color: {_theme.TEXT}; }}
+            QLabel {{ color: {_theme.TEXT}; }}
+            QFrame[frameShape="1"] {{ border: 1px solid {_theme.BORDER}; }}
+        """)
+        self._preview_label.setStyleSheet(f"color: {_theme.MUTED}; font-family: monospace;")
+        self._status.setStyleSheet(f"color: {_theme.MUTED};")
+        self._list.setStyleSheet(f"""
+            QListWidget {{ background: {_theme.PANEL}; border: 1px solid {_theme.BORDER}; }}
+            QListWidget::item:selected {{ background: {_theme.ACCENT}; color: #ffffff; }}
+            QListWidget::item:hover {{ background: {_theme.BORDER}; color: {_theme.TEXT}; }}
+        """)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)

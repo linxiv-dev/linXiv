@@ -75,7 +75,7 @@ class PaperListPanel(QWidget):
     def table(self) -> QTableWidget:
         return self._table
 
-    def paper_id_for_row(self, row: int) -> str | None:
+    def paper_id_for_row(self, row: int) -> int | None:
         item = self._table.item(row, 0)
         if item is None:
             return None
@@ -90,7 +90,7 @@ class PaperListPanel(QWidget):
             self._table.insertRow(r)
 
             title_item = QTableWidgetItem(row["title"] or "")
-            title_item.setData(Qt.ItemDataRole.UserRole, row["paper_id"])
+            title_item.setData(Qt.ItemDataRole.UserRole, row["source_fk"])
             self._table.setItem(r, 0, title_item)
             self._table.setItem(r, 1, QTableWidgetItem(row["category"] or ""))
             self._table.setItem(r, 2, QTableWidgetItem(_fmt_date(row["published"])))

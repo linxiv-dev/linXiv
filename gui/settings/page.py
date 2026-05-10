@@ -58,25 +58,28 @@ class _SettingRow(QWidget):
 
         text_col = QVBoxLayout()
         text_col.setSpacing(SPACE_XS)
-        name = QLabel(label)
-        name.setStyleSheet(f"color: {_TEXT}; font-size: {FONT_BODY}px;")
-        desc = QLabel(description)
-        desc.setStyleSheet(f"color: {_MUTED}; font-size: {FONT_SECONDARY}px;")
-        desc.setWordWrap(True)
-        text_col.addWidget(name)
-        text_col.addWidget(desc)
+        self._name_lbl = QLabel(label)
+        self._name_lbl.setStyleSheet(f"color: {_TEXT}; font-size: {FONT_BODY}px;")
+        self._desc_lbl = QLabel(description)
+        self._desc_lbl.setStyleSheet(f"color: {_MUTED}; font-size: {FONT_SECONDARY}px;")
+        self._desc_lbl.setWordWrap(True)
+        text_col.addWidget(self._name_lbl)
+        text_col.addWidget(self._desc_lbl)
 
         h.addLayout(text_col, stretch=1)
         h.addWidget(control, alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+    def refresh_styles(self) -> None:
+        self._name_lbl.setStyleSheet(f"color: {_theme.TEXT}; font-size: {FONT_BODY}px;")
+        self._desc_lbl.setStyleSheet(f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px;")
 
 
 class _Card(QFrame):
     def __init__(self, rows: list[_SettingRow]) -> None:
         super().__init__()
-        self.setStyleSheet(
-            f"QFrame {{ background: {_PANEL}; border: 1px solid {_BORDER}; "
-            f"border-radius: {RADIUS_LG}px; }}"
-        )
+        self._rows = rows
+        self._dividers: list[QFrame] = []
+        self._apply_card_style()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(CARD_PAD_H, CARD_PAD_V, CARD_PAD_H, CARD_PAD_V)
         layout.setSpacing(0)
@@ -84,7 +87,22 @@ class _Card(QFrame):
         for i, row in enumerate(rows):
             layout.addWidget(row)
             if i < len(rows) - 1:
-                layout.addWidget(_divider())
+                div = _divider()
+                self._dividers.append(div)
+                layout.addWidget(div)
+
+    def _apply_card_style(self) -> None:
+        self.setStyleSheet(
+            f"QFrame {{ background: {_theme.PANEL}; border: 1px solid {_theme.BORDER}; "
+            f"border-radius: {RADIUS_LG}px; }}"
+        )
+
+    def refresh_styles(self) -> None:
+        self._apply_card_style()
+        for row in self._rows:
+            row.refresh_styles()
+        for div in self._dividers:
+            div.setStyleSheet(f"color: {_theme.BORDER};")
 
 
 class _ColorPicker(QWidget):
@@ -133,6 +151,19 @@ class _ColorPicker(QWidget):
 
     def hex_color(self) -> str:
         return self._color
+
+    def refresh_styles(self) -> None:
+        self._field.setStyleSheet(
+            f"QLineEdit {{ background: {_theme.PANEL}; border: 1px solid {_theme.BORDER}; "
+            f"border-radius: {RADIUS_SM}px; color: {_theme.TEXT}; font-size: {FONT_SECONDARY}px; "
+            f"padding: 2px 6px; }}"
+            f"QLineEdit:focus {{ border-color: {_theme.ACCENT}; }}"
+        )
+        self._swatch.setStyleSheet(
+            f"QPushButton {{ background: {self._color}; border: 1px solid {_theme.BORDER}; "
+            f"border-radius: {RADIUS_SM}px; }}"
+            f"QPushButton:hover {{ border-color: {_theme.TEXT}; }}"
+        )
 
     def _refresh_swatch(self) -> None:
         self._swatch.setStyleSheet(
@@ -189,7 +220,7 @@ _COLOR_META: dict[str, tuple[str, str]] = {
 class _CollapsibleSection(QWidget):
     """A labelled group whose content rows can be toggled visible/hidden."""
 
-    def __init__(self, title: str, *, expanded: bool = True) -> None:
+    def __init__(self, title: str, *, expanded: bool = False) -> None:
         super().__init__()
         self.setStyleSheet("background: transparent;")
 
@@ -223,6 +254,14 @@ class _CollapsibleSection(QWidget):
     def add_widget(self, w: QWidget) -> None:
         self._body_layout.addWidget(w)
 
+    def refresh_styles(self) -> None:
+        self._toggle_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; text-align: left; "
+            f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px; font-weight: 600; "
+            f"letter-spacing: 1px; padding: 4px 0px; }}"
+            f"QPushButton:hover {{ color: {_theme.TEXT}; }}"
+        )
+
     def _header_text(self) -> str:
         arrow = "▾" if self._expanded else "▸"
         return f"{arrow}  {self._title}".replace("&", "&&")
@@ -236,10 +275,20 @@ class _CollapsibleSection(QWidget):
 class _ThemeCard(QWidget):
     """Preset chips + collapsible grouped color pickers."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        on_theme_change: Callable[[], None] | None = None,
+        on_self_refresh: Callable[[], None] | None = None,
+        on_apply_all: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__()
         self.setStyleSheet("background: transparent;")
+        self._on_theme_change = on_theme_change
+        self._on_self_refresh = on_self_refresh
+        self._on_apply_all = on_apply_all
         self._swatches: dict[str, _ColorPicker] = {}
+        self._sections: list[_CollapsibleSection] = []
+        self._color_row_labels: list[tuple[QLabel, QLabel]] = []
         self._current = self._merged_colors()
 
         outer = QVBoxLayout(self)
@@ -247,7 +296,7 @@ class _ThemeCard(QWidget):
         outer.setSpacing(SPACE_SM)
 
         # ── Preset chips ──────────────────────────────────────────────────────
-        preset_hdr = QLabel("Theme preset")
+        self._preset_hdr = preset_hdr = QLabel("Theme preset")
         preset_hdr.setStyleSheet(
             f"color: {_TEXT}; font-size: {FONT_BODY}px; font-weight: 600;"
         )
@@ -275,12 +324,14 @@ class _ThemeCard(QWidget):
         for key in ("BG", "PANEL", "BORDER"):
             surfaces.add_widget(self._make_color_row(key))
         outer.addWidget(surfaces)
+        self._sections.append(surfaces)
 
         # ── Text & Accent ─────────────────────────────────────────────────────
         text_accent = _CollapsibleSection("Text & Accent")
         for key in ("ACCENT", "TEXT", "MUTED"):
             text_accent.add_widget(self._make_color_row(key))
         outer.addWidget(text_accent)
+        self._sections.append(text_accent)
 
         # ── Button colors ─────────────────────────────────────────────────────
         btn_overrides: dict[str, str] = _user_settings.get("button_color_overrides") or {}
@@ -290,21 +341,39 @@ class _ThemeCard(QWidget):
                 self._make_color_row(key, override=btn_overrides.get(key), semantic=True)
             )
         outer.addWidget(button_colors)
+        self._sections.append(button_colors)
 
         # ── Footer ────────────────────────────────────────────────────────────
         footer = QHBoxLayout()
-        note = QLabel("Changes take effect on next launch")
+        note = QLabel("Changes apply to each page on next visit")
         note.setStyleSheet(
             f"color: {_MUTED}; font-size: {FONT_SECONDARY}px; font-style: italic;"
         )
-        reset_btn = QPushButton("Reset to defaults")
-        reset_btn.setFixedWidth(140)
+        apply_all_btn = QPushButton("Apply to all")
+        apply_all_btn.setStyleSheet(_BTN_MUTED)
+        apply_all_btn.clicked.connect(lambda: self._on_apply_all() if self._on_apply_all else None)
+        reset_btn = QPushButton("Reset")
+        reset_btn.setFixedWidth(80)
         reset_btn.setStyleSheet(_BTN_MUTED)
         reset_btn.clicked.connect(self._reset)
         footer.addWidget(note)
         footer.addStretch()
+        footer.addWidget(apply_all_btn)
         footer.addWidget(reset_btn)
         outer.addLayout(footer)
+
+    def refresh_styles(self) -> None:
+        self._preset_hdr.setStyleSheet(
+            f"color: {_theme.TEXT}; font-size: {FONT_BODY}px; font-weight: 600;"
+        )
+        self._refresh_chip_styles()
+        for section in self._sections:
+            section.refresh_styles()
+        for picker in self._swatches.values():
+            picker.refresh_styles()
+        for name_lbl, desc_lbl in self._color_row_labels:
+            name_lbl.setStyleSheet(f"color: {_theme.TEXT}; font-size: {FONT_BODY}px;")
+            desc_lbl.setStyleSheet(f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px;")
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -335,7 +404,12 @@ class _ThemeCard(QWidget):
                 overrides = _user_settings.get("theme_overrides") or {}
                 overrides[k] = color
                 _user_settings.set("theme_overrides", overrides)
+                _theme.reload()
                 self._refresh_chip_styles()
+                if self._on_self_refresh is not None:
+                    self._on_self_refresh()
+                if self._on_theme_change is not None:
+                    self._on_theme_change()
 
         picker = _ColorPicker(hex_color, on_change=_on_pick)
         self._swatches[key] = picker
@@ -354,6 +428,7 @@ class _ThemeCard(QWidget):
         desc_lbl.setStyleSheet(f"color: {_MUTED}; font-size: {FONT_SECONDARY}px;")
         text_col.addWidget(name_lbl)
         text_col.addWidget(desc_lbl)
+        self._color_row_labels.append((name_lbl, desc_lbl))
 
         h.addLayout(text_col, stretch=1)
         h.addWidget(picker, alignment=Qt.AlignmentFlag.AlignVCenter)
@@ -363,18 +438,23 @@ class _ThemeCard(QWidget):
         colors = _theme.PRESETS[name]
         self._current.update(colors)
         _user_settings.set("theme_overrides", {} if name == "Navy" else dict(colors))
+        _theme.reload()
         for key, picker in self._swatches.items():
             if key in colors:
                 picker.set_color(colors[key])
         self._refresh_chip_styles()
+        if self._on_self_refresh is not None:
+            self._on_self_refresh()
+        if self._on_theme_change is not None:
+            self._on_theme_change()
 
     def _reset(self) -> None:
         _user_settings.set("theme_overrides", {})
         _user_settings.set("button_color_overrides", {})
-        self._apply_preset("Navy")
         for key, default in _SEMANTIC_DEFAULTS.items():
             if key in self._swatches:
                 self._swatches[key].set_color(default)
+        self._apply_preset("Navy")  # calls theme.reload() + on_theme_change
 
     def _refresh_chip_styles(self) -> None:
         current_theme = {k: self._current.get(k) for k in _theme.PRESETS["Navy"]}
@@ -385,52 +465,66 @@ class _ThemeCard(QWidget):
         for name, chip in self._chips.items():
             if name == active:
                 chip.setStyleSheet(
-                    f"QPushButton {{ background: {_ACCENT}; border: none; "
+                    f"QPushButton {{ background: {_theme.ACCENT}; border: none; "
                     f"border-radius: {RADIUS_SM}px; color: #ffffff; "
                     f"font-size: {FONT_SECONDARY}px; padding: 3px 14px; }}"
                 )
             else:
                 chip.setStyleSheet(
-                    f"QPushButton {{ background: transparent; border: 1px solid {_BORDER}; "
-                    f"border-radius: {RADIUS_SM}px; color: {_TEXT}; "
+                    f"QPushButton {{ background: transparent; border: 1px solid {_theme.BORDER}; "
+                    f"border-radius: {RADIUS_SM}px; color: {_theme.TEXT}; "
                     f"font-size: {FONT_SECONDARY}px; padding: 3px 14px; }}"
-                    f"QPushButton:hover {{ border-color: {_ACCENT}; color: {_ACCENT}; }}"
+                    f"QPushButton:hover {{ border-color: {_theme.ACCENT}; color: {_theme.ACCENT}; }}"
                 )
 
 
 class SettingsPage(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        on_theme_change: Callable[[], None] | None = None,
+        on_apply_all: Callable[[], None] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._on_theme_change = on_theme_change
+        self._on_apply_all = on_apply_all
         self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {_BG}; }}")
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {_BG}; }}")
+        scroll = self._scroll
 
-        content = QWidget()
-        content.setStyleSheet(f"background: {_BG};")
+        self._scroll_content = QWidget()
+        self._scroll_content.setStyleSheet(f"background: {_BG};")
+        content = self._scroll_content
         inner = QVBoxLayout(content)
         inner.setContentsMargins(PAGE_MARGIN_H, 40, PAGE_MARGIN_H, PAGE_MARGIN_H)
         inner.setSpacing(0)
 
-        title = QLabel("Settings")
-        title.setStyleSheet(f"color: {_TEXT}; font-size: {FONT_TITLE}px; font-weight: 700;")
-        inner.addWidget(title)
+        self._title_lbl = QLabel("Settings")
+        self._title_lbl.setStyleSheet(f"color: {_TEXT}; font-size: {FONT_TITLE}px; font-weight: 700;")
+        inner.addWidget(self._title_lbl)
         inner.addSpacing(SPACE_XL)
 
+        self._section_labels: list[QLabel] = []
+
         # ── Metadata Sources ──────────────────────────────────────────────────
-        inner.addWidget(_section_label("Metadata Sources"))
+        _meta_lbl = _section_label("Metadata Sources")
+        self._section_labels.append(_meta_lbl)
+        inner.addWidget(_meta_lbl)
         inner.addSpacing(SPACE_SM)
 
-        mailto_field = QLineEdit()
-        mailto_field.setPlaceholderText("your@email.com")
-        mailto_field.setText(os.environ.get("CROSSREF_MAILTO", ""))
-        mailto_field.setFixedWidth(240)
-        mailto_field.setStyleSheet(
+        self._mailto_field = QLineEdit()
+        self._mailto_field.setPlaceholderText("your@email.com")
+        self._mailto_field.setText(os.environ.get("CROSSREF_MAILTO", ""))
+        self._mailto_field.setFixedWidth(240)
+        self._mailto_field.setStyleSheet(
             f"background: {_PANEL}; border: 1px solid {_BORDER}; "
             f"border-radius: 6px; color: {_TEXT}; font-size: {FONT_BODY}px; "
             f"padding: 4px 10px;"
         )
+        mailto_field = self._mailto_field
 
         def _save_mailto() -> None:
             from config import ENV_PATH
@@ -441,26 +535,30 @@ class SettingsPage(QWidget):
 
         mailto_field.editingFinished.connect(_save_mailto)
 
-        inner.addWidget(_Card([
+        self._metadata_card = _Card([
             _SettingRow(
                 "CrossRef Email (mailto)",
                 "Your email for CrossRef's polite pool — faster, more reliable metadata responses.",
                 mailto_field,
             )
-        ]))
+        ])
+        inner.addWidget(self._metadata_card)
 
         inner.addSpacing(SPACE_XL)
 
         # ── Storage ───────────────────────────────────────────────────────────
-        inner.addWidget(_section_label("Storage"))
+        _storage_lbl = _section_label("Storage")
+        self._section_labels.append(_storage_lbl)
+        inner.addWidget(_storage_lbl)
         inner.addSpacing(SPACE_SM)
 
-        limit_spin = QSpinBox()
-        limit_spin.setRange(100, 100_000)
-        limit_spin.setSingleStep(100)
-        limit_spin.setSuffix(" MB")
-        limit_spin.setValue(_user_settings.get("pdf_save_limit_mb"))
-        limit_spin.setFixedWidth(130)
+        self._limit_spin = QSpinBox()
+        self._limit_spin.setRange(100, 100_000)
+        self._limit_spin.setSingleStep(100)
+        self._limit_spin.setSuffix(" MB")
+        self._limit_spin.setValue(_user_settings.get("pdf_save_limit_mb"))
+        self._limit_spin.setFixedWidth(130)
+        limit_spin = self._limit_spin
         limit_spin.setStyleSheet(
             f"background: {_PANEL}; border: 1px solid {_BORDER}; "
             f"border-radius: 6px; color: {_TEXT}; font-size: {FONT_BODY}px; "
@@ -471,7 +569,7 @@ class SettingsPage(QWidget):
         limit_mb_init = _user_settings.get("pdf_save_limit_mb")
         pct_init = min(100, int(used_mb / limit_mb_init * 100)) if limit_mb_init else 0
 
-        usage_bar = QProgressBar()
+        self._usage_bar = usage_bar = QProgressBar()
         usage_bar.setRange(0, 100)
         usage_bar.setValue(pct_init)
         usage_bar.setTextVisible(False)
@@ -482,7 +580,7 @@ class SettingsPage(QWidget):
             f"QProgressBar::chunk {{ background: {'#c0392b' if pct_init >= 90 else _MUTED}; border-radius: 4px; }}"
         )
 
-        usage_label = QLabel(f"{used_mb:.1f} / {limit_mb_init} MB  ({pct_init}%)")
+        self._usage_label = usage_label = QLabel(f"{used_mb:.1f} / {limit_mb_init} MB  ({pct_init}%)")
         usage_label.setStyleSheet(f"color: {_MUTED}; font-size: {FONT_SECONDARY}px;")
 
         usage_widget = QWidget()
@@ -511,7 +609,7 @@ class SettingsPage(QWidget):
         limit_spin.editingFinished.connect(_save_pdf_limit)
         limit_spin.valueChanged.connect(_refresh_usage)
 
-        inner.addWidget(_Card([
+        self._storage_card = _Card([
             _SettingRow(
                 "PDF save limit",
                 "Maximum total size of PDFs kept on disk across all sessions.",
@@ -522,14 +620,22 @@ class SettingsPage(QWidget):
                 "Current size of all PDFs in the local downloads folder.",
                 usage_widget,
             ),
-        ]))
+        ])
+        inner.addWidget(self._storage_card)
 
         inner.addSpacing(SPACE_XL)
 
         # ── Appearance ────────────────────────────────────────────────────────
-        inner.addWidget(_section_label("Appearance"))
+        _appear_lbl = _section_label("Appearance")
+        self._section_labels.append(_appear_lbl)
+        inner.addWidget(_appear_lbl)
         inner.addSpacing(SPACE_SM)
-        inner.addWidget(_ThemeCard())
+        self._theme_card = _ThemeCard(
+            on_theme_change=self._on_theme_change,
+            on_self_refresh=self.refresh_styles,
+            on_apply_all=self._on_apply_all,
+        )
+        inner.addWidget(self._theme_card)
 
         inner.addStretch()
         scroll.setWidget(content)
@@ -537,3 +643,32 @@ class SettingsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def refresh_styles(self) -> None:
+        t = _theme
+        self.setStyleSheet(f"background: {t.BG}; color: {t.TEXT};")
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {t.BG}; }}")
+        self._scroll_content.setStyleSheet(f"background: {t.BG};")
+        self._title_lbl.setStyleSheet(f"color: {t.TEXT}; font-size: {FONT_TITLE}px; font-weight: 700;")
+        for lbl in self._section_labels:
+            lbl.setStyleSheet(
+                f"color: {t.MUTED}; font-size: {FONT_SECONDARY}px; font-weight: 600; "
+                f"letter-spacing: 1px; text-transform: uppercase;"
+            )
+        self._mailto_field.setStyleSheet(
+            f"background: {t.PANEL}; border: 1px solid {t.BORDER}; "
+            f"border-radius: 6px; color: {t.TEXT}; font-size: {FONT_BODY}px; padding: 4px 10px;"
+        )
+        self._limit_spin.setStyleSheet(
+            f"background: {t.PANEL}; border: 1px solid {t.BORDER}; "
+            f"border-radius: 6px; color: {t.TEXT}; font-size: {FONT_BODY}px; padding: 4px 10px;"
+        )
+        pct = self._usage_bar.value()
+        self._usage_bar.setStyleSheet(
+            f"QProgressBar {{ background: {t.BORDER}; border-radius: 4px; border: none; }}"
+            f"QProgressBar::chunk {{ background: {'#c0392b' if pct >= 90 else t.MUTED}; border-radius: 4px; }}"
+        )
+        self._usage_label.setStyleSheet(f"color: {t.MUTED}; font-size: {FONT_SECONDARY}px;")
+        self._metadata_card.refresh_styles()
+        self._storage_card.refresh_styles()
+        self._theme_card.refresh_styles()

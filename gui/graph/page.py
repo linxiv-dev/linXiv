@@ -21,6 +21,7 @@ from formats.bibtex import BibTeXFormat
 from formats.csv_fmt import CSVFormat
 from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
+import gui.theme as _theme
 from gui.theme import FONT_SECONDARY, FONT_TERTIARY, SPACE_XS, SPACE_SM
 from service import paper as paper_svc
 from service.tag import list_all_tags
@@ -91,7 +92,7 @@ class PaperListPanel(QWidget):
     def table(self) -> QTableWidget:
         return self._table
 
-    def paper_id_for_row(self, row: int) -> str | None:
+    def paper_id_for_row(self, row: int) -> int | None:
         item = self._table.item(row, 0)
         if item is None:
             return None
@@ -121,7 +122,7 @@ class PaperListPanel(QWidget):
             self._table.insertRow(r)
 
             title_item = QTableWidgetItem(row_data["title"] or "")
-            title_item.setData(Qt.ItemDataRole.UserRole, row_data["paper_id"])
+            title_item.setData(Qt.ItemDataRole.UserRole, row_data["source_fk"])
             self._table.setItem(r, 0, title_item)
             self._table.setItem(r, 1, QTableWidgetItem(row_data["category"] or ""))
             self._table.setItem(r, 2, QTableWidgetItem(_fmt_date(row_data["published"])))
@@ -160,7 +161,7 @@ class PaperListPanel(QWidget):
 
 class GraphPage(QWidget):
     """Graph + paper list, embeddable as a page inside AppShell."""
-    paper_right_clicked = pyqtSignal(str)  # emits paper_id when a node is right-clicked
+    paper_right_clicked = pyqtSignal(int)  # emits source_fk when a node is right-clicked
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -307,6 +308,14 @@ class GraphPage(QWidget):
     def refresh(self) -> None:
         self._load_all()
 
+    def refresh_styles(self) -> None:
+        self._selection_lbl.setStyleSheet(
+            f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px;"
+        )
+        self._paper_list._status_lbl.setStyleSheet(
+            f"color: {_theme.MUTED}; font-size: {FONT_TERTIARY}px; padding: 2px 6px;"
+        )
+
     def _clear_filters(self) -> None:
         self._graph_view.clear_filters()
         self._graph_view.highlight_node(None)
@@ -330,7 +339,7 @@ class GraphPage(QWidget):
         if paper_id:
             self._graph_view.highlight_node(paper_id)
 
-    def _on_graph_node_clicked(self, paper_id: str) -> None:
+    def _on_graph_node_clicked(self, paper_id: int) -> None:
         """Graph paper node clicked — select matching row in the paper list."""
         # First search already-loaded rows
         for row in range(self._paper_list.table.rowCount()):
