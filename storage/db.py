@@ -1,13 +1,16 @@
 from __future__ import annotations
+# from collections.abc import Callable
 import datetime
 import json
 from pathlib import Path
 import re
 import sqlite3
-from collections.abc import Callable
 from typing import Optional, TYPE_CHECKING
-from storage.paths import old_pdf_dir, pdf_dir
+
 import arxiv
+
+from storage.config.core import apply_sql_schema
+from storage.paths import old_pdf_dir, pdf_dir
 
 if TYPE_CHECKING:
     from sources.base import PaperMetadata
@@ -211,8 +214,6 @@ def _write_paper_version(
 
 
 def init_db() -> None:
-    from storage.config.core import apply_sql_schema
-
     with _connect() as conn:
         apply_sql_schema(conn)
 
@@ -263,7 +264,7 @@ def _insert_arxiv(conn: sqlite3.Connection, paper: arxiv.Result, tags: list[str]
         version,
         paper.title,
         paper.primary_category,
-        False,
+        has_pdf = False,
         url=paper.pdf_url,
         published=paper.published.date(),
         updated=paper.updated.date(),
@@ -289,7 +290,7 @@ def _insert_metadata(conn: sqlite3.Connection, meta: PaperMetadata, tags: list[s
         merged_tags = list(set((merged_tags or []) + tags))
     _write_paper_version(
         conn,
-        meta.paper_id,
+        meta.source_id,
         meta.version,
         meta.title,
         meta.category,
@@ -309,7 +310,7 @@ def _insert_metadata(conn: sqlite3.Connection, meta: PaperMetadata, tags: list[s
         full_text=None,
         downloaded_source=None,
     )
-    return meta.paper_id, meta.version
+    return meta.source_id, meta.version
 
 
 def save_paper(paper: arxiv.Result, tags: list[str] | None = None) -> tuple[str, int]:
@@ -342,7 +343,7 @@ def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
     Keyed by SOURCE_FK (stable integer) so the caller never needs to track the old
     string ID.  Version history, pdf_path, has_pdf, full_text, and source are preserved.
     """
-    new_id = meta.paper_id
+    new_id = meta.source_id
     with _connect() as conn:
         root = conn.execute(
             "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_FK = ?", (source_fk,)

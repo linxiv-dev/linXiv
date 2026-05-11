@@ -113,7 +113,7 @@ def _strip_tex_noise(text: str) -> str:
     text = _TEX_COMMAND_RE.sub('', text)
     return text
 
-
+# TODO: OPTIONALLY GET .BIB or .BBL FILES WHEN available.
 def extract_source(tarpath: str) -> str:
     """Extract TeX source from a .tar.gz and return concatenated plain text.
 
