@@ -109,4 +109,7 @@ class TestExtractSource:
     # TODO: test returns "" for tar with no .tex files
     # TODO: test returns "" for corrupt/invalid tar
     # TODO: test that unsafe paths (starting with / or ..) are skipped
+    # TODO: EXTRACTING SOURCE SHOULD BE A WHITELIST NOT BLACKLIST, THERE IS NO TRUE WAY TO 
+    # BE SAFE IF NOT, INSTRUCT USERS TO CREATE THEIR OWN WHITELIST
+
     pass

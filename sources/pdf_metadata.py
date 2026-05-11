@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from _pytest._code import source
 from pypdf import PdfReader
 
 from .arxiv_source import ArxivSource
@@ -108,7 +109,7 @@ def _extract_title_from_text(text: str) -> Optional[str]:
     return " ".join(title_lines)
 
 
-def _pdf_paper_id(pdf_path: str) -> str:
+def _pdf_source_id(pdf_path: str) -> str:
     digest = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()[:16]
     return f"pdf:{digest}"
 
@@ -202,7 +203,7 @@ def resolve_pdf_metadata(pdf_path: str) -> PaperMetadata:
         pub_date = datetime.date(raw["year"], 1, 1)
 
     return PaperMetadata(
-        paper_id=_pdf_paper_id(pdf_path),
+        source_id=_pdf_source_id(pdf_path),
         version=1,
         title=raw["title"] or "",
         authors=authors,

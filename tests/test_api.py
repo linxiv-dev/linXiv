@@ -49,7 +49,7 @@ def client(tmp_path, monkeypatch):
 
 def _meta(**kwargs) -> PaperMetadata:
     return PaperMetadata(
-        paper_id=kwargs.get("paper_id", "2204.12985"),
+        source_id=kwargs.get("source_id", "2204.12985"),
         version=kwargs.get("version", 1),
         title=kwargs.get("title", "Test Paper"),
         authors=kwargs.get("authors", ["Author One"]),

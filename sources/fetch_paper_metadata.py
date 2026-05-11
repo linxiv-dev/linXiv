@@ -3,8 +3,7 @@ import time
 import arxiv
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence, Generator, Iterable, Iterator
-from storage.db import init_db, save_paper, save_papers
+from typing import Sequence
 
 _client = arxiv.Client(num_retries=1, delay_seconds=7.0)
 
@@ -82,8 +81,8 @@ def gen_md_files(papers: list[arxiv.Result], additional_tags: None | Sequence[st
 
 def gen_md_file(paper: arxiv.Result, additional_tags: None | Sequence[str] = None, print_on: bool = False):
     title: str = paper.title
-    paper_id: str = paper.entry_id.split('/')[-1]
-    url: str = f"https://arxiv.org/abs/{paper_id}"
+    source_id: str = paper.entry_id.split('/')[-1]
+    url: str = f"https://arxiv.org/abs/{source_id}"
     authors: list[str] = [author.name for author in paper.authors]
     tags: list[str] = ["clippings", "research", "clipping"]
 
@@ -92,7 +91,7 @@ def gen_md_file(paper: arxiv.Result, additional_tags: None | Sequence[str] = Non
             tags.append(s)
 
     date = paper.published.strftime('%Y-%m-%d')
-    filename = _VAULT_DIR / f"{paper_id}.md"
+    filename = _VAULT_DIR / f"{source_id}.md"
 
     author_list = "\n".join([f'  - "[[{name}]]"' for name in authors])
     tag_list = "\n".join([f'- {tag}' for tag in tags])

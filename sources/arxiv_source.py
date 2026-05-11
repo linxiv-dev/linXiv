@@ -13,16 +13,16 @@ def _parse_arxiv_id(entry_id: str) -> tuple[str, int]:
     raw = entry_id.split("/")[-1]
     match = re.match(r"^(.+?)(?:v(\d+))?$", raw)
     assert match is not None
-    paper_id = match.group(1)
+    source_id = match.group(1)
     version = int(match.group(2)) if match.group(2) else 1
-    return paper_id, version
+    return source_id, version
 
 
 def _result_to_metadata(result: arxiv.Result) -> PaperMetadata:
     """Convert an arxiv.Result to a PaperMetadata."""
-    paper_id, version = _parse_arxiv_id(result.entry_id)
+    source_id, version = _parse_arxiv_id(result.entry_id)
     return PaperMetadata(
-        paper_id=paper_id,
+        source_id=source_id,
         version=version,
         title=result.title,
         authors=[a.name for a in result.authors],
