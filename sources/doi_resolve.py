@@ -180,7 +180,7 @@ def resolve_doi(doi: str) -> PaperMetadata:
     if not doi:
         raise ValueError("Please enter a DOI.")
 
-    meta = _try_arxiv_doi(doi)
+    meta = _try_crossref(doi)
     if meta:
         return meta
 
@@ -188,10 +188,11 @@ def resolve_doi(doi: str) -> PaperMetadata:
     if meta:
         return meta
 
-    meta = _try_crossref(doi)
+    meta = _try_arxiv_doi(doi)
     if meta:
         return meta
 
+        
     raise ValueError(
         "Could not resolve this DOI.\n"
         "• Check the DOI is correct\n"

@@ -174,16 +174,16 @@ def resolve_pdf_metadata(pdf_path: str) -> PaperMetadata:
     """
     raw = extract_pdf_metadata(pdf_path)
 
-    if raw["arxiv_id"]:
-        try:
-            return ArxivSource().fetch_by_id(raw["arxiv_id"])
-        except Exception:
-            pass
-
     if raw["doi"]:
         try:
             return resolve_doi(raw["doi"])
         except ValueError:
+            pass
+
+    if raw["arxiv_id"]:
+        try:
+            return ArxivSource().fetch_by_id(raw["arxiv_id"])
+        except Exception:
             pass
 
     if raw["title"]:
