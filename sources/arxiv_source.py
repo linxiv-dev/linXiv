@@ -65,16 +65,16 @@ class ArxivSource(PaperSource):
             raise ValueError(f"arXiv search failed: {e}") from e
         return [_result_to_metadata(r) for r in results]
 
-    def fetch_by_id(self, paper_id: str) -> PaperMetadata:
-        search = arxiv.Search(id_list=[paper_id])
+    def fetch_by_id(self, source_id: str) -> PaperMetadata:
+        search = arxiv.Search(id_list=[source_id])
         _check_ratelimit()
         try:
             result = next(self._client.results(search))
         except StopIteration:
-            raise ValueError(f"Paper '{paper_id}' not found on arXiv.")
+            raise ValueError(f"Paper '{source_id}' not found on arXiv.")
         except Exception as e:
             print(f"[arxiv] fetch error: {e}")
             if "429" in str(e):
                 _record_ratelimit()
-            raise ValueError(f"arXiv fetch failed for '{paper_id}': {e}") from e
+            raise ValueError(f"arXiv fetch failed for '{source_id}': {e}") from e
         return _result_to_metadata(result)

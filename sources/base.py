@@ -44,6 +44,6 @@ class PaperSource(Protocol):
         """Search for papers matching a query string."""
         ...
 
-    def fetch_by_id(self, paper_id: str) -> PaperMetadata:
+    def fetch_by_id(self, source_id: str) -> PaperMetadata:
         """Fetch metadata for a specific paper by its source-specific ID."""
         ...
