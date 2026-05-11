@@ -3,18 +3,27 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 
+from gui.qt_assets.styles import (
+    BTN_DANGER as _BTN_DANGER,
+    BTN_OUTLINE as _BTN,
+    btn_colored_outline as _colored_outline,
+)
 from gui.theme import (
-    ACCENT, BORDER, TEXT,
-    FONT_BODY, FONT_SECONDARY,
-    RADIUS_MD,
-    SPACE_MD, SPACE_SM,
+    ACCENT,
+    BORDER,
     BTN_H_MD,
+    FONT_BODY,
+    FONT_SECONDARY,
+    RADIUS_MD,
+    SPACE_MD,
+    SPACE_SM,
+    TEXT,
 )
 
 _BLUE = "#5b8dee"
 _RED  = "#e05c5c"
 
-from gui.qt_assets.styles import BTN_OUTLINE as _BTN, BTN_DANGER as _BTN_DANGER, btn_colored_outline as _colored_outline
+
 
 
 def _action_btn(label: str, color: str) -> QPushButton:

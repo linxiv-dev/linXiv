@@ -41,7 +41,7 @@ class JSONFormat:
         for p in raw:
             tags = _parse_list(p.get("tags"), sep=",")
             results.append(PaperMetadata(
-                paper_id    = p["paper_id"],
+                source_id    = p["source_id"],
                 version     = int(p.get("version", 1)),
                 title       = p.get("title", ""),
                 authors     = _parse_list(p.get("authors"), sep=";"),
