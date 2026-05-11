@@ -1,5 +1,6 @@
 import os
 
+from service import paper as paper_svc
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QMainWindow, QToolBar, QLabel, QPushButton, QWidget
 from PyQt6.QtPdfWidgets import QPdfView
@@ -56,8 +57,7 @@ class PdfWindow(QMainWindow):
     @staticmethod
     def resolve_pdf_path(paper_id: str, version: int, fallback_dir: str) -> str | None:
         """Return the best PDF path for a paper: pdf_path from DB, then fallback."""
-        from storage.db import get_paper
-        row = get_paper(paper_id, version)
+        row = paper_svc.get_paper(paper_id, version)
         if row:
             db_path = row["pdf_path"]
             if db_path and os.path.isfile(db_path):

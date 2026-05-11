@@ -24,13 +24,17 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from storage.projects import color_to_hex
+from service import paper as paper_svc
+from service import project as project_svc
+from service.project import Q, Status
+from storage.projects import Project
 
 from gui.qt_assets import PaperCard, ElidedLabel, SelectionBar
 from gui.qt_assets.note_card import note_card
 from gui.library.page import LibraryPage
 from gui.shell import AppShell
 from gui.views import PdfWindow
+import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
@@ -54,6 +58,7 @@ _PRESET_COLORS: list[int] = [
     0x1abc9c,  # teal
 ]
 
+import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
     BTN_PRIMARY as _BTN_STYLE, BTN_MUTED as _BTN_MUTED_STYLE,
     BTN_DANGER as _BTN_DANGER,
@@ -87,7 +92,6 @@ class _PdfMetadataWorker(QThread):
 
 
 # ── New-project dialog ────────────────────────────────────────────────────────
-#  NOTE: GOD FILE, semi-necessary?
 class NewProjectDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -166,7 +170,7 @@ class NewProjectDialog(QDialog):
         return row
 
     def _swatch_css(self, color: int, checked: bool) -> str:
-        hex_color = color_to_hex(color)
+        hex_color = project_svc.color_to_hex(color)
         border = "#ffffff" if checked else hex_color
         return (
             f"QPushButton {{ background: {hex_color}; border-radius: 14px;"
@@ -188,9 +192,8 @@ class NewProjectDialog(QDialog):
         raw = self._project_tags.text().strip()
         project_tags = [t.strip() for t in raw.split(",") if t.strip()] if raw else []
 
-        from storage.projects import Project, ensure_projects_db
-        from storage.notes import ensure_notes_db
-        ensure_projects_db()
+        from service.note import ensure_notes_db
+        project_svc.ensure_projects_db()
         ensure_notes_db()
 
         p = Project(name=name, description=desc, color=self._color, project_tags=project_tags)
@@ -249,24 +252,23 @@ class AddPaperDialog(QDialog):
         self._load_papers()
 
     def _load_papers(self) -> None:
-        from storage.db import list_papers
-        self._all_papers = list_papers()
-        already = set(self._project.paper_ids)
-        self._papers = [r for r in self._all_papers if r["paper_id"] not in already]
+        self._all_papers = paper_svc.list_papers()
+        already = set(self._project.source_fks)
+        self._papers = [r for r in self._all_papers if r["source_fk"] not in already]
         self._populate(self._papers)
 
     def _populate(self, papers) -> None:
         self._list.clear()
         for row in papers:
-            item = QListWidgetItem(f"{row['title']}  [{row['paper_id']}]")
-            item.setData(Qt.ItemDataRole.UserRole, row["paper_id"])
+            item = QListWidgetItem(f"{row['title']}  [{row['source_id']}]")
+            item.setData(Qt.ItemDataRole.UserRole, row["source_fk"])
             self._list.addItem(item)
 
     def _apply_filter(self, text: str) -> None:
         q = text.lower()
         filtered = [
             r for r in self._papers
-            if q in r["title"].lower() or q in r["paper_id"].lower()
+            if q in r["title"].lower() or q in r["source_id"].lower()
         ] if q else self._papers
         self._populate(filtered)
 
@@ -374,7 +376,7 @@ def _make_notes_qtext_preview(parent: QWidget | None) -> QTextBrowser:
 class NoteEditorDialog(QDialog):
     """Split-pane note editor: raw Markdown editor + QTextBrowser preview (no WebEngine).
 
-    Add mode:  NoteEditorDialog(paper_id=..., project_id=..., parent=...)
+    Add mode:  NoteEditorDialog(source_fk=..., project_id=..., parent=...)
     Edit mode: NoteEditorDialog(note=..., parent=...)
     """
 
@@ -382,13 +384,13 @@ class NoteEditorDialog(QDialog):
         self,
         *,
         note=None,
-        paper_id: str | None = None,
+        source_fk: int | None = None,
         project_id: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._note       = note
-        self._paper_id   = note.paper_id   if note else paper_id
+        self._source_fk  = note.source_fk  if note else source_fk
         self._project_id = note.project_id if note else project_id
 
         mode = "Edit Note" if note else "Add Note"
@@ -459,21 +461,25 @@ class NoteEditorDialog(QDialog):
         )
 
     def _on_save(self) -> None:
-        from storage.notes import Note, ensure_notes_db
-        ensure_notes_db()
+        import service.note as note_svc
         if self._note is not None:
-            self._note.title   = self._note_title.text().strip()
-            self._note.content = self._editor.toPlainText().strip()
-            self._note.save()
-        else:
-            if self._paper_id is None:
-                return
-            Note(
-                paper_id   = self._paper_id,
-                project_id = self._project_id,
+            note_svc.upsert(note_svc.NoteIn(
+                note_id    = self._note.note_id,
+                source_fk  = self._note.source_fk,
+                paper_id   = self._note.paper_id_fk,
+                project_fk = self._note.project_id,
                 title      = self._note_title.text().strip(),
                 content    = self._editor.toPlainText().strip(),
-            ).save()
+            ))
+        else:
+            if self._source_fk is None:
+                return
+            note_svc.upsert(note_svc.NoteIn(
+                source_fk  = self._source_fk,
+                project_fk = self._project_id,
+                title      = self._note_title.text().strip(),
+                content    = self._editor.toPlainText().strip(),
+            ))
         self.accept()
 
 
@@ -483,10 +489,10 @@ class NoteEditorDialog(QDialog):
 class NotesDialog(QDialog):
     """Shows all notes for a paper in a project, with add and delete actions."""
 
-    def __init__(self, paper_id: str, project_id: int, paper_title: str,
+    def __init__(self, source_fk: int, project_id: int, paper_title: str,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._paper_id   = paper_id
+        self._source_fk  = source_fk
         self._project_id = project_id
         self._cards: dict[int, QFrame] = {}
         self._retired_cards: list[QWidget] = []
@@ -552,17 +558,16 @@ class NotesDialog(QDialog):
                 self._retire_card(w)
         self._cards.clear()
 
-        from storage.notes import get_notes, ensure_notes_db
-        ensure_notes_db()
-        notes = get_notes(self._paper_id, project_id=self._project_id)
+        import service.note as note_svc
+        notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
 
         if notes:
             self._empty_lbl.setVisible(False)
             for note in notes:
                 card = note_card(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.id is not None:
-                    self._cards[note.id] = card
+                if note.note_id is not None:
+                    self._cards[note.note_id] = card
         else:
             self._empty_lbl.setVisible(True)
 
@@ -587,7 +592,7 @@ class NotesDialog(QDialog):
         super().closeEvent(event)
 
     def _pop_and_recreate(self, note) -> None:
-        note_id = note.id
+        note_id = note.note_id
         old_card = self._cards.pop(note_id, None) if note_id is not None else None
         if old_card is not None:
             idx = self._notes_layout.indexOf(old_card)
@@ -605,8 +610,9 @@ class NotesDialog(QDialog):
             self._pop_and_recreate(note)
 
     def _delete_note(self, note) -> None:
-        note_id = note.id
-        note.delete()
+        import service.note as note_svc
+        note_id = note.note_id
+        note_svc.delete(note_svc.Note(note_id=note_id))
         card = self._cards.pop(note_id, None) if note_id is not None else None
         if card is not None:
             self._retire_card(card)
@@ -615,32 +621,31 @@ class NotesDialog(QDialog):
 
     def _on_add(self) -> None:
         dlg = NoteEditorDialog(
-            paper_id=self._paper_id, project_id=self._project_id, parent=self.window() or self
+            source_fk=self._source_fk, project_id=self._project_id, parent=self.window() or self
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            from storage.notes import get_notes, ensure_notes_db
-            ensure_notes_db()
-            notes = get_notes(self._paper_id, project_id=self._project_id)
-            new_notes = [n for n in notes if n.id not in self._cards]
+            import service.note as note_svc
+            notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
+            new_notes = [n for n in notes if n.note_id not in self._cards]
             self._empty_lbl.setVisible(False)
             for note in new_notes:
                 card = note_card(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.id is not None:
-                    self._cards[note.id] = card
+                if note.note_id is not None:
+                    self._cards[note.note_id] = card
 
 
 # ── Project detail view ───────────────────────────────────────────────────────
 
 class ProjectDetailView(QWidget):
     back_requested    = pyqtSignal()
-    navigate_to_paper = pyqtSignal(str)   # paper_id
+    navigate_to_paper = pyqtSignal(int)   # source_fk
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
         self._project = None
-        self._selected_pids: set[str] = set()
+        self._selected_pids: set[int] = set()
         self._pdf_worker: _PdfMetadataWorker | None = None
         self._pdf_window = PdfWindow(self)
         self._pdf_queue:  list[str] = []
@@ -789,12 +794,26 @@ class ProjectDetailView(QWidget):
         self._paper_action_bar.clear_requested.connect(self._clear_paper_selection)
         outer.addWidget(self._paper_action_bar)
 
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.TEXT}; background: transparent;"
+        )
+        self._desc_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.ACCENT}; background: transparent;")
+        self._papers_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;")
+        self._empty_papers_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._archive_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._delete_btn.setStyleSheet(_qt_styles.BTN_DANGER)
+        self._add_paper_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._import_pdf_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+
     def load(self, project) -> None:
         self._project = project
         self._delete_confirming = False
         self._delete_btn.setText("Delete")
 
-        hex_color = color_to_hex(project.color) if project.color is not None else _ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else _ACCENT
         self._color_stripe.setStyleSheet(f"background: {hex_color}; border-radius: 3px;")
         self._title_lbl.setText(project.name)
         self._title_lbl.adjustSize()
@@ -817,22 +836,24 @@ class ProjectDetailView(QWidget):
             if item.widget():  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
                 item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
 
-        paper_ids = self._project.paper_ids if self._project else []
+        paper_ids = self._project.source_fks if self._project and self._project.source_fks else []
         self._papers_lbl.setText(f"Papers  ({len(paper_ids)})")
 
         if paper_ids:
             assert self._project is not None  # paper_ids is non-empty only when _project is set
             self._empty_papers_lbl.setVisible(False)
-            from storage.db import get_paper
             rendered_count = 0
             for pid in paper_ids:
-                row = get_paper(pid)
+                source_id = paper_svc.get_source_id(pid)
+                if source_id is None:
+                    continue
+                row = paper_svc.get_paper(source_id)
                 if row is None:
                     continue
                 rendered_count += 1
                 card = PaperCard(row, pdf_window=self._pdf_window, project_id=self._project.id)
                 card.double_clicked.connect(
-                    lambda r: self.navigate_to_paper.emit(r["paper_id"])
+                    lambda r: self.navigate_to_paper.emit(r["source_fk"])
                 )
                 card.selection_toggled.connect(self._on_card_selection_toggled)
                 self._papers_layout.insertWidget(self._papers_layout.count() - 1, card)
@@ -840,11 +861,11 @@ class ProjectDetailView(QWidget):
         else:
             self._empty_papers_lbl.setVisible(True)
 
-    def _on_card_selection_toggled(self, paper_id: str, selected: bool) -> None:
+    def _on_card_selection_toggled(self, source_fk: int, selected: bool) -> None:
         if selected:
-            self._selected_pids.add(paper_id)
+            self._selected_pids.add(source_fk)
         else:
-            self._selected_pids.discard(paper_id)
+            self._selected_pids.discard(source_fk)
         self._paper_action_bar.set_count(len(self._selected_pids))
 
     def _clear_paper_selection(self) -> None:
@@ -861,8 +882,8 @@ class ProjectDetailView(QWidget):
     def _remove_selected_papers(self) -> None:
         if self._project is None or not self._selected_pids:
             return
-        for pid in list(self._selected_pids):
-            self._project.remove_paper(pid)
+        for source_fk in list(self._selected_pids):
+            self._project.remove_paper(source_fk)
         self._rebuild_papers()
 
     def _on_bulk_download(self) -> None:
@@ -873,12 +894,12 @@ class ProjectDetailView(QWidget):
             w = item.widget()
             if isinstance(w, PaperCard) and w.paper_id() in self._selected_pids:
                 w.start_download_if_needed()
-
+    #TODO: move to QT assets, too many imports for this spot
     def _on_add_to_project(self) -> None:
         if not self._selected_pids:
             return
         from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
-        from storage.projects import filter_projects, Q
+        from service.project import filter_projects
 
         projects = filter_projects(Q("status = 'active'"))
         if not projects:
@@ -957,19 +978,20 @@ class ProjectDetailView(QWidget):
             else:
                 self._start_next_pdf()
             return
-        from storage.db import get_paper, save_papers_metadata, set_has_pdf, set_pdf_path
-        existing = get_paper(meta.paper_id)
+        existing = paper_svc.get_paper(meta.paper_id)
         if existing is None:
-            save_papers_metadata([meta])
+            paper_svc.save_papers_metadata([meta])
             self._pdf_added += 1
         else:
             self._pdf_skipped += 1
-        set_pdf_path(meta.paper_id, path)
-        set_has_pdf(meta.paper_id, meta.version, True)
-        try:
-            self._project.add_paper(meta.paper_id)
-        except Exception:
-            pass
+        paper_svc.set_pdf_path(meta.paper_id, path)
+        paper_svc.set_has_pdf(meta.paper_id, meta.version, True)
+        root = paper_svc.get_paper_root(meta.paper_id)
+        if root is not None:
+            try:
+                self._project.add_paper(int(root["SOURCE_FK"]))
+            except Exception:
+                pass
         if self._pdf_queue:
             self._start_next_pdf()
         else:
@@ -1048,7 +1070,7 @@ class ProjectCard(QFrame):
 
         stripe = QWidget()
         stripe.setFixedWidth(6)
-        hex_color = color_to_hex(project.color) if project.color is not None else _ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else _ACCENT
         stripe.setStyleSheet(f"background: {hex_color}; border-radius: 10px 0 0 10px;")
         outer.addWidget(stripe)
 
@@ -1093,7 +1115,7 @@ class ProjectCard(QFrame):
         if project.id is None:
             return 0
         try:
-            from storage.notes import count_project_notes
+            from service.note import count_project_notes
             return count_project_notes(project.id)
         except Exception:
             return 0
@@ -1106,7 +1128,7 @@ class ProjectCard(QFrame):
 # ── Projects page ─────────────────────────────────────────────────────────────
 
 class ProjectsPage(QWidget):
-    navigate_to_paper = pyqtSignal(str)   # paper_id — bubbled from ProjectDetailView
+    navigate_to_paper = pyqtSignal(int)   # source_fk — bubbled from ProjectDetailView
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -1114,13 +1136,14 @@ class ProjectsPage(QWidget):
         self._app_shell: AppShell | None = None
         self._library_page: LibraryPage | None = None
         self._project_detail_prior_shell_tab = False
-        self._return_to_library_paper_id: str | None = None
+        self._return_to_library_paper_id: int | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         self._inner = QStackedWidget()
-        self._inner.addWidget(self._build_list_page())   # index 0
+        self._list_page_widget = self._build_list_page()
+        self._inner.addWidget(self._list_page_widget)   # index 0
 
         self._detail_view = ProjectDetailView()
         self._detail_view.back_requested.connect(self._on_back)
@@ -1142,6 +1165,23 @@ class ProjectsPage(QWidget):
         self._return_to_library_paper_id = None
         self._inner.setCurrentIndex(0)
 
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._list_page_widget.setStyleSheet(f"background: {_theme.BG};")
+        self._proj_title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.ACCENT}; background: transparent;"
+        )
+        self._proj_subtitle_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._add_proj_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._refresh_proj_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._empty_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._detail_view.refresh_styles()
+        self._refresh()
+
     # ── List page ─────────────────────────────────────────────────────────────
 
     def _build_list_page(self) -> QWidget:
@@ -1154,22 +1194,22 @@ class ProjectsPage(QWidget):
         header = QHBoxLayout()
         col = QVBoxLayout()
         col.setSpacing(SPACE_XS)
-        title = QLabel("Projects")
+        self._proj_title_lbl = title = QLabel("Projects")
         title.setStyleSheet(
             f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;"
         )
-        subtitle = QLabel("Organise papers into focused reading projects")
+        self._proj_subtitle_lbl = subtitle = QLabel("Organise papers into focused reading projects")
         subtitle.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
         col.addWidget(title)
         col.addWidget(subtitle)
 
-        add_btn = QPushButton("＋  New Project")
+        self._add_proj_btn = add_btn = QPushButton("＋  New Project")
         add_btn.setFixedSize(160, 40)
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.setStyleSheet(_BTN_STYLE)
         add_btn.clicked.connect(self._on_add)
 
-        refresh_btn = QPushButton("Refresh")
+        self._refresh_proj_btn = refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedHeight(40)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.setStyleSheet(_BTN_MUTED_STYLE)
@@ -1214,9 +1254,9 @@ class ProjectsPage(QWidget):
                 item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
 
         try:
-            from storage.projects import filter_projects, ensure_projects_db, Q, Status
-            from storage.notes import ensure_notes_db
-            ensure_projects_db()
+            from service.project import filter_projects
+            from service.note import ensure_notes_db
+            project_svc.ensure_projects_db()
             ensure_notes_db()
             projects = filter_projects(Q("status = ?", Status.ACTIVE))
         except Exception:
@@ -1238,7 +1278,7 @@ class ProjectsPage(QWidget):
         project,
         *,
         opened_from_other_shell_tab: bool = False,
-        return_to_library_paper_id: str | None = None,
+        return_to_library_paper_id: int | None = None,
     ) -> None:
         """Navigate directly to a project's detail view (callable from other pages).
 

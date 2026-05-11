@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from service.paper import get_source_id
 from storage.db import get_graph_data
 from storage.projects import Status, filter_projects
 
@@ -26,8 +27,10 @@ def get_augmented_graph_data() -> dict:
         paper_to_projects: dict[str, list[int]] = {}
         for proj in filter_projects():
             if proj.id is not None:
-                for pid in (proj.paper_ids or []):
-                    paper_to_projects.setdefault(pid, []).append(proj.id)
+                for sfk in proj.source_fks:
+                    source_id = get_source_id(sfk)
+                    if source_id:
+                        paper_to_projects.setdefault(source_id, []).append(proj.id)
         for node in nodes:
             if node["type"] == "paper":
                 node["project_ids"] = paper_to_projects.get(node["id"], [])

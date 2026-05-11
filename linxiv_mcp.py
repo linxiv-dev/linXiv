@@ -146,7 +146,7 @@ def list_projects(status: Optional[str] = None) -> list[dict]:
             "description": p.description,
             "status": p.status.value,
             "paper_count": p.paper_count,
-            "paper_ids": p.paper_ids,
+            "source_fks": p.source_fks,
         }
         for p in projects
     ]
@@ -176,7 +176,10 @@ def add_paper_to_project(project_id: int, paper_id: str) -> dict:
     p = get_project(project_id)
     if p is None:
         raise ValueError(f"Project {project_id} not found.")
-    p.add_paper(paper_id)
+    root = db.get_paper_root(paper_id)
+    if root is None:
+        raise ValueError(f"Paper {paper_id!r} not found in database.")
+    p.add_paper(int(root["SOURCE_FK"]))
     return {"project_id": p.id, "paper_id": paper_id, "paper_count": p.paper_count}
 
 
@@ -191,7 +194,10 @@ def remove_paper_from_project(project_id: int, paper_id: str) -> dict:
     p = get_project(project_id)
     if p is None:
         raise ValueError(f"Project {project_id} not found.")
-    p.remove_paper(paper_id)
+    root = db.get_paper_root(paper_id)
+    if root is None:
+        raise ValueError(f"Paper {paper_id!r} not found in database.")
+    p.remove_paper(int(root["SOURCE_FK"]))
     return {"project_id": p.id, "paper_id": paper_id, "paper_count": p.paper_count}
 
 
@@ -214,11 +220,12 @@ def create_note(
         title: Optional note title.
         project_id: Associate the note with a specific project.
     """
-    if db.get_paper(paper_id) is None:
+    root = db.get_paper_root(paper_id)
+    if root is None:
         raise ValueError(f"Paper {paper_id!r} not found. Run fetch_paper first.")
-    note = Note(paper_id=paper_id, project_id=project_id, title=title, content=content)
+    note = Note(source_fk=int(root["SOURCE_FK"]), project_id=project_id, title=title, content=content)
     note.save()
-    return {"id": note.id, "paper_id": note.paper_id, "project_id": note.project_id, "title": note.title}
+    return {"id": note.id, "source_fk": note.source_fk, "project_id": note.project_id, "title": note.title}
 
 
 @mcp.tool()
@@ -229,16 +236,19 @@ def get_notes_for_paper(paper_id: str, project_id: Optional[int] = None) -> list
         paper_id: Paper ID to look up notes for.
         project_id: Scope to a specific project (None returns unscoped notes).
     """
+    root = db.get_paper_root(paper_id)
+    if root is None:
+        return []
     return [
         {
-            "id": n.id,
-            "paper_id": n.paper_id,
+            "id": n.note_id,
+            "source_fk": n.source_fk,
             "project_id": n.project_id,
             "title": n.title,
             "content": n.content,
             "created_at": n.created_at.isoformat() if n.created_at else None,
         }
-        for n in get_notes(paper_id, project_id=project_id)
+        for n in get_notes(int(root["SOURCE_FK"]), project_id=project_id)
     ]
 
 
@@ -251,8 +261,8 @@ def get_notes_for_project(project_id: int) -> list[dict]:
     """
     return [
         {
-            "id": n.id,
-            "paper_id": n.paper_id,
+            "id": n.note_id,
+            "source_fk": n.source_fk,
             "project_id": n.project_id,
             "title": n.title,
             "content": n.content,
