@@ -6,7 +6,7 @@ import re
 import sqlite3
 from collections.abc import Callable
 from typing import Optional, TYPE_CHECKING
-from .paths import old_pdf_dir, pdf_dir
+from storage.paths import old_pdf_dir, pdf_dir
 import arxiv
 
 if TYPE_CHECKING:
@@ -49,20 +49,6 @@ def init_table(
 
     Each column is a tuple: (name, python_type[, constraints])
     where constraints is an optional SQL string appended after the type.
-
-    Examples
-    --------
-    init_table("users", [
-        ("id",    int,   "PRIMARY KEY AUTOINCREMENT"),
-        ("name",  str,   "NOT NULL"),
-        ("score", float),
-        ("tags",  list),
-    ])
-
-    init_table("paper_tags", [
-        ("paper_id", str, "NOT NULL"),
-        ("tag",      str, "NOT NULL"),
-    ], primary_key=["paper_id", "tag"])
     """
     col_defs: list[str] = []
     for col in columns:
@@ -88,116 +74,147 @@ def _connect(db_path: str = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
-def _migration_v1(conn: sqlite3.Connection) -> None:
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(papers)")}
-    sql = (_MIGRATIONS_DIR / "papers_v1.sql").read_text()
-    for statement in sql.splitlines():
-        statement = statement.strip()
-        if not statement or statement.startswith("--"):
-            continue
-        col_name = statement.split()[5]
-        if col_name not in existing:
-            conn.execute(statement)
+def ensure_paper_root(source_id: str) -> int:
+    """Insert PAPER_ROOTS row if absent. Returns SOURCE_FK."""
+    with _connect() as conn:
+        return _ensure_paper_root_row(conn, source_id)
 
 
-_MIGRATIONS: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
-    (1, _migration_v1),
-]
+def get_source_id(source_fk: int) -> str | None:
+    """Return SOURCE_ID for a given SOURCE_FK, or None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_FK = ?", (source_fk,)
+        ).fetchone()
+    return str(row["SOURCE_ID"]) if row else None
 
 
-def _papers_has_root_fk(conn: sqlite3.Connection) -> bool:
-    rows = conn.execute("PRAGMA foreign_key_list(papers)").fetchall()
-    return any(row["table"] == "paper_roots" and row["from"] == "paper_id" for row in rows)
+def _ensure_paper_root_row(conn: sqlite3.Connection, source_id: str) -> int:
+    conn.execute("INSERT OR IGNORE INTO PAPER_ROOTS (SOURCE_ID) VALUES (?)", (source_id,))
+    row = conn.execute("SELECT SOURCE_FK FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,)).fetchone()
+    assert row is not None
+    return int(row[0])
 
 
-def _rebuild_papers_with_root_fk(conn: sqlite3.Connection) -> None:
-    conn.execute((_MIGRATIONS_DIR / "papers_add_root_fk.sql").read_text())
-    old_cols = {row[1] for row in conn.execute("PRAGMA table_info(papers)")}
-    col_list = ", ".join(
-        row[1] for row in conn.execute("PRAGMA table_info(papers_intermediate)")
-        if row[1] in old_cols
+def _author_fk_for_name(conn: sqlite3.Connection, full_name: str) -> int | None:
+    row = conn.execute(
+        "SELECT AUTHOR_FK FROM AUTHOR WHERE AUTHOR_FULL_NAME = ? COLLATE NOCASE LIMIT 1",
+        (full_name,),
+    ).fetchone()
+    if row is not None:
+        return int(row[0])
+    cur = conn.execute(
+        "INSERT INTO AUTHOR (AUTHOR_FULL_NAME) VALUES (?)",
+        (full_name,),
     )
-    conn.execute(f"INSERT INTO papers_intermediate ({col_list}) SELECT {col_list} FROM papers")
-    conn.executescript("""
-        DROP VIEW IF EXISTS latest_papers;
-        DROP TABLE papers;
-        ALTER TABLE papers_intermediate RENAME TO papers;
+    return cur.lastrowid
 
-        CREATE VIEW latest_papers AS
-        SELECT * FROM papers p
-        WHERE version = (
-            SELECT MAX(version) FROM papers WHERE paper_id = p.paper_id
-        );
-    """)
+
+def _tag_fk_for_label(conn: sqlite3.Connection, label: str) -> int|None:
+    row = conn.execute(
+        "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1",
+        (label,),
+    ).fetchone()
+    if row is not None:
+        return int(row[0])
+    cur = conn.execute("INSERT INTO TAG (TAG) VALUES (?)", (label,))
+    if cur.lastrowid:
+        return int(cur.lastrowid)
+    else:
+        return
+
+
+def _sync_paper_authors(
+    conn: sqlite3.Connection,
+    paper_id: int,
+    authors: list[str] | None,
+) -> None:
+    conn.execute("DELETE FROM PAPER_TO_AUTHOR WHERE PAPER_ID = ?", (paper_id,))
+    if not authors:
+        return
+    for i, name in enumerate(authors):
+        aid = _author_fk_for_name(conn, name)
+        conn.execute(
+            "INSERT INTO PAPER_TO_AUTHOR (PAPER_ID, AUTHOR_FK, AUTHOR_INDEX) VALUES (?, ?, ?)",
+            (paper_id, aid, i),
+        )
+
+
+def _sync_paper_tags(
+    conn: sqlite3.Connection,
+    paper_id: int,
+    source_id: str,
+    version: int,
+    tags: list[str] | None,
+) -> None:
+    conn.execute("DELETE FROM PAPER_TO_TAG WHERE PAPER_ID = ?", (paper_id,))
+    if not tags:
+        return
+    for label in tags:
+        if label:
+            tid = _tag_fk_for_label(conn, label)
+            row = conn.execute(
+                "INSERT INTO PAPER_TO_TAG (PAPER_ID, SOURCE_ID, VERSION, TAG_FK) VALUES (?, ?, ?, ?)",
+                (paper_id, source_id, version, tid),
+            )
+            if not row:
+                print(f"[db] Label [{label}] failed to be added")
+
+
+def _write_paper_version(
+    conn: sqlite3.Connection,
+    source_id: str,
+    version: int,
+    title: str,
+    category: str | None,
+    has_pdf: bool,
+    *,
+    url: str | None,
+    published: datetime.date | None,
+    updated: datetime.date | None,
+    categories: list[str] | None,
+    doi: str | None,
+    journal_ref: str | None,
+    comment: str | None,
+    summary: str | None,
+    authors: list[str] | None,
+    tags: list[str] | None,
+    source: str,
+    pdf_path: str | None,
+    full_text: str | None,
+    downloaded_source: bool | None,
+) -> None:
+    source_fk = _ensure_paper_root_row(conn, source_id)
+    cur = conn.execute(
+        "INSERT INTO PAPER (SOURCE_ID, VERSION, TITLE, CATEGORY, HAS_PDF, SOURCE_FK) VALUES (?, ?, ?, ?, ?, ?)",
+        (source_id, version, title, category, has_pdf, source_fk),
+    )
+    if cur.lastrowid is None:
+        return
+    paper_id = int(cur.lastrowid)
+    conn.execute(
+        """
+        INSERT INTO PAPER_META (
+            PAPER_ID, URL, PUBLISHED, UPDATED, CATEGORIES, DOI, JOURNAL_REF,
+            COMMENT, SUMMARY, SOURCE, PDF_PATH, FULL_TEXT, DOWNLOADED_SOURCE, AUTHORS, TAGS
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            paper_id, url, published, updated, categories, doi, journal_ref,
+            comment, summary, source, pdf_path, full_text, downloaded_source,
+            authors, tags,
+        ),
+    )
+    conn.execute("UPDATE PAPER SET UPDATED_AT = date('now') WHERE PAPER_ID = ?", (paper_id,))
+    _sync_paper_authors(conn, paper_id, authors)
+    _sync_paper_tags(conn, paper_id, source_id, version, tags)
 
 
 def init_db() -> None:
+    from storage.config.core import apply_sql_schema
+
     with _connect() as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS paper_roots (
-                paper_id    TEXT    PRIMARY KEY
-            );
-
-            CREATE TABLE IF NOT EXISTS papers (
-                paper_id    TEXT    NOT NULL,
-                version     INTEGER NOT NULL,
-                title       TEXT    NOT NULL,
-                url         TEXT,
-                published   DATE,
-                updated     DATE,
-                category    TEXT,
-                categories  LIST,
-                doi         TEXT,
-                journal_ref TEXT,
-                comment     TEXT,
-                summary     TEXT,
-                authors     LIST,
-                tags        LIST,
-                has_pdf     BOOL NOT NULL DEFAULT 0,
-                PRIMARY KEY (paper_id, version),
-                FOREIGN KEY (paper_id) REFERENCES paper_roots(paper_id) ON DELETE CASCADE
-            );
-
-            CREATE VIEW IF NOT EXISTS latest_papers AS
-            SELECT * FROM papers p
-            WHERE version = (
-                SELECT MAX(version) FROM papers WHERE paper_id = p.paper_id
-            );
-
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-                version     INTEGER PRIMARY KEY,
-                applied_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        conn.execute("""
-            INSERT OR IGNORE INTO paper_roots(paper_id)
-            SELECT DISTINCT paper_id FROM papers
-        """)
-        current_version: int = conn.execute("PRAGMA user_version").fetchone()[0]
-        for version, fn in _MIGRATIONS:
-            if version > current_version:
-                fn(conn)
-                conn.execute(
-                    "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)",
-                    (version,),
-                )
-                conn.execute(f"PRAGMA user_version = {version}")
-                current_version = version
-        if not _papers_has_root_fk(conn):
-            _rebuild_papers_with_root_fk(conn)
-
-        # FTS5 virtual table for full-text search of TeX source
-        conn.execute("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts
-            USING fts5(paper_id, full_text)
-        """)
-        # Migrate databases that had the broken external-content declaration
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE name='papers_fts'"
-        ).fetchone()
-        if row and row[0] and "content=''" in row[0]:
-            conn.execute("DROP TABLE IF EXISTS papers_fts")
-            conn.execute("CREATE VIRTUAL TABLE papers_fts USING fts5(paper_id, full_text)")
+        apply_sql_schema(conn)
 
     wrong_path_rows = _get_deprecated_path_rows()
     if wrong_path_rows:
@@ -205,7 +222,7 @@ def init_db() -> None:
             try:
                 curr_path = rows["PDF_PATH"]
                 if Path(curr_path).is_file() and Path(curr_path).rename(curr_path.replace(str(old_pdf_dir()), str(pdf_dir()))).exists():
-                    set_pdf_path(rows["paper_id"], curr_path.replace(str(old_pdf_dir()), str(pdf_dir())))
+                    set_pdf_path(rows["source_id"], curr_path.replace(str(old_pdf_dir()), str(pdf_dir())))
                     print(f"File [ {curr_path} ] moved and verified!")
                 else:
                     print(f"File [ {curr_path} ] could not be moved")
@@ -233,183 +250,229 @@ def parse_entry_id(entry_id: str) -> tuple[str, int]:
     raw = entry_id.split('/')[-1]
     match = re.match(r'^(.+?)(?:v(\d+))?$', raw)
     assert match is not None
-    paper_id = match.group(1)
+    source_id = match.group(1)
     version = int(match.group(2)) if match.group(2) else 1
-    return paper_id, version
+    return source_id, version
 
 
 def _insert_arxiv(conn: sqlite3.Connection, paper: arxiv.Result, tags: list[str] | None = None) -> tuple[str, int]:
-    paper_id, version = parse_entry_id(paper.entry_id)
-    conn.execute("INSERT OR IGNORE INTO paper_roots(paper_id) VALUES (?)", (paper_id,))
-    conn.execute("""
-        INSERT OR REPLACE INTO papers
-            (paper_id, version, title, url, published, updated,
-             category, categories, doi, journal_ref, comment, summary, authors, tags, source)
-        VALUES
-            (:paper_id, :version, :title, :url, :published, :updated,
-             :category, :categories, :doi, :journal_ref, :comment, :summary, :authors, :tags, :source)
-    """, {
-        "paper_id":    paper_id,
-        "version":     version,
-        "title":       paper.title,
-        "url":         paper.pdf_url,
-        "published":   paper.published.date(),
-        "updated":     paper.updated.date(),
-        "category":    paper.primary_category,
-        "categories":  paper.categories,
-        "doi":         paper.doi,
-        "journal_ref": paper.journal_ref,
-        "comment":     paper.comment,
-        "summary":     paper.summary,
-        "authors":     [a.name for a in paper.authors],
-        "tags":        tags,
-        "source":      "arxiv",
-    })
-    return paper_id, version
+    source_id, version = parse_entry_id(paper.entry_id)
+    _write_paper_version(
+        conn,
+        source_id,
+        version,
+        paper.title,
+        paper.primary_category,
+        False,
+        url=paper.pdf_url,
+        published=paper.published.date(),
+        updated=paper.updated.date(),
+        categories=paper.categories,
+        doi=paper.doi,
+        journal_ref=paper.journal_ref,
+        comment=paper.comment,
+        summary=paper.summary,
+        authors=[a.name for a in paper.authors],
+        tags=tags,
+        source="arxiv",
+        pdf_path=None,
+        full_text=None,
+        downloaded_source=None,
+    )
+    return source_id, version
 
 
 def _insert_metadata(conn: sqlite3.Connection, meta: PaperMetadata, tags: list[str] | None = None) -> tuple[str, int]:
-    """Insert a source-agnostic PaperMetadata into the papers table."""
+    """Insert a source-agnostic PaperMetadata row."""
     merged_tags = meta.tags
     if tags:
         merged_tags = list(set((merged_tags or []) + tags))
-    conn.execute("INSERT OR IGNORE INTO paper_roots(paper_id) VALUES (?)", (meta.paper_id,))
-    conn.execute("""
-        INSERT OR REPLACE INTO papers
-            (paper_id, version, title, url, published, updated,
-             category, categories, doi, journal_ref, comment, summary, authors, tags, source)
-        VALUES
-            (:paper_id, :version, :title, :url, :published, :updated,
-             :category, :categories, :doi, :journal_ref, :comment, :summary, :authors, :tags, :source)
-    """, {
-        "paper_id":    meta.paper_id,
-        "version":     meta.version,
-        "title":       meta.title,
-        "url":         meta.url,
-        "published":   meta.published,
-        "updated":     meta.updated,
-        "category":    meta.category,
-        "categories":  meta.categories,
-        "doi":         meta.doi,
-        "journal_ref": meta.journal_ref,
-        "comment":     meta.comment,
-        "summary":     meta.summary,
-        "authors":     meta.authors,
-        "tags":        merged_tags,
-        "source":      meta.source,
-    })
+    _write_paper_version(
+        conn,
+        meta.paper_id,
+        meta.version,
+        meta.title,
+        meta.category,
+        False,
+        url=meta.url,
+        published=meta.published,
+        updated=meta.updated,
+        categories=meta.categories,
+        doi=meta.doi,
+        journal_ref=meta.journal_ref,
+        comment=meta.comment,
+        summary=meta.summary,
+        authors=meta.authors,
+        tags=merged_tags,
+        source=meta.source or "",
+        pdf_path=None,
+        full_text=None,
+        downloaded_source=None,
+    )
     return meta.paper_id, meta.version
 
 
 def save_paper(paper: arxiv.Result, tags: list[str] | None = None) -> tuple[str, int]:
-    """Insert or replace a single arxiv paper. Returns (paper_id, version)."""
+    """Insert a single arxiv paper. Returns (paper_id, version)."""
     with _connect() as conn:
         return _insert_arxiv(conn, paper, tags)
 
 
 def save_papers(papers: list[arxiv.Result], tags: list[str] | None = None) -> list[tuple[str, int]]:
-    """Batch insert/replace arxiv papers in a single transaction. Returns list of (paper_id, version)."""
+    """Batch insert arxiv papers in a single transaction. Returns list of (paper_id, version)."""
     with _connect() as conn:
         return [_insert_arxiv(conn, paper, tags) for paper in papers]
 
 
 def save_paper_metadata(meta: PaperMetadata, tags: list[str] | None = None) -> tuple[str, int]:
-    """Insert or replace a paper from any source via PaperMetadata. Returns (paper_id, version)."""
+    """Insert a paper from any source via PaperMetadata. Returns (paper_id, version)."""
     with _connect() as conn:
         return _insert_metadata(conn, meta, tags)
 
 
 def save_papers_metadata(papers: list[PaperMetadata], tags: list[str] | None = None) -> list[tuple[str, int]]:
-    """Batch insert/replace papers from any source. Returns list of (paper_id, version)."""
+    """Batch insert papers from any source. Returns list of (paper_id, version)."""
     with _connect() as conn:
         return [_insert_metadata(conn, meta, tags) for meta in papers]
 
 
-def repair_paper(old_paper_id: str, meta: PaperMetadata) -> str:
-    """In-place repair of a paper's metadata, migrating all FK references if paper_id changes.
+def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
+    """In-place repair of a paper's metadata, migrating SOURCE_ID if paper_id changes.
 
-    If old_paper_id != meta.paper_id the new ID is inserted into paper_roots, all child
-    rows (papers, notes, project_papers, papers_fts) are renamed, and the old root is
-    deleted.  The latest version's editable fields are then updated in-place so that
-    version history, pdf_path, has_pdf, full_text, and source are all preserved.
-    Returns the final paper_id.
+    Keyed by SOURCE_FK (stable integer) so the caller never needs to track the old
+    string ID.  Version history, pdf_path, has_pdf, full_text, and source are preserved.
     """
     new_id = meta.paper_id
     with _connect() as conn:
-        if new_id != old_paper_id:
-            conn.execute("INSERT OR IGNORE INTO paper_roots(paper_id) VALUES (?)", (new_id,))
-            conn.execute("UPDATE papers         SET paper_id = ? WHERE paper_id = ?", (new_id, old_paper_id))
-            conn.execute("UPDATE notes          SET paper_id = ? WHERE paper_id = ?", (new_id, old_paper_id))
-            conn.execute("UPDATE project_papers SET paper_id = ? WHERE paper_id = ?", (new_id, old_paper_id))
-            fts_row = conn.execute(
-                "SELECT full_text FROM papers_fts WHERE paper_id = ?", (old_paper_id,)
-            ).fetchone()
-            if fts_row is not None:
-                conn.execute("DELETE FROM papers_fts WHERE paper_id = ?", (old_paper_id,))
+        root = conn.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_FK = ?", (source_fk,)
+        ).fetchone()
+        if root is None:
+            return
+        old_id = str(root["SOURCE_ID"])
+        if new_id != old_id:
+            # PAPER_TO_TAG references (SOURCE_ID, VERSION) — update before PAPER
+            # so the FK constraint isn't violated mid-transaction.
+            conn.execute(
+                "UPDATE PAPER_TO_TAG SET SOURCE_ID = ? WHERE SOURCE_ID = ?",
+                (new_id, old_id),
+            )
+            conn.execute(
+                "UPDATE PAPER_ROOTS SET SOURCE_ID = ? WHERE SOURCE_FK = ?",
+                (new_id, source_fk),
+            )
+            conn.execute(
+                "UPDATE PAPER SET SOURCE_ID = ? WHERE SOURCE_FK = ?",
+                (new_id, source_fk),
+            )
+            # PROJECT_TO_PAPER uses SOURCE_FK (integer) so no rename needed here
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+            ).fetchone():
                 conn.execute(
-                    "INSERT INTO papers_fts(paper_id, full_text) VALUES (?, ?)",
-                    (new_id, fts_row["full_text"]),
+                    "UPDATE papers_fts SET paper_id = ? WHERE paper_id = ?",
+                    (new_id, old_id),
                 )
-            conn.execute("DELETE FROM paper_roots WHERE paper_id = ?", (old_paper_id,))
-        # Update only the latest version's editable fields; preserve version, source, pdf_path, etc.
-        conn.execute("""
-            UPDATE papers SET
-                title = ?, authors = ?, published = ?,
-                category = ?, doi = ?, url = ?, summary = ?, tags = ?
-            WHERE paper_id = ?
-              AND version = (SELECT MAX(version) FROM papers WHERE paper_id = ?)
-        """, (
-            meta.title, meta.authors, meta.published,
-            meta.category, meta.doi, meta.url, meta.summary, meta.tags,
-            new_id, new_id,
-        ))
-    return new_id
+
+        row = conn.execute(
+            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_FK = ? ORDER BY VERSION DESC LIMIT 1",
+            (source_fk,),
+        ).fetchone()
+        if row is not None:
+            pid = row["PAPER_ID"]
+            conn.execute(
+                "UPDATE PAPER SET TITLE = ?, CATEGORY = ? WHERE PAPER_ID = ?",
+                (meta.title, meta.category, pid),
+            )
+            conn.execute(
+                """
+                UPDATE PAPER_META SET
+                    AUTHORS = ?, PUBLISHED = ?, DOI = ?, URL = ?,
+                    SUMMARY = ?, TAGS = ?, UPDATED_AT = date('now')
+                WHERE PAPER_ID = ?
+                """,
+                (meta.authors, meta.published, meta.doi, meta.url,
+                 meta.summary, meta.tags, pid),
+            )
 
 
-def set_has_pdf(paper_id: str, version: int, has: bool) -> None:
+def set_has_pdf(source_id: str, version: int, has: bool) -> None:
     """Set the has_pdf flag for a specific paper version."""
     with _connect() as conn:
         conn.execute(
-            "UPDATE papers SET has_pdf = ? WHERE paper_id = ? AND version = ?",
-            (has, paper_id, version)
+            "UPDATE PAPER SET HAS_PDF = ? WHERE SOURCE_ID = ? AND VERSION = ?",
+            (has, source_id, version),
         )
 
-def set_pdf_path(paper_id: str, path: str) -> None:
+
+def set_pdf_path(source_id: str, path: str) -> None:
     """Set the pdf_path for a paper (all versions)."""
-    try:
-        with _connect() as conn:
-            conn.execute("UPDATE papers SET pdf_path = ? WHERE paper_id = ?", (path, paper_id))
-    except Exception as e:
-        print(f"Exception, [{e}] occured while changing pdf path of [{paper_id}] to [{path}]")
-
-
-def delete_paper(paper_id: str) -> None:
-    """Delete all versions of a paper."""
     with _connect() as conn:
-        conn.execute("DELETE FROM paper_roots WHERE paper_id = ?", (paper_id,))
+        conn.execute(
+            "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
+            "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ?)",
+            (path, source_id),
+        )
 
 
-def get_paper(paper_id: str, version: Optional[int] = None) -> Optional[sqlite3.Row]:
+def delete_paper(source_id: str) -> None:
+    """Delete all versions of a paper and its root row."""
+    with _connect() as conn:
+        if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+        ).fetchone():
+            conn.execute("DELETE FROM papers_fts WHERE paper_id = ?", (source_id,))
+        conn.execute("DELETE FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,))
+
+
+def get_paper(source_id: str, version: Optional[int] = None) -> Optional[sqlite3.Row]:
     """Fetch a specific version, or the latest if version is None."""
     with _connect() as conn:
         if version is not None:
             return conn.execute(
-                "SELECT * FROM papers WHERE paper_id = ? AND version = ?",
-                (paper_id, version)
+                "SELECT * FROM papers WHERE source_id = ? AND version = ?",
+                (source_id, version),
             ).fetchone()
-        else:
-            return conn.execute(
-                "SELECT * FROM latest_papers WHERE paper_id = ?",
-                (paper_id,)
-            ).fetchone()
+        return conn.execute(
+            "SELECT * FROM latest_papers WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
 
 
-def get_all_versions(paper_id: str) -> list[sqlite3.Row]:
+def get_paper_by_id(paper_id: int) -> Optional[sqlite3.Row]:
+    """Fetch a paper version by its PAPER primary key."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM papers WHERE paper_id = ?",
+            (paper_id,),
+        ).fetchone()
+
+
+def get_paper_by_source_fk(source_fk: int) -> Optional[sqlite3.Row]:
+    """Fetch the latest version for a PAPER_ROOTS row by SOURCE_FK."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM latest_papers WHERE source_id = ("
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_FK = ?)",
+            (source_fk,),
+        ).fetchone()
+
+
+def get_paper_root(source_id: str) -> Optional[sqlite3.Row]:
+    """Return the PAPER_ROOTS row for a given source_id."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM PAPER_ROOTS WHERE SOURCE_ID = ?",
+            (source_id,),
+        ).fetchone()
+
+
+def get_all_versions(source_id: str) -> list[sqlite3.Row]:
     """Fetch all stored versions of a paper, ordered oldest to newest."""
     with _connect() as conn:
         return conn.execute(
-            "SELECT * FROM papers WHERE paper_id = ? ORDER BY version ASC",
-            (paper_id,)
+            "SELECT * FROM papers WHERE source_id = ? ORDER BY version ASC",
+            (source_id,),
         ).fetchall()
 
 
@@ -418,7 +481,7 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
     with _connect() as conn:
         paper_nodes = [
             {
-                "id":        row["paper_id"],
+                "id":        row["source_fk"],
                 "label":     row["title"],
                 "type":      "paper",
                 "category":  row["category"],
@@ -429,13 +492,23 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
                 "doi":       row["doi"],
                 "summary":   row["summary"],
             }
-            for row in conn.execute(
-                "SELECT paper_id, title, category, tags, has_pdf, published, url, doi, summary FROM latest_papers"
-            )
+            for row in conn.execute("""
+                SELECT r.SOURCE_FK AS source_fk, p.TITLE AS title, p.CATEGORY AS category,
+                       m.TAGS AS tags, p.HAS_PDF AS has_pdf, m.PUBLISHED AS published,
+                       m.URL AS url, m.DOI AS doi, m.SUMMARY AS summary
+                FROM PAPER_ROOTS r
+                JOIN PAPER p ON p.SOURCE_FK = r.SOURCE_FK
+                JOIN PAPER_META m ON m.PAPER_ID = p.PAPER_ID
+                WHERE p.VERSION = (SELECT MAX(VERSION) FROM PAPER WHERE SOURCE_FK = r.SOURCE_FK)
+            """)
         ]
         author_rows = conn.execute("""
-            SELECT p.paper_id, je.value AS author_name
-            FROM latest_papers p, json_each(p.authors) je
+            SELECT r.SOURCE_FK AS source_fk, je.value AS author_name
+            FROM PAPER_ROOTS r
+            JOIN PAPER p ON p.SOURCE_FK = r.SOURCE_FK
+            JOIN PAPER_META m ON m.PAPER_ID = p.PAPER_ID,
+                 json_each(m.AUTHORS) je
+            WHERE p.VERSION = (SELECT MAX(VERSION) FROM PAPER WHERE SOURCE_FK = r.SOURCE_FK)
         """).fetchall()
 
     seen_authors: set[str] = set()
@@ -447,7 +520,7 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
         if author_id not in seen_authors:
             author_nodes.append({"id": author_id, "label": name, "type": "author"})
             seen_authors.add(author_id)
-        edges.append({"source": row["paper_id"], "target": author_id})
+        edges.append({"source": row["source_fk"], "target": author_id})
 
     return paper_nodes + author_nodes, edges
 
@@ -461,6 +534,9 @@ def list_papers(latest_only: bool = True, limit: int | None = None, offset: int 
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params = [limit, offset]
+        elif offset:
+            sql += " LIMIT -1 OFFSET ?"
+            params = [offset]
         return conn.execute(sql, params).fetchall()
 
 
@@ -485,47 +561,67 @@ def get_tags() -> list[str]:
     return [row["tag"] for row in rows]
 
 
-def add_paper_tags(paper_id: str, tags: list[str]) -> list[str]:
+def add_paper_tags(source_id: str, tags: list[str]) -> list[str]:
     """Add tags to a paper, deduplicating. Returns the updated tag list."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT tags FROM latest_papers WHERE paper_id = ?", (paper_id,)
+            "SELECT tags FROM latest_papers WHERE source_id = ?", (source_id,)
         ).fetchone()
         if row is None:
-            raise KeyError(paper_id)
+            raise KeyError(source_id)
         current: list[str] = row["tags"] or []
         merged = list(dict.fromkeys(current + tags))
-        conn.execute("UPDATE papers SET tags = ? WHERE paper_id = ?", (merged, paper_id))
+        conn.execute(
+            "UPDATE PAPER_META SET TAGS = ? WHERE PAPER_ID IN (SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ?)",
+            (merged, source_id),
+        )
+        for vr in conn.execute(
+            "SELECT PAPER_ID, VERSION FROM PAPER WHERE SOURCE_ID = ?", (source_id,)
+        ):
+            _sync_paper_tags(conn, int(vr["PAPER_ID"]), source_id, int(vr["VERSION"]), merged)
     return merged
 
 
-def remove_paper_tags(paper_id: str, tags: list[str]) -> list[str]:
+def remove_paper_tags(source_id: str, tags: list[str]) -> list[str]:
     """Remove tags from a paper. Returns the updated tag list."""
     remove = set(tags)
     with _connect() as conn:
         row = conn.execute(
-            "SELECT tags FROM latest_papers WHERE paper_id = ?", (paper_id,)
+            "SELECT tags FROM latest_papers WHERE source_id = ?", (source_id,)
         ).fetchone()
         if row is None:
-            raise KeyError(paper_id)
+            raise KeyError(source_id)
         current: list[str] = row["tags"] or []
         updated = [t for t in current if t not in remove]
-        conn.execute("UPDATE papers SET tags = ? WHERE paper_id = ?", (updated, paper_id))
+        conn.execute(
+            "UPDATE PAPER_META SET TAGS = ? WHERE PAPER_ID IN (SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ?)",
+            (updated, source_id),
+        )
+        for vr in conn.execute(
+            "SELECT PAPER_ID, VERSION FROM PAPER WHERE SOURCE_ID = ?", (source_id,)
+        ):
+            _sync_paper_tags(conn, int(vr["PAPER_ID"]), source_id, int(vr["VERSION"]), updated)
     return updated
 
 
-def set_full_text(paper_id: str, version: int, full_text: str) -> None:
+def set_full_text(source_id: str, version: int, full_text: str) -> None:
     """Store extracted TeX full text and update the FTS index."""
     with _connect() as conn:
+        row = conn.execute(
+            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? AND VERSION = ?",
+            (source_id, version),
+        ).fetchone()
+        if row is None:
+            return
+        paper_id = int(row["PAPER_ID"])
         conn.execute(
-            "UPDATE papers SET full_text = ?, downloaded_source = 1 "
-            "WHERE paper_id = ? AND version = ?",
-            (full_text, paper_id, version),
+            "UPDATE PAPER_META SET FULL_TEXT = ?, DOWNLOADED_SOURCE = 1 WHERE PAPER_ID = ?",
+            (full_text, paper_id),
         )
-        # Update FTS index — delete old entry then insert new one
+        conn.execute("DELETE FROM papers_fts WHERE paper_id = ?", (source_id,))
         conn.execute(
-            "INSERT OR REPLACE INTO papers_fts(paper_id, full_text) VALUES (?, ?)",
-            (paper_id, full_text),
+            "INSERT INTO papers_fts(paper_id, full_text) VALUES (?, ?)",
+            (source_id, full_text),
         )
 
 
@@ -534,7 +630,7 @@ def search_full_text(query: str, limit: int = 20) -> list[sqlite3.Row]:
     with _connect() as conn:
         return conn.execute("""
             SELECT p.* FROM papers p
-            JOIN papers_fts fts ON p.paper_id = fts.paper_id
+            JOIN papers_fts fts ON p.source_id = fts.PAPER_ID
             WHERE papers_fts MATCH ?
             ORDER BY rank
             LIMIT ?

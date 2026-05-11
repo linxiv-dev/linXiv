@@ -11,10 +11,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from storage.db import get_paper, save_paper_metadata
+from service import paper as paper_svc
 from sources import _resolve_doi
 from sources.base import PaperMetadata
 
+import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
@@ -25,6 +26,7 @@ from gui.theme import (
     PAGE_MARGIN_H, PAGE_MARGIN_V,
     CARD_PAD_H, DIALOG_PAD,
 )
+import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import BTN_PRIMARY as _BTN_PRIMARY, BTN_SUCCESS as _BTN_SUCCESS
 
 _GREEN  = "#4caf7d"
@@ -64,15 +66,15 @@ class DoiPage(QWidget):
         outer.setSpacing(0)
 
         # Header
-        title_lbl = QLabel("Add by DOI")
-        title_lbl.setStyleSheet(
+        self._title_lbl = QLabel("Add by DOI")
+        self._title_lbl.setStyleSheet(
             f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;"
         )
-        sub_lbl = QLabel("Look up any paper by its DOI and add it to your library.")
-        sub_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
-        outer.addWidget(title_lbl)
+        self._sub_lbl = QLabel("Look up any paper by its DOI and add it to your library.")
+        self._sub_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
+        outer.addWidget(self._title_lbl)
         outer.addSpacing(SPACE_XS)
-        outer.addWidget(sub_lbl)
+        outer.addWidget(self._sub_lbl)
         outer.addSpacing(SPACE_XL)
 
         # Input row
@@ -114,6 +116,34 @@ class DoiPage(QWidget):
         outer.addWidget(self._result_card)
 
         outer.addStretch()
+
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.ACCENT}; background: transparent;"
+        )
+        self._sub_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._doi_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {_theme.PANEL}; border: 1px solid {_theme.BORDER};
+                border-radius: {RADIUS_MD}px; color: {_theme.TEXT}; font-size: {FONT_BODY}px;
+                padding: 8px 12px;
+            }}
+            QLineEdit:focus {{ border-color: {_theme.ACCENT}; }}
+        """)
+        self._lookup_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.MUTED}; background: transparent;")
+        self._result_card.setStyleSheet(f"""
+            QFrame {{
+                background: {_theme.PANEL}; border: 1px solid {_theme.BORDER}; border-radius: {RADIUS_LG}px;
+            }}
+            QLabel {{ border: none; background: transparent; }}
+        """)
+        self._res_title.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT};")
+        self._res_meta.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.MUTED};")
+        self._res_abstract.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.TEXT}; line-height: 1.5;")
+        self._save_btn.setStyleSheet(_qt_styles.BTN_SUCCESS)
+        self._source_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED};")
 
     # ── Result card ───────────────────────────────────────────────────────────
 
@@ -202,7 +232,7 @@ class DoiPage(QWidget):
         src = meta.source or ""
         self._source_lbl.setText(f"via {source_labels.get(src, src)}: {meta.paper_id}")
 
-        already = get_paper(meta.paper_id) is not None
+        already = paper_svc.get_paper(meta.paper_id) is not None
         if already:
             self._save_btn.setText("Already in library")
             self._save_btn.setEnabled(False)
@@ -220,7 +250,7 @@ class DoiPage(QWidget):
     def _on_save(self) -> None:
         if self._result is None:
             return
-        save_paper_metadata(self._result)
+        paper_svc.save_paper_metadata(self._result)
         self._save_btn.setText("Saved ✓")
         self._save_btn.setEnabled(False)
         self._status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_GREEN}; background: transparent;")

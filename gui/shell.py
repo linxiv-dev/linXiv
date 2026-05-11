@@ -12,22 +12,25 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .theme import BG as _BG, TEXT as _TEXT, FONT_BODY, NAV_WIDTH, SPACE_XS, SPACE_MD, SPACE_SM
+from . import theme as _theme
+from .theme import FONT_BODY, NAV_WIDTH, SPACE_XS, SPACE_MD, SPACE_SM
 
-_SIDEBAR_STYLE = f"""
-    QWidget#sidebar {{ background: #1a1a2e; }}
-    QPushButton {{
-        color: #ccccdd;
-        background: transparent;
-        border: none;
-        padding: {SPACE_MD}px {SPACE_SM}px;
-        font-family: 'Segoe UI', sans-serif;
-        font-size: {FONT_BODY}px;
-        text-align: left;
-    }}
-    QPushButton:hover   {{ background: #2a2a4a; }}
-    QPushButton:checked {{ background: #5b8dee; color: #ffffff; }}
-"""
+
+def _sidebar_style() -> str:
+    return f"""
+        QWidget#sidebar {{ background: {_theme.PANEL}; }}
+        QPushButton {{
+            color: {_theme.TEXT};
+            background: transparent;
+            border: none;
+            padding: {SPACE_MD}px {SPACE_SM}px;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: {FONT_BODY}px;
+            text-align: left;
+        }}
+        QPushButton:hover   {{ background: {_theme.BORDER}; }}
+        QPushButton:checked {{ background: {_theme.ACCENT}; color: #ffffff; }}
+    """
 
 
 class AppShell(QMainWindow):
@@ -37,16 +40,17 @@ class AppShell(QMainWindow):
         super().__init__()
         self.setWindowTitle("linXiv")
         self.resize(1500, 950)
-        self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
         self._page_btns: list[QPushButton] = []
         self._stack = QStackedWidget()
         self._close_callbacks: list[Callable[[], object]] = []
         self._nav_history: list[int] = []
+        self._dirty: set[int] = set()
 
         self._sidebar = QWidget()
         self._sidebar.setObjectName("sidebar")
         self._sidebar.setFixedWidth(NAV_WIDTH)
-        self._sidebar.setStyleSheet(_SIDEBAR_STYLE)
+        self._sidebar.setStyleSheet(_sidebar_style())
 
         self._nav = QVBoxLayout(self._sidebar)
         self._nav.setContentsMargins(0, SPACE_SM, 0, SPACE_SM)
@@ -99,6 +103,22 @@ class AppShell(QMainWindow):
         self._go_to(prev, record_history=False)
         return True
 
+    def mark_all_dirty(self) -> None:
+        """Mark all pages except the current one for style refresh on next visit."""
+        cur = self._stack.currentIndex()
+        self._dirty = set(range(self._stack.count())) - {cur}
+        self._sidebar.setStyleSheet(_sidebar_style())
+
+    def apply_all(self) -> None:
+        """Immediately call refresh_styles() on every page that supports it."""
+        for i in range(self._stack.count()):
+            page = self._stack.widget(i)
+            fn = getattr(page, "refresh_styles", None)
+            if callable(fn):
+                fn()
+        self._dirty.clear()
+        self._sidebar.setStyleSheet(_sidebar_style())
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -110,6 +130,12 @@ class AppShell(QMainWindow):
         cur = self._stack.currentIndex()
         if record_history and cur != idx and cur >= 0:
             self._nav_history.append(cur)
+        if idx in self._dirty:
+            page = self._stack.widget(idx)
+            fn = getattr(page, "refresh_styles", None)
+            if callable(fn):
+                fn()
+            self._dirty.discard(idx)
         self._stack.setCurrentIndex(idx)
         for i, btn in enumerate(self._page_btns):
             btn.setChecked(i == idx)

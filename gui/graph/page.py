@@ -21,9 +21,13 @@ from formats.bibtex import BibTeXFormat
 from formats.csv_fmt import CSVFormat
 from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
+import gui.theme as _theme
 from gui.theme import FONT_SECONDARY, FONT_TERTIARY, SPACE_XS, SPACE_SM
-from storage.db import get_categories, get_graph_data, get_tags, list_papers
-
+from service import paper as paper_svc
+from service.tag import list_all_tags
+from service.project import filter_projects
+from service.paper import get_paper_root
+from service.project import filter_projects, color_to_hex, Status
 # ── Helpers ───────────────────────────────────────────────────────────────────
 # TODO: Break down into smaller chunks
 def _fmt_date(val) -> str:
@@ -90,7 +94,7 @@ class PaperListPanel(QWidget):
     def table(self) -> QTableWidget:
         return self._table
 
-    def paper_id_for_row(self, row: int) -> str | None:
+    def paper_id_for_row(self, row: int) -> int | None:
         item = self._table.item(row, 0)
         if item is None:
             return None
@@ -120,7 +124,7 @@ class PaperListPanel(QWidget):
             self._table.insertRow(r)
 
             title_item = QTableWidgetItem(row_data["title"] or "")
-            title_item.setData(Qt.ItemDataRole.UserRole, row_data["paper_id"])
+            title_item.setData(Qt.ItemDataRole.UserRole, row_data["source_fk"])
             self._table.setItem(r, 0, title_item)
             self._table.setItem(r, 1, QTableWidgetItem(row_data["category"] or ""))
             self._table.setItem(r, 2, QTableWidgetItem(_fmt_date(row_data["published"])))
@@ -159,7 +163,7 @@ class PaperListPanel(QWidget):
 
 class GraphPage(QWidget):
     """Graph + paper list, embeddable as a page inside AppShell."""
-    paper_right_clicked = pyqtSignal(str)  # emits paper_id when a node is right-clicked
+    paper_right_clicked = pyqtSignal(int)  # emits source_fk when a node is right-clicked
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -238,7 +242,7 @@ class GraphPage(QWidget):
         self._load_dropdowns()
 
     def _load_graph(self) -> None:
-        nodes, edges = get_graph_data()
+        nodes, edges = paper_svc.get_graph_data()
 
         # Generate tag nodes from paper tags
         seen_tag_ids: set[str] = set()
@@ -256,12 +260,19 @@ class GraphPage(QWidget):
 
         # Augment paper nodes with project membership
         try:
-            from storage.projects import filter_projects
+            sfk_to_source_id: dict[int, str] = {}
+            for node in nodes:
+                if node["type"] == "paper":
+                    root = get_paper_root(node["id"])
+                    if root is not None:
+                        sfk_to_source_id[int(root["SOURCE_FK"])] = node["id"]
             paper_to_projects: dict[str, list[int]] = {}
             for proj in filter_projects():
                 if proj.id is not None:
-                    for pid in (proj.paper_ids or []):
-                        paper_to_projects.setdefault(pid, []).append(proj.id)
+                    for sfk in proj.source_fks:
+                        source_id = sfk_to_source_id.get(sfk)
+                        if source_id:
+                            paper_to_projects.setdefault(source_id, []).append(proj.id)
             for node in nodes:
                 if node["type"] == "paper":
                     node["project_ids"] = paper_to_projects.get(node["id"], [])
@@ -271,15 +282,14 @@ class GraphPage(QWidget):
         self._graph_view.set_graph_data(nodes, edges)
 
     def _load_paper_list(self) -> None:
-        papers = list_papers(latest_only=True)
+        papers = paper_svc.list_papers(latest_only=True)
         self._paper_list.load_papers(papers)
 
     def _load_dropdowns(self) -> None:
-        categories = get_categories()
-        tags = get_tags()
+        categories = paper_svc.get_categories()
+        tags = list_all_tags()
         proj_data: list[dict] = []
         try:
-            from storage.projects import filter_projects, color_to_hex, Status
             for p in filter_projects():
                 if p.id is not None and p.status != Status.DELETED:
                     proj_data.append({
@@ -296,6 +306,14 @@ class GraphPage(QWidget):
 
     def refresh(self) -> None:
         self._load_all()
+
+    def refresh_styles(self) -> None:
+        self._selection_lbl.setStyleSheet(
+            f"color: {_theme.MUTED}; font-size: {FONT_SECONDARY}px;"
+        )
+        self._paper_list._status_lbl.setStyleSheet(
+            f"color: {_theme.MUTED}; font-size: {FONT_TERTIARY}px; padding: 2px 6px;"
+        )
 
     def _clear_filters(self) -> None:
         self._graph_view.clear_filters()
@@ -320,7 +338,7 @@ class GraphPage(QWidget):
         if paper_id:
             self._graph_view.highlight_node(paper_id)
 
-    def _on_graph_node_clicked(self, paper_id: str) -> None:
+    def _on_graph_node_clicked(self, paper_id: int) -> None:
         """Graph paper node clicked — select matching row in the paper list."""
         # First search already-loaded rows
         for row in range(self._paper_list.table.rowCount()):
