@@ -26,7 +26,7 @@ def _bib_to_metadata(bib) -> list[PaperMetadata]:
         authors = [str(p) for p in entry.persons.get("author", [])]
         doi = f.get("doi") or None
         results.append(PaperMetadata(
-            paper_id    = doi or key,
+            source_id    = doi or key,
             version     = 1,
             title       = f.get("title", key),
             authors     = authors,
@@ -53,7 +53,7 @@ class BibTeXFormat:
     def export_papers(self, papers: list[dict]) -> str:
         bib = BibliographyData()
         for p in papers:
-            key = (p.get("paper_id") or "unknown").replace("/", "_").replace(".", "_")
+            key = (p.get("source_id") or "unknown").replace("/", "_").replace(".", "_")
             pub = p.get("published", "")
             year = pub.isoformat()[:4] if isinstance(pub, (datetime.date, datetime.datetime)) else str(pub)[:4]
             fields: dict[str, str] = {

@@ -1,9 +1,8 @@
 from __future__ import annotations
-
 import os
 import urllib.parse
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QThread, Qt, pyqtSignal
 from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -17,21 +16,28 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-import gui.theme as _theme
-from gui.theme import ACCENT as _ACCENT, BORDER as _BORDER, MUTED as _MUTED
-from gui.theme import PANEL as _PANEL, TEXT as _TEXT
 from gui.qt_assets.styles import (
-    BTN_PDF_OPEN, BTN_PDF_DOWNLOAD, BTN_PDF_LINK, BTN_PDF_ERROR, BTN_NOTE_OPEN,
+    BTN_NOTE_OPEN,
+    BTN_PDF_DOWNLOAD,
+    BTN_PDF_ERROR,
+    BTN_PDF_LINK,
+    BTN_PDF_OPEN,
 )
+import gui.theme as _theme
+from gui.theme import ACCENT as ACCENT, BORDER as BORDER, MUTED as MUTED
+from gui.theme import PANEL as PANEL, TEXT as TEXT
 from gui.theme import (
     BTN_H_SM,
-    CARD_PAD_H, CARD_PAD_V,
-    FONT_BODY, FONT_TERTIARY,
+    CARD_PAD_H,
+    CARD_PAD_V,
+    FONT_BODY,
+    FONT_TERTIARY,
     RADIUS_LG,
-    SPACE_MD, SPACE_XS,
+    SPACE_MD,
+    SPACE_XS,
 )
-import service.files as _files
 from service import paper as paper_svc
+import service.files as _files
 
 _ACCENT_HOVER = "#7ba3f5"
 

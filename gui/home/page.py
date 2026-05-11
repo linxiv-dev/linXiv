@@ -18,7 +18,7 @@ import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import BTN_PANEL_SM as _BTN_PANEL_SM
 import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
-from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
+from gui.theme import ACCENT as ACCENT, TEXT as TEXT, MUTED as MUTED
 from gui.theme import (
     FONT_TITLE, FONT_SUBHEADING, FONT_BODY, FONT_TERTIARY,
     SPACE_XL, SPACE_SM, SPACE_XS,
@@ -37,7 +37,7 @@ class HomePage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {_BG}; color: {TEXT};")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(PAGE_MARGIN_H, PAGE_MARGIN_V, PAGE_MARGIN_H, PAGE_MARGIN_V)
@@ -45,9 +45,9 @@ class HomePage(QWidget):
 
         # ── Header ────────────────────────────────────────────────────────────
         self._title_lbl = QLabel("linXiv")
-        self._title_lbl.setStyleSheet(f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;")
+        self._title_lbl.setStyleSheet(f"font-size: {FONT_TITLE}px; font-weight: bold; color: {ACCENT}; background: transparent;")
         self._subtitle_lbl = QLabel("Your arXiv paper collection")
-        self._subtitle_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
+        self._subtitle_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {MUTED}; background: transparent;")
         outer.addWidget(self._title_lbl)
         outer.addWidget(self._subtitle_lbl)
 
@@ -63,7 +63,7 @@ class HomePage(QWidget):
         recent_hdr = QHBoxLayout()
         self._recent_lbl = QLabel("Recent papers")
         self._recent_lbl.setStyleSheet(
-            f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_TEXT}; background: transparent;"
+            f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {TEXT}; background: transparent;"
         )
         self._refresh_btn = refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedWidth(80)

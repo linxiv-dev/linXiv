@@ -29,7 +29,7 @@ from service import project as project_svc
 from service.project import Q, Status
 import service.files as _files
 from gui.qt_assets import PaperCard, SelectionBar, AddPaperManuallyDialog
-from gui.qt_assets.note_card import note_card
+from gui.qt_assets.note_card import NoteCard
 from gui.qt_assets.paper_card import _DownloadWorker
 from gui.shell import AppShell
 
@@ -39,7 +39,7 @@ _json_fmt     = JSONFormat()
 _markdown_fmt = MarkdownFormat()
 _obsidian_fmt = ObsidianFormat()
 import gui.theme as _theme
-from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
+from gui.theme import BG as _BG, PANEL as PANEL, BORDER as BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
     FONT_TITLE, FONT_SUBHEADING, FONT_BODY, FONT_SECONDARY, FONT_TERTIARY,
@@ -318,7 +318,7 @@ class PaperDetailView(QWidget):
 
             for note in all_notes:
                 self._body_layout.addWidget(
-                    note_card(self, note, proj_names, on_delete=lambda n=note: self._delete_note(n))
+                    NoteCard(self, note, proj_names, on_delete=lambda n=note: self._delete_note(n))
                 )
                 self._body_layout.addSpacing(SPACE_SM)
 
@@ -556,7 +556,7 @@ class LibraryPage(QWidget):
         self._search.setPlaceholderText("Search title or author…")
         self._search.setStyleSheet(f"""
             QLineEdit {{
-                background: {_PANEL}; border: 1px solid {_BORDER};
+                background: {PANEL}; border: 1px solid {BORDER};
                 border-radius: {RADIUS_MD}px; color: {_TEXT}; font-size: {FONT_BODY}px; padding: 6px 12px;
             }}
             QLineEdit:focus {{ border-color: {_ACCENT}; }}
@@ -858,7 +858,7 @@ class LibraryPage(QWidget):
         editor.setPlaceholderText("@article{...}")
         editor.setStyleSheet(f"""
             QTextEdit {{
-                background: {_PANEL}; border: 1px solid {_BORDER};
+                background: {PANEL}; border: 1px solid {BORDER};
                 border-radius: {RADIUS_MD}px; color: {_TEXT};
                 font-family: monospace; font-size: {FONT_SECONDARY}px; padding: 8px;
             }}
@@ -998,10 +998,10 @@ class LibraryPage(QWidget):
             return
         try:
             meta = dlg.get_metadata()
-            if paper_svc.get_paper(meta.paper_id) is not None:
+            if paper_svc.get_paper(meta.source_id) is not None:
                 QMessageBox.warning(
                     self, "Already in Library",
-                    f"A paper with ID '{meta.paper_id}' is already in the library.\n"
+                    f"A paper with ID '{meta.source_id}' is already in the library.\n"
                     "Edit it using the Repair button on its detail page.",
                 )
                 return
@@ -1055,7 +1055,7 @@ class LibraryPage(QWidget):
         lay.addWidget(QLabel(f"Add {len(self._selected)} paper(s) to:"))
         combo = QComboBox()
         combo.setStyleSheet(f"""
-            QComboBox {{ background: {_PANEL}; border: 1px solid {_BORDER};
+            QComboBox {{ background: {PANEL}; border: 1px solid {BORDER};
                 border-radius: {RADIUS_SM}px; color: {_TEXT}; padding: 4px 8px; font-size: {FONT_BODY}px; }}
         """)
         for p in projects:

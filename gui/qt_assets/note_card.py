@@ -1,12 +1,24 @@
 from __future__ import annotations
+from datetime import datetime
 
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
-from gui.theme import ACCENT as _ACCENT, BORDER as _BORDER, MUTED as _MUTED, PANEL as _PANEL
-from gui.theme import CARD_PAD_H, CARD_PAD_V, FONT_TERTIARY, NOTE_HEIGHT, RADIUS_LG, SPACE_XS
 from gui.qt_assets.styles import BTN_NOTE_ACCENT, BTN_NOTE_DELETE
+from gui.theme import (
+    ACCENT as _ACCENT,
+    BORDER as _BORDER,
+    MUTED as _MUTED,
+    PANEL as _PANEL,
+)
+from gui.theme import (
+    CARD_PAD_H,
+    CARD_PAD_V,
+    FONT_TERTIARY,
+    NOTE_HEIGHT,
+    RADIUS_LG,
+    SPACE_XS,
+)
 from gui.views import MarkdownView
-from datetime import datetime
 
 def note_card(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFrame:
     card = QFrame()

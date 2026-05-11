@@ -3,7 +3,7 @@
 Authors:    {authors_inline}
 Published:  {published}
 Category:   {category}
-arXiv ID:   {paper_id}
+arXiv ID:   {source_id}
 URL:        {url}
 DOI:        {doi}
 
