@@ -25,7 +25,9 @@ import gui.theme as _theme
 from gui.theme import FONT_SECONDARY, FONT_TERTIARY, SPACE_XS, SPACE_SM
 from service import paper as paper_svc
 from service.tag import list_all_tags
-
+from service.project import filter_projects
+from service.paper import get_paper_root
+from service.project import filter_projects, color_to_hex, Status
 # ── Helpers ───────────────────────────────────────────────────────────────────
 # TODO: Break down into smaller chunks
 def _fmt_date(val) -> str:
@@ -258,8 +260,6 @@ class GraphPage(QWidget):
 
         # Augment paper nodes with project membership
         try:
-            from service.project import filter_projects
-            from service.paper import get_paper_root
             sfk_to_source_id: dict[int, str] = {}
             for node in nodes:
                 if node["type"] == "paper":
@@ -290,7 +290,6 @@ class GraphPage(QWidget):
         tags = list_all_tags()
         proj_data: list[dict] = []
         try:
-            from service.project import filter_projects, color_to_hex, Status
             for p in filter_projects():
                 if p.id is not None and p.status != Status.DELETED:
                     proj_data.append({
