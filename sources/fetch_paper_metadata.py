@@ -39,8 +39,8 @@ def _arxiv_call(fn):
             print("[arxiv] 429 received — recorded. Retry your search in 60s.")
         raise
 
-def fetch_paper_metadata(paper_id: str, print_on: bool = False) -> arxiv.Result:
-    search = arxiv.Search(id_list=[paper_id])
+def fetch_paper_metadata(source_id: str, print_on: bool = False) -> arxiv.Result:
+    search = arxiv.Search(id_list=[source_id])
     paper = _arxiv_call(lambda: next(_client.results(search)))
 
     if print_on:

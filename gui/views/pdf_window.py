@@ -55,15 +55,15 @@ class PdfWindow(QMainWindow):
         self._view.pageNavigator().currentPageChanged.connect(self._update_page_label)  # pyright: ignore[reportOptionalMemberAccess]
 
     @staticmethod
-    def resolve_pdf_path(paper_id: str, version: int, fallback_dir: str) -> str | None:
+    def resolve_pdf_path(source_id: str, version: int, fallback_dir: str) -> str | None:
         """Return the best PDF path for a paper: pdf_path from DB, then fallback."""
-        row = paper_svc.get_paper(paper_id, version)
+        row = paper_svc.get_paper(source_id, version)
         if row:
             db_path = row["pdf_path"]
             if db_path and os.path.isfile(db_path):
                 return db_path
         # Fallback to standard location
-        std = os.path.join(fallback_dir, f"{paper_id}v{version}.pdf")
+        std = os.path.join(fallback_dir, f"{source_id}v{version}.pdf")
         if os.path.isfile(std):
             return std
         return None

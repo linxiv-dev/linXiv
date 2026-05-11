@@ -55,7 +55,7 @@ def _parse_crossref_work(msg: dict, doi: str = "") -> PaperMetadata:
     url = msg.get("URL") or (f"https://doi.org/{paper_doi}" if paper_doi else None)
 
     return PaperMetadata(
-        paper_id=paper_doi,
+        source_id=paper_doi,
         version=1,
         title=title,
         authors=authors,
