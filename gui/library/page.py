@@ -155,7 +155,7 @@ class PaperDetailView(QWidget):
                 if widget:
                     widget.deleteLater()
 
-        paper_id  = row["paper_id"]
+        source_id  = row["source_id"]
         source_fk = row["source_fk"]
 
         # ── Title ─────────────────────────────────────────────────────────────
@@ -219,7 +219,7 @@ class PaperDetailView(QWidget):
         try:
             from service.project import filter_projects
             from service.paper import get_paper_root
-            root = get_paper_root(paper_id)
+            root = get_paper_root(source_id)
             source_fk = int(root["SOURCE_FK"]) if root is not None else None
             all_projects = filter_projects()
             containing = [p for p in all_projects
@@ -347,7 +347,7 @@ class PaperDetailView(QWidget):
             print(f"[repair] {e}")
             QMessageBox.critical(self, "Repair Failed", str(e))
 
-    def get_current_paper_id(self) -> int | None:
+    def get_current_source_fk(self) -> int | None:
         if self._current_row is None:
             return None
         return self._current_row["source_fk"]
@@ -358,7 +358,7 @@ class PaperDetailView(QWidget):
         if self._current_row is None:
             return None
         custom = self._current_row["pdf_path"] if "pdf_path" in self._current_row.keys() else None
-        return _files.pdf_path(self._current_row["paper_id"], self._current_row["version"], custom)
+        return _files.pdf_path(self._current_row["source_id"], self._current_row["version"], custom)
 
     def _is_arxiv(self) -> bool:
         if self._current_row is None:
@@ -395,16 +395,16 @@ class PaperDetailView(QWidget):
             return
         self._pdf_btn.setText("Downloading…")
         self._pdf_btn.setEnabled(False)
-        pid, sid, ver = self._current_row["paper_id"], self._current_row["source_id"], self._current_row["version"]
+        pid, sid, ver = self._current_row["source_id"], self._current_row["source_id"], self._current_row["version"]
         self._pdf_worker = _DownloadWorker(pid, sid, ver)
         self._pdf_worker.finished.connect(self._on_download_done)
         self._pdf_worker.failed.connect(self._on_download_failed)
         self._pdf_worker.rate_limited.connect(self._on_download_rate_limited)
         self._pdf_worker.start()
 
-    def _on_download_done(self, paper_id: str, version: int, path: str) -> None:
-        paper_svc.set_pdf_path(paper_id, path)
-        paper_svc.set_has_pdf(paper_id, version, True)
+    def _on_download_done(self, source_id: str, version: int, path: str) -> None:
+        paper_svc.set_pdf_path(source_id, path)
+        paper_svc.set_has_pdf(source_id, version, True)
         if self._pdf_btn is not None:
             self._pdf_btn.setEnabled(True)
         self._refresh_pdf_btn()
@@ -428,7 +428,7 @@ class PaperDetailView(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, "Link PDF", "", "PDF Files (*.pdf)")
         if not path:
             return
-        pid, ver = self._current_row["paper_id"], self._current_row["version"]
+        pid, ver = self._current_row["source_id"], self._current_row["version"]
         paper_svc.set_pdf_path(pid, path)
         paper_svc.set_has_pdf(pid, ver, True)
         self._refresh_pdf_btn()
@@ -504,7 +504,7 @@ class LibraryPage(QWidget):
         self._detail_view = PaperDetailView(pdf_window=self._pdf_window)
         self._app_shell: AppShell | None = None
         self._paper_detail_back_goes_to_prior_shell_tab = False
-        self._paper_id_for_project_return: int | None = None
+        self._source_fk_for_project_return: int | None = None
         self._detail_view.back_requested.connect(self._on_back_requested)
         self._detail_view.navigate_to_project.connect(self._on_detail_navigate_to_project)
         self._stack.addWidget(self._detail_view)
@@ -724,14 +724,14 @@ class LibraryPage(QWidget):
         """Shell reference for cross-tab Back after open_paper() from another page."""
         self._app_shell = shell
 
-    def take_paper_id_for_project_return(self) -> int | None:
+    def take_source_fk_for_project_return(self) -> int | None:
         """Consume paper id saved when jumping Library detail → Projects (for restoring detail)."""
-        pid = self._paper_id_for_project_return
-        self._paper_id_for_project_return = None
+        pid = self._source_fk_for_project_return
+        self._source_fk_for_project_return = None
         return pid
 
     def _on_detail_navigate_to_project(self, project) -> None:
-        self._paper_id_for_project_return = self._detail_view.get_current_paper_id()
+        self._source_fk_for_project_return = self._detail_view.get_current_source_fk()
         self.navigate_to_project.emit(project)
 
     def show_paper_detail_by_id(self, source_fk: int) -> None:
@@ -957,14 +957,14 @@ class LibraryPage(QWidget):
 
     def _on_pdf_metadata_done(self, meta, path: str) -> None:
         self._pdf_queue.pop(0)
-        existing = paper_svc.get_paper(meta.paper_id)
+        existing = paper_svc.get_paper(meta.source_id)
         if existing is None:
             paper_svc.save_papers_metadata([meta])
             self._pdf_added += 1
         else:
             self._pdf_skipped += 1
-        paper_svc.set_pdf_path(meta.paper_id, path)
-        paper_svc.set_has_pdf(meta.paper_id, meta.version, True)
+        paper_svc.set_pdf_path(meta.source_id, path)
+        paper_svc.set_has_pdf(meta.source_id, meta.version, True)
         if self._pdf_queue:
             self._start_next_pdf()
         else:
@@ -1022,7 +1022,7 @@ class LibraryPage(QWidget):
         from PyQt6.QtWidgets import QMessageBox
         added = skipped = 0
         for meta in papers:
-            existing = paper_svc.get_paper(meta.paper_id)
+            existing = paper_svc.get_paper(meta.source_id)
             if existing is not None:
                 skipped += 1
             else:
@@ -1082,7 +1082,7 @@ class LibraryPage(QWidget):
     def _on_remove_pdfs(self) -> None:
         if not self._selected:
             return
-        affected = [c for c in self._cards if c.paper_id() in self._selected and c.local_pdf_path()]
+        affected = [c for c in self._cards if c.source_id() in self._selected and c.local_pdf_path()]
         if not affected:
             return
         n = len(affected)
@@ -1102,7 +1102,7 @@ class LibraryPage(QWidget):
                 except OSError as e:
                     print(f"[remove_pdfs] Error removing PDF: {path}")
                     print(f"[remove_pdfs] {e}")
-            sid = paper_svc.get_source_id(card.paper_id())
+            sid = paper_svc.get_source_id(card.source_id())
             if sid:
                 paper_svc.set_pdf_path(sid, "")
                 paper_svc.set_has_pdf(sid, card._row["version"], False)
