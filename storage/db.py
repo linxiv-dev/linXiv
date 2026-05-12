@@ -621,8 +621,8 @@ def remove_paper_tags(source_id: str, tags: list[str]) -> list[str]:
             _sync_paper_tags(conn, int(vr["PAPER_ID"]), source_id, int(vr["VERSION"]), updated)
     return updated
 
-#TODO: SHOULD
-def set_full_text(full_text: str|None, paper_id: int|None, source_id: str|None, version: int|None, ) -> None:
+#TODO: SHOULD USE PAPER_ID FIRST. DOCSTRING
+def set_full_text(full_text: str|None, paper_id: int|None, source_id: str|None, version: int|None) -> None:
     """Store extracted TeX full text and update the FTS index."""
     with _connect() as conn:
         row = conn.execute(

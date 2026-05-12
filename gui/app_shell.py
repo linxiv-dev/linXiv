@@ -44,7 +44,7 @@ def run_shell() -> None:
     ))
 
     def _on_navigate_to_project(project) -> None:
-        paper_id = library_page.take_paper_id_for_project_return()
+        paper_id = library_page.take_source_fk_for_project_return()
         shell.go_to_widget(projects_page)
         projects_page.open_project(
             project,
