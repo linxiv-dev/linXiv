@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
-from PyQt6.QtWidgets import QMessageBox
-from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
 from PyQt6.QtWidgets import (
     QDialog,
@@ -28,7 +26,7 @@ from PyQt6.QtWidgets import (
 
 from gui.library.page import LibraryPage
 from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar
-from gui.qt_assets.note_card import note_card
+from gui.qt_assets.note_card import NoteCard
 import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
     BTN_DANGER as _BTN_DANGER,
@@ -39,27 +37,12 @@ from gui.shell import AppShell
 import gui.theme as _theme
 from gui.theme import BG, BORDER, PANEL, ACCENT, MUTED, TEXT 
 from gui.theme import (
-    BTN_H_LG,
-    BTN_H_MD,
-    CARD_PAD_H,
-    CARD_PAD_V,
-    DIALOG_PAD,
-    FONT_BODY,
-    FONT_HEADING,
-    FONT_SECONDARY,
-    FONT_SUBHEADING,
-    FONT_TERTIARY,
-    FONT_TITLE,
-    NOTE_HEIGHT,
-    PAGE_MARGIN_H,
-    RADIUS_LG,
-    RADIUS_MD,
-    RADIUS_SM,
-    SPACE_LG,
-    SPACE_MD,
-    SPACE_SM,
-    SPACE_XL,
-    SPACE_XS,
+    BTN_H_LG, BTN_H_MD,  CARD_PAD_H,  CARD_PAD_V,  DIALOG_PAD,  
+    FONT_BODY,  FONT_HEADING,  FONT_SECONDARY,  FONT_SUBHEADING,
+    FONT_TERTIARY,  FONT_TITLE,
+    #NOTE_HEIGHT,
+    PAGE_MARGIN_H,  RADIUS_LG,  RADIUS_MD,  RADIUS_SM,
+    SPACE_LG,  SPACE_MD,  SPACE_SM,  SPACE_XL,  SPACE_XS,
 )
 from gui.views import PdfWindow
 from service import paper as paper_svc, project as project_svc
@@ -579,7 +562,7 @@ class NotesDialog(QDialog):
         if notes:
             self._empty_lbl.setVisible(False)
             for note in notes:
-                card = note_card(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
+                card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
                 if note.note_id is not None:
                     self._cards[note.note_id] = card
@@ -614,7 +597,7 @@ class NotesDialog(QDialog):
             self._retire_card(old_card)
         else:
             idx = self._notes_layout.count() - 1
-        card = note_card(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
+        card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
         self._notes_layout.insertWidget(idx, card)
         if note_id is not None:
             self._cards[note_id] = card
@@ -644,7 +627,7 @@ class NotesDialog(QDialog):
             new_notes = [n for n in notes if n.note_id not in self._cards]
             self._empty_lbl.setVisible(False)
             for note in new_notes:
-                card = note_card(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
+                card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
                 if note.note_id is not None:
                     self._cards[note.note_id] = card
@@ -991,15 +974,15 @@ class ProjectDetailView(QWidget):
             else:
                 self._start_next_pdf()
             return
-        existing = paper_svc.get_paper(meta.paper_id)
+        existing = paper_svc.get_paper(meta.source_id)
         if existing is None:
             paper_svc.save_papers_metadata([meta])
             self._pdf_added += 1
         else:
             self._pdf_skipped += 1
-        paper_svc.set_pdf_path(meta.paper_id, path)
-        paper_svc.set_has_pdf(meta.paper_id, meta.version, True)
-        root = paper_svc.get_paper_root(meta.paper_id)
+        paper_svc.set_pdf_path(meta.source_id, path)
+        paper_svc.set_has_pdf(meta.source_id, meta.version, True)
+        root = paper_svc.get_paper_root(meta.source_id)
         if root is not None:
             try:
                 self._project.add_paper(int(root["SOURCE_FK"]))

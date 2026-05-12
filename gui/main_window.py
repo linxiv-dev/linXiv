@@ -75,7 +75,7 @@ class PaperListPanel(QWidget):
     def table(self) -> QTableWidget:
         return self._table
 
-    def paper_id_for_row(self, row: int) -> int | None:
+    def source_id_for_row(self, row: int) -> int | None:
         item = self._table.item(row, 0)
         if item is None:
             return None
@@ -199,14 +199,14 @@ class MainWindow(QMainWindow):
                            _prev_row: int, _prev_col: int) -> None:
         if current_row < 0:
             return
-        paper_id = self._paper_list.paper_id_for_row(current_row)
-        if paper_id:
-            self._graph_view.highlight_node(paper_id)
+        source_id = self._paper_list.source_id_for_row(current_row)
+        if source_id:
+            self._graph_view.highlight_node(source_id)
 
-    def _on_graph_node_clicked(self, paper_id: str) -> None:
+    def _on_graph_node_clicked(self, source_id: str) -> None:
         """Select the matching row in the paper list when a graph node is clicked."""
         table = self._paper_list.table
         for row in range(table.rowCount()):
-            if self._paper_list.paper_id_for_row(row) == paper_id:
+            if self._paper_list.source_id_for_row(row) == source_id:
                 table.setCurrentCell(row, 0)
                 break

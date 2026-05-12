@@ -314,31 +314,32 @@ def _insert_metadata(conn: sqlite3.Connection, meta: PaperMetadata, tags: list[s
 
 
 def save_paper(paper: arxiv.Result, tags: list[str] | None = None) -> tuple[str, int]:
-    """Insert a single arxiv paper. Returns (paper_id, version)."""
+    """Insert a single arxiv paper. Returns (source_id, version)."""
     with _connect() as conn:
         return _insert_arxiv(conn, paper, tags)
 
 
 def save_papers(papers: list[arxiv.Result], tags: list[str] | None = None) -> list[tuple[str, int]]:
-    """Batch insert arxiv papers in a single transaction. Returns list of (paper_id, version)."""
+    """Batch insert arxiv papers in a single transaction. Returns list of (source_id, version)."""
     with _connect() as conn:
         return [_insert_arxiv(conn, paper, tags) for paper in papers]
 
 
 def save_paper_metadata(meta: PaperMetadata, tags: list[str] | None = None) -> tuple[str, int]:
-    """Insert a paper from any source via PaperMetadata. Returns (paper_id, version)."""
+    """Insert a paper from any source via PaperMetadata. Returns (source_id, version)."""
     with _connect() as conn:
         return _insert_metadata(conn, meta, tags)
 
 
 def save_papers_metadata(papers: list[PaperMetadata], tags: list[str] | None = None) -> list[tuple[str, int]]:
-    """Batch insert papers from any source. Returns list of (paper_id, version)."""
+    """Batch insert papers from any source. Returns list of (source_id, version)."""
     with _connect() as conn:
         return [_insert_metadata(conn, meta, tags) for meta in papers]
 
 
 def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
-    """In-place repair of a paper's metadata, migrating SOURCE_ID if paper_id changes.
+    """
+    In-place repair of a paper's metadata, migrating SOURCE_ID if full ID changes.
 
     Keyed by SOURCE_FK (stable integer) so the caller never needs to track the old
     string ID.  Version history, pdf_path, has_pdf, full_text, and source are preserved.
@@ -406,16 +407,28 @@ def set_has_pdf(source_id: str, version: int, has: bool) -> None:
         )
 
 
-def set_pdf_path(source_id: str, path: str) -> None:
+#TODO: FIX TO WORK EXPECTED WAY 
+def set_pdf_path(source_id: str, path: str, version: int | None = None) -> None:
     """Set the pdf_path for a paper (all versions)."""
     with _connect() as conn:
-        conn.execute(
-            "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
-            "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ?)",
-            (path, source_id),
-        )
+        if version:
+            conn.execute(
+                "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
+                "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? AND VERSION = ?",
+                (path, source_id, version),
+            )
+        else:
+            lastrow = conn.execute(
+                "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
+                "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? ",
+                (path, source_id, version),
+            )
+            if lastrow:
+                print("Warning: you are updating the paths of all pdfs associated with this paper. This will cause the pdfs of other version to be deleted, those other version.")
+                print("This may incorrectly update the database, consider using different methodology")
 
 
+#TODO: FIX TO WORK EXPECTED WAY 
 def delete_paper(source_id: str) -> None:
     """Delete all versions of a paper and its root row."""
     with _connect() as conn:
@@ -459,6 +472,7 @@ def get_paper_by_source_fk(source_fk: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+#TODO: FIX TO CONTAIN TOTAL FUNCTIONALITY, get paper_root from paper_id needs to be a fetching param or name can change 
 def get_paper_root(source_id: str) -> Optional[sqlite3.Row]:
     """Return the PAPER_ROOTS row for a given source_id."""
     with _connect() as conn:
@@ -468,6 +482,7 @@ def get_paper_root(source_id: str) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+#TODO: FIX TO WORK EXPECTED WAY 
 def get_all_versions(source_id: str) -> list[sqlite3.Row]:
     """Fetch all stored versions of a paper, ordered oldest to newest."""
     with _connect() as conn:
@@ -562,6 +577,7 @@ def get_tags() -> list[str]:
     return [row["tag"] for row in rows]
 
 
+#TODO: FIX TO CONTAIN TOTAL FUNCTIONALITY 
 def add_paper_tags(source_id: str, tags: list[str]) -> list[str]:
     """Add tags to a paper, deduplicating. Returns the updated tag list."""
     with _connect() as conn:
@@ -583,6 +599,7 @@ def add_paper_tags(source_id: str, tags: list[str]) -> list[str]:
     return merged
 
 
+#TODO: FIX TO CONTAIN TOTAL FUNCTIONALITY 
 def remove_paper_tags(source_id: str, tags: list[str]) -> list[str]:
     """Remove tags from a paper. Returns the updated tag list."""
     remove = set(tags)
@@ -604,8 +621,8 @@ def remove_paper_tags(source_id: str, tags: list[str]) -> list[str]:
             _sync_paper_tags(conn, int(vr["PAPER_ID"]), source_id, int(vr["VERSION"]), updated)
     return updated
 
-
-def set_full_text(source_id: str, version: int, full_text: str) -> None:
+#TODO: SHOULD
+def set_full_text(full_text: str|None, paper_id: int|None, source_id: str|None, version: int|None, ) -> None:
     """Store extracted TeX full text and update the FTS index."""
     with _connect() as conn:
         row = conn.execute(
