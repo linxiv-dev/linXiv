@@ -20,8 +20,8 @@ from PyQt6.QtWidgets import (
 )
 
 from sources.base import PaperMetadata
-from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
-from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
+from gui.theme import BG as _BG, PANEL as PANEL, BORDER as _BORDER
+from gui.theme import ACCENT as ACCENT, TEXT as TEXT, MUTED as MUTED
 from gui.theme import (
     FONT_HEADING, FONT_BODY, FONT_SECONDARY,
     SPACE_XS,
@@ -33,16 +33,16 @@ from gui.qt_assets.styles import BTN_PRIMARY as _BTN_STYLE, BTN_MUTED as _BTN_MU
 _INPUT_STYLE = f"""
     QLineEdit, QTextEdit, QDateEdit {{
         background: {_BG}; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px;
-        color: {_TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_XS}px 10px;
+        color: {TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_XS}px 10px;
     }}
-    QLineEdit:focus, QTextEdit:focus, QDateEdit:focus {{ border-color: {_ACCENT}; }}
+    QLineEdit:focus, QTextEdit:focus, QDateEdit:focus {{ border-color: {ACCENT}; }}
 """
 _TOGGLE_STYLE = f"""
     QPushButton {{
         background: transparent; border: none; text-align: left;
-        color: {_MUTED}; font-size: {FONT_SECONDARY}px; font-weight: 600; padding: 0;
+        color: {MUTED}; font-size: {FONT_SECONDARY}px; font-weight: 600; padding: 0;
     }}
-    QPushButton:hover {{ color: {_TEXT}; }}
+    QPushButton:hover {{ color: {TEXT}; }}
 """
 
 _MIN_H = 36
@@ -126,14 +126,14 @@ class AddPaperManuallyDialog(QDialog):
         self.setWindowTitle("Add Paper Manually")
         self.setMinimumWidth(560)
         self.resize(680, 420)
-        self.setStyleSheet(f"background: {_PANEL}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {PANEL}; color: {TEXT};")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(DIALOG_PAD, DIALOG_PAD, DIALOG_PAD, DIALOG_PAD)
         lay.setSpacing(SPACE_XS)
 
         heading = QLabel("Add Paper Manually")
-        heading.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {_ACCENT};")
+        heading.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {ACCENT};")
         lay.addWidget(heading)
 
         # Scrollable sections
@@ -236,7 +236,7 @@ class AddPaperManuallyDialog(QDialog):
     @staticmethod
     def _lbl(text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_MUTED}; font-weight: 600;")
+        lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED}; font-weight: 600;")
         return lbl
 
     def load_from_row(self, row) -> None:
@@ -256,10 +256,10 @@ class AddPaperManuallyDialog(QDialog):
         tags: list[str] = row["tags"] or []
         self._tags.setText(", ".join(tags))
 
-    def get_metadata(self, original_paper_id: str | None = None) -> PaperMetadata:
+    def get_metadata(self, original_source_id: str | None = None) -> PaperMetadata:
         """Build a PaperMetadata from the current field values.
 
-        paper_id priority: DOI field → original_paper_id → new manual-{uuid} slug.
+        source_id priority: DOI field → original_source_id → new manual-{uuid} slug.
         """
         doi     = self._doi.text().strip() or None
         url     = self._url.text().strip() or None
@@ -273,14 +273,14 @@ class AddPaperManuallyDialog(QDialog):
         tags: list[str] | None = tags_raw or None
 
         if doi:
-            paper_id = doi
-        elif original_paper_id:
-            paper_id = original_paper_id
+            source_id = doi
+        elif original_source_id:
+            source_id = original_source_id
         else:
-            paper_id = f"manual-{uuid.uuid4().hex[:12]}"
+            source_id = f"manual-{uuid.uuid4().hex[:12]}"
 
         return PaperMetadata(
-            paper_id  = paper_id,
+            source_id  = source_id,
             version   = 1,
             title     = title,
             authors   = authors,
