@@ -45,7 +45,7 @@ def _work_to_metadata(work: dict) -> PaperMetadata:
     abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
 
     return PaperMetadata(
-        paper_id=openalex_id,
+        source_id=openalex_id,
         version=1,
         title=work.get("title", "Untitled"),
         authors=authors,
@@ -99,9 +99,9 @@ class OpenAlexSource(PaperSource):
         results = response.json().get("results", [])
         return [_work_to_metadata(w) for w in results]
 
-    def fetch_by_id(self, paper_id: str) -> PaperMetadata:
+    def fetch_by_id(self, source_id: str) -> PaperMetadata:
         # Accept both bare IDs ("W3123456789") and full URLs
-        url = paper_id if paper_id.startswith("http") else f"{_BASE_URL}/works/{paper_id}"
+        url = source_id if source_id.startswith("http") else f"{_BASE_URL}/works/{source_id}"
         try:
             response = self._http.get(
                 url,
@@ -112,5 +112,5 @@ class OpenAlexSource(PaperSource):
             )
             response.raise_for_status()
         except Exception as e:
-            raise ValueError(f"OpenAlex fetch failed for '{paper_id}': {e}") from e
+            raise ValueError(f"OpenAlex fetch failed for '{source_id}': {e}") from e
         return _work_to_metadata(response.json())

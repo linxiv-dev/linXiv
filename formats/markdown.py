@@ -22,20 +22,20 @@ def _parse_date(val: str) -> datetime.date:
     return _FALLBACK_DATE
 
 
-def _is_arxiv_id(pid: str) -> bool:
-    return bool(_ARXIV_ID_RE.match(pid))
+def _is_arxiv_id(sid: str) -> bool:
+    return bool(_ARXIV_ID_RE.match(sid))
 
 
-def _paper_url(pid: str, stored_url: str | None) -> str:
+def _paper_url(sid: str, stored_url: str | None) -> str:
     """Best URL for a paper: stored url > arXiv abs link > empty."""
     if stored_url:
         return stored_url
-    if _is_arxiv_id(pid):
-        return f"https://arxiv.org/abs/{pid}"
+    if _is_arxiv_id(sid):
+        return f"https://arxiv.org/abs/{sid}"
     return ""
 
 
-def _paper_id_from_url(url: str) -> str:
+def _source_id_from_url(url: str) -> str:
     m = _ARXIV_URL_RE.match(url)
     return m.group(1) if m else url
 
@@ -53,13 +53,13 @@ class MarkdownFormat:
     def export_papers(self, papers: list[dict]) -> str:
         lines = ["# Selected Papers\n"]
         for p in papers:
-            pid     = p.get("paper_id", "")
-            title   = p.get("title", pid)
+            sid     = p.get("source_id", "")
+            title   = p.get("title", sid)
             authors = ", ".join(p.get("authors") or [])
-            url     = _paper_url(pid, p.get("url"))
+            url     = _paper_url(sid, p.get("url"))
             lines.append(f"- **[{title}]({url})**")
-            if not _is_arxiv_id(pid):
-                lines.append(f"  - Paper-ID: {pid}")
+            if not _is_arxiv_id(sid):
+                lines.append(f"  - Paper-ID: {sid}")
             if authors:
                 lines.append(f"  - Authors: {authors}")
             cat = p.get("category", "")
@@ -95,9 +95,9 @@ class MarkdownFormat:
                 m = _MD_LINK_RE.match(inner)
                 if m:
                     current = {"title": m.group(1), "url": m.group(2),
-                               "paper_id": _paper_id_from_url(m.group(2))}
+                               "source_id": _source_id_from_url(m.group(2))}
                 else:
-                    current = {"title": inner, "url": "", "paper_id": inner}
+                    current = {"title": inner, "url": "", "source_id": inner}
                 continue
 
             if current is None:
@@ -105,7 +105,7 @@ class MarkdownFormat:
 
             # Sub-bullets: '  - Key: value'
             if line.startswith("- Paper-ID: "):
-                current["paper_id"] = line[12:].strip()
+                current["source_id"] = line[12:].strip()
             elif line.startswith("- Authors: "):
                 current["authors"] = [a.strip() for a in line[11:].split(",") if a.strip()]
             elif line.startswith("- Category: "):
@@ -142,14 +142,14 @@ class ObsidianFormat:
         lines += ["---", "", "# Selected Papers", ""]
 
         for p in papers:
-            pid     = p.get("paper_id", "")
-            title   = p.get("title", pid)
+            sid     = p.get("source_id", "")
+            title   = p.get("title", sid)
             authors = ", ".join(p.get("authors") or [])
-            url     = _paper_url(pid, p.get("url"))
+            url     = _paper_url(sid, p.get("url"))
             lines.append(f"## [{title}]({url})")
             lines.append("")
-            if not _is_arxiv_id(pid):
-                lines.append(f"**Paper-ID:** {pid}")
+            if not _is_arxiv_id(sid):
+                lines.append(f"**Paper-ID:** {sid}")
             if authors:
                 lines.append(f"**Authors:** {authors}")
             cat = p.get("category", "")
@@ -191,17 +191,17 @@ class ObsidianFormat:
                 m = _MD_LINK_RE.match(line[3:])
                 if m:
                     current = {"title": m.group(1), "url": m.group(2),
-                               "paper_id": _paper_id_from_url(m.group(2))}
+                               "source_id": _source_id_from_url(m.group(2))}
                 else:
                     label = line[3:].strip()
-                    current = {"title": label, "url": "", "paper_id": label}
+                    current = {"title": label, "url": "", "source_id": label}
                 continue
 
             if current is None:
                 continue
 
             if line.startswith("**Paper-ID:**"):
-                current["paper_id"] = line[13:].strip()
+                current["source_id"] = line[13:].strip()
             elif line.startswith("**Authors:**"):
                 current["authors"] = [a.strip() for a in line[12:].split(",") if a.strip()]
             elif line.startswith("**Category:**"):
@@ -218,7 +218,7 @@ class ObsidianFormat:
 
 def _dict_to_metadata(d: dict) -> PaperMetadata:
     return PaperMetadata(
-        paper_id  = d.get("paper_id", ""),
+        source_id = d.get("source_id", ""),
         version   = 1,
         title     = d.get("title", ""),
         authors   = d.get("authors", []),

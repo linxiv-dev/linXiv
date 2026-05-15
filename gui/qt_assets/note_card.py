@@ -1,17 +1,29 @@
 from __future__ import annotations
+from datetime import datetime
 
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
-from gui.theme import ACCENT as _ACCENT, BORDER as _BORDER, MUTED as _MUTED, PANEL as _PANEL
-from gui.theme import CARD_PAD_H, CARD_PAD_V, FONT_TERTIARY, NOTE_HEIGHT, RADIUS_LG, SPACE_XS
 from gui.qt_assets.styles import BTN_NOTE_ACCENT, BTN_NOTE_DELETE
+from gui.theme import (
+    ACCENT as ACCENT,
+    BORDER as BORDER,
+    MUTED as MUTED,
+    PANEL as PANEL,
+)
+from gui.theme import (
+    CARD_PAD_H,
+    CARD_PAD_V,
+    FONT_TERTIARY,
+    NOTE_HEIGHT,
+    RADIUS_LG,
+    SPACE_XS,
+)
 from gui.views import MarkdownView
-from datetime import datetime
 
-def note_card(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFrame:
+def NoteCard(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFrame:
     card = QFrame()
     card.setStyleSheet(f"""
-        QFrame {{ background: {_PANEL}; border: 1px solid {_BORDER}; border-radius: {RADIUS_LG}px; }}
+        QFrame {{ background: {PANEL}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px; }}
         QLabel {{ border: none; background: transparent; }}
     """)
     col = QVBoxLayout(card)
@@ -21,18 +33,18 @@ def note_card(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFra
     hdr = QHBoxLayout()
     if note.project_id is not None and note.project_id in proj_names:
         chip = QLabel(f"📁 {proj_names[note.project_id]}")
-        chip.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_ACCENT};")
+        chip.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {ACCENT};")
         hdr.addWidget(chip)
     elif note.project_id is None:
         standalone = QLabel("Standalone note")
-        standalone.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
+        standalone.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
         hdr.addWidget(standalone)
 
     hdr.addStretch()
     if note.created_at:
         _dt = note.created_at if isinstance(note.created_at, datetime) else datetime.fromisoformat(note.created_at)
         date_lbl = QLabel(_dt.strftime("%Y-%m-%d"))
-        date_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
+        date_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
         hdr.addWidget(date_lbl)
 
     edit_btn = QPushButton("Edit")

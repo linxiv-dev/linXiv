@@ -214,7 +214,7 @@ class TestResolvePdfMetadata:
 
     def test_arxiv_id_resolved_before_doi(self):
         expected = PaperMetadata(
-            paper_id="2411.10406", version=2, title="Quantum Paper", authors=["A"],
+            source_id="2411.10406", version=2, title="Quantum Paper", authors=["A"],
             published=datetime.date(2024, 11, 15), summary="", source="arxiv",
         )
         with self._patch_extract(arxiv_id="2411.10406v2"):
@@ -226,18 +226,18 @@ class TestResolvePdfMetadata:
 
     def test_doi_found_calls_resolve_doi(self):
         expected = PaperMetadata(
-            paper_id="2204.12985", version=1, title="Resolved", authors=["A"],
+            source_id="2204.12985", version=1, title="Resolved", authors=["A"],
             published=datetime.date(2022, 4, 1), summary="", source="arxiv",
         )
         with self._patch_extract(doi="10.48550/arXiv.2204.12985"):
             with patch("sources.pdf_metadata.resolve_doi", return_value=expected) as mock_resolve:
                 result = resolve_pdf_metadata("/fake/path.pdf")
         mock_resolve.assert_called_once_with("10.48550/arXiv.2204.12985")
-        assert result.paper_id == "2204.12985"
+        assert result.source_id == "2204.12985"
 
     def test_doi_resolution_failure_falls_through_to_title_search(self):
         crossref_result = PaperMetadata(
-            paper_id="10.9999/x", version=1, title="Title Match", authors=[],
+            source_id="10.9999/x", version=1, title="Title Match", authors=[],
             published=datetime.date(2020, 1, 1), summary="", source="crossref",
         )
         with self._patch_extract(doi="10.9999/bad", title="Title Match"):
@@ -248,7 +248,7 @@ class TestResolvePdfMetadata:
 
     def test_no_doi_uses_title_search(self):
         crossref_result = PaperMetadata(
-            paper_id="10.1234/xyz", version=1, title="My Paper", authors=[],
+            source_id="10.1234/xyz", version=1, title="My Paper", authors=[],
             published=datetime.date(2021, 6, 1), summary="", source="crossref",
         )
         with self._patch_extract(title="My Paper"):
@@ -274,13 +274,13 @@ class TestResolvePdfMetadata:
                     result = resolve_pdf_metadata("/fake/path.pdf")
         assert result.authors == ["Jane Doe", "John Smith"]
 
-    def test_partial_record_paper_id_is_pdf_prefixed(self):
+    def test_partial_record_source_id_is_pdf_prefixed(self):
         with self._patch_extract():
             with patch("sources.pdf_metadata._try_crossref_title", return_value=None):
                 with patch("sources.pdf_metadata.Path") as mock_path:
                     mock_path.return_value.read_bytes.return_value = b"content"
                     result = resolve_pdf_metadata("/fake/path.pdf")
-        assert result.paper_id.startswith("pdf:")
+        assert result.source_id.startswith("pdf:")
 
     def test_partial_record_id_is_deterministic(self):
         content = b"stable pdf bytes"
@@ -290,7 +290,7 @@ class TestResolvePdfMetadata:
                 with patch("sources.pdf_metadata.Path") as mock_path:
                     mock_path.return_value.read_bytes.return_value = content
                     result = resolve_pdf_metadata("/fake/path.pdf")
-        assert result.paper_id == expected_id
+        assert result.source_id == expected_id
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +354,7 @@ class TestResolvePdfMetadataReal:
     def test_resolves_via_arxiv_id(self, real_pdf):
         with patch("sources.pdf_metadata.ArxivSource") as mock_cls:
             expected = PaperMetadata(
-                paper_id="2411.10406", version=2, title="Quantum Supercomputer Paper",
+                source_id="2411.10406", version=2, title="Quantum Supercomputer Paper",
                 authors=["A"], published=datetime.date(2024, 11, 15), summary="", source="arxiv",
             )
             mock_cls.return_value.fetch_by_id.return_value = expected
@@ -399,7 +399,7 @@ class TestResolvePdfMetadataEmbedded:
     def test_resolves_via_arxiv_id(self, pdf_embedded_meta):
         with patch("sources.pdf_metadata.ArxivSource") as mock_cls:
             expected = PaperMetadata(
-                paper_id="2604.21547", version=1, title="Yang-Baxter Paper",
+                source_id="2604.21547", version=1, title="Yang-Baxter Paper",
                 authors=["Vinayak M. Kulkarni"], published=datetime.date(2026, 4, 23),
                 summary="", source="arxiv",
             )

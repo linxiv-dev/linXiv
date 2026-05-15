@@ -40,11 +40,11 @@ _FORMATS_DIR = Path(__file__).parent / "formats"
 _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$|^[a-z\-]+(\.[A-Z]{2})?/\d{7}(v\d+)?$")
 
 
-def _validate_arxiv_id(paper_id: str) -> str:
-    if not _ARXIV_ID_RE.match(paper_id):
-        print(json.dumps({"error": f"Invalid arXiv ID format: {paper_id!r}"}), file=sys.stderr)
+def _validate_arxiv_id(source_id: str) -> str:
+    if not _ARXIV_ID_RE.match(source_id):
+        print(json.dumps({"error": f"Invalid arXiv ID format: {source_id!r}"}), file=sys.stderr)
         sys.exit(1)
-    return paper_id
+    return source_id
 
 
 def _render_paper(meta: PaperMetadata) -> str | None:
@@ -113,10 +113,10 @@ def cmd_search(args: argparse.Namespace) -> None:
 
 def cmd_fetch(args: argparse.Namespace) -> None:
     if args.source == "arxiv":
-        _validate_arxiv_id(args.paper_id)
+        _validate_arxiv_id(args.source_id)
     source = _source_for(args.source)
     try:
-        meta = source.fetch_by_id(args.paper_id)
+        meta = source.fetch_by_id(args.source_id)
     except Exception as e:
         print(f"[fetch] {e}", file=sys.stderr)
         print(json.dumps({"error": str(e)}), file=sys.stderr)
@@ -142,20 +142,20 @@ def cmd_list(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_paper_get(args: argparse.Namespace) -> None:
-    details = _resolve_paper_or_exit(args.paper_id)
+    details = _resolve_paper_or_exit(args.source_id)
     _output(_details_to_dict(details))
 
 
 def cmd_paper_delete(args: argparse.Namespace) -> None:
-    _resolve_paper_or_exit(args.paper_id)
-    svc_paper.delete_paper(args.paper_id)
-    _output({"deleted": args.paper_id})
+    _resolve_paper_or_exit(args.source_id)
+    svc_paper.delete_paper(args.source_id)
+    _output({"deleted": args.source_id})
 
 
 def cmd_paper_versions(args: argparse.Namespace) -> None:
-    all_versions = svc_paper.get_all(Paper(source_id=args.paper_id))
+    all_versions = svc_paper.get_all(Paper(source_id=args.source_id))
     if all_versions is None:
-        print(json.dumps({"error": f"Paper {args.paper_id!r} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {args.source_id!r} not found in DB"}), file=sys.stderr)
         sys.exit(1)
     _output(_details_to_dict(all_versions))
 
@@ -166,25 +166,25 @@ def cmd_paper_versions(args: argparse.Namespace) -> None:
 
 def cmd_tag_add(args: argparse.Namespace) -> None:
     try:
-        updated = svc_tag.add_paper_tags(args.paper_id, args.tags)
+        updated = svc_tag.add_paper_tags(args.source_id, args.tags)
     except KeyError:
-        print(json.dumps({"error": f"Paper {args.paper_id} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {args.source_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
-    _output({"paper_id": args.paper_id, "tags": updated})
+    _output({"source_id": args.source_id, "tags": updated})
 
 
 def cmd_tag_remove(args: argparse.Namespace) -> None:
     try:
-        updated = svc_tag.remove_paper_tags(args.paper_id, args.tags)
+        updated = svc_tag.remove_paper_tags(args.source_id, args.tags)
     except KeyError:
-        print(json.dumps({"error": f"Paper {args.paper_id} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {args.source_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
-    _output({"paper_id": args.paper_id, "tags": updated})
+    _output({"source_id": args.source_id, "tags": updated})
 
 
 def cmd_tag_list(args: argparse.Namespace) -> None:
-    tags = svc_tag.get_paper_tags(args.paper_id)
-    _output({"paper_id": args.paper_id, "tags": tags})
+    tags = svc_tag.get_paper_tags(args.source_id)
+    _output({"source_id": args.source_id, "tags": tags})
 
 
 def cmd_tag_list_all(args: argparse.Namespace) -> None:
@@ -252,9 +252,9 @@ def cmd_project_delete(args: argparse.Namespace) -> None:
 
 def cmd_project_add_paper(args: argparse.Namespace) -> None:
     details = _resolve_project_or_exit(args.project_id)
-    root = svc_paper.get_paper_root(args.paper_id)
+    root = svc_paper.get_paper_root(args.source_id)
     if root is None:
-        print(json.dumps({"error": f"Paper {args.paper_id} not found in database"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {args.source_id} not found in database"}), file=sys.stderr)
         sys.exit(1)
     source_fk = int(root["SOURCE_FK"])
     if source_fk not in details.source_fks:
@@ -265,14 +265,14 @@ def cmd_project_add_paper(args: argparse.Namespace) -> None:
             tags=details.project_tags,
             source_fks=details.source_fks + [source_fk],
         ), project_fk=args.project_id)
-    _output({"project_id": args.project_id, "paper_id": args.paper_id})
+    _output({"project_id": args.project_id, "source_id": args.source_id})
 
 
 def cmd_project_remove_paper(args: argparse.Namespace) -> None:
     details = _resolve_project_or_exit(args.project_id)
-    root = svc_paper.get_paper_root(args.paper_id)
+    root = svc_paper.get_paper_root(args.source_id)
     if root is None:
-        print(json.dumps({"error": f"Paper {args.paper_id} not found in database"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {args.source_id} not found in database"}), file=sys.stderr)
         sys.exit(1)
     source_fk = int(root["SOURCE_FK"])
     svc_project.upsert(ProjectIn(
@@ -282,7 +282,7 @@ def cmd_project_remove_paper(args: argparse.Namespace) -> None:
         tags=details.project_tags,
         source_fks=[fk for fk in details.source_fks if fk != source_fk],
     ), project_fk=args.project_id)
-    _output({"project_id": args.project_id, "paper_id": args.paper_id, "removed": True})
+    _output({"project_id": args.project_id, "source_id": args.source_id, "removed": True})
 
 
 # ---------------------------------------------------------------------------
@@ -290,9 +290,9 @@ def cmd_project_remove_paper(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_note_create(args: argparse.Namespace) -> None:
-    root = svc_paper.get_paper_root(args.paper_id)
+    root = svc_paper.get_paper_root(args.source_id)
     if root is None:
-        print(json.dumps({"error": f"Paper {args.paper_id} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {args.source_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
     source_fk = int(root["SOURCE_FK"])
     note_id = svc_note.upsert(NoteIn(
@@ -314,10 +314,10 @@ def cmd_note_get(args: argparse.Namespace) -> None:
 
 def cmd_note_list(args: argparse.Namespace) -> None:
     source_fk = None
-    if args.paper_id is not None:
-        root = svc_paper.get_paper_root(args.paper_id)
+    if args.source_id is not None:
+        root = svc_paper.get_paper_root(args.source_id)
         if root is None:
-            print(json.dumps({"error": f"Paper {args.paper_id!r} not found in DB"}), file=sys.stderr)
+            print(json.dumps({"error": f"Paper {args.source_id!r} not found in DB"}), file=sys.stderr)
             sys.exit(1)
         source_fk = int(root["SOURCE_FK"])
     notes = svc_note.get_many(Notes(source_fk=source_fk, project_fk=args.project_id))
@@ -338,17 +338,17 @@ def cmd_note_delete(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_pdf_path(args: argparse.Namespace) -> None:
-    paper = _resolve_paper_or_exit(args.paper_id)
+    paper = _resolve_paper_or_exit(args.source_id)
     version = args.version if args.version is not None else paper.version
-    path = svc_files.pdf_path(paper.paper_id, version, paper.pdf_path)
-    _output({"paper_id": args.paper_id, "version": version, "path": path})
+    path = svc_files.pdf_path(paper.source_id, version, paper.pdf_path)
+    _output({"source_id": args.source_id, "version": version, "path": path})
 
 
 def cmd_pdf_download(args: argparse.Namespace) -> None:
-    paper = _resolve_paper_or_exit(args.paper_id)
+    paper = _resolve_paper_or_exit(args.source_id)
     version = args.version if args.version is not None else paper.version
     try:
-        path = svc_files.download_pdf(paper.paper_id, version, args.url)
+        path = svc_files.download_pdf(paper.source_id, version, args.url)
     except Exception as e:
         print(f"[pdf] {e}", file=sys.stderr)
         print(json.dumps({"error": str(e)}), file=sys.stderr)
@@ -356,7 +356,7 @@ def cmd_pdf_download(args: argparse.Namespace) -> None:
     if path is None:
         print(json.dumps({"error": "Download failed"}), file=sys.stderr)
         sys.exit(1)
-    _output({"paper_id": args.paper_id, "version": version, "path": path})
+    _output({"source_id": args.source_id, "version": version, "path": path})
 
 
 def cmd_pdf_storage(args: argparse.Namespace) -> None:
@@ -384,7 +384,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # fetch
     p_fetch = sub.add_parser("fetch", help="Fetch and save a paper by ID")
-    p_fetch.add_argument("paper_id", help="Paper ID (e.g. 2204.12985 or W3123456789)")
+    p_fetch.add_argument("source_id", help="Paper ID (e.g. 2204.12985 or W3123456789)")
     p_fetch.add_argument("--source", choices=_source_choices, default="arxiv")
     p_fetch.set_defaults(func=cmd_fetch)
 
@@ -400,15 +400,15 @@ def build_parser() -> argparse.ArgumentParser:
     paper_sub = p_paper.add_subparsers(dest="paper_command", required=True)
 
     p_paper_get = paper_sub.add_parser("get", help="Get full details for a paper")
-    p_paper_get.add_argument("paper_id", help="Paper source ID")
+    p_paper_get.add_argument("source_id", help="Paper source ID")
     p_paper_get.set_defaults(func=cmd_paper_get)
 
     p_paper_del = paper_sub.add_parser("delete", help="Delete a paper from the database")
-    p_paper_del.add_argument("paper_id", help="Paper source ID")
+    p_paper_del.add_argument("source_id", help="Paper source ID")
     p_paper_del.set_defaults(func=cmd_paper_delete)
 
     p_paper_ver = paper_sub.add_parser("versions", help="List all stored versions of a paper")
-    p_paper_ver.add_argument("paper_id", help="Paper source ID")
+    p_paper_ver.add_argument("source_id", help="Paper source ID")
     p_paper_ver.set_defaults(func=cmd_paper_versions)
 
     # tag
@@ -416,17 +416,17 @@ def build_parser() -> argparse.ArgumentParser:
     tag_sub = p_tag.add_subparsers(dest="tag_command", required=True)
 
     p_tag_add = tag_sub.add_parser("add", help="Add tags to a paper")
-    p_tag_add.add_argument("paper_id", help="Paper source ID")
+    p_tag_add.add_argument("source_id", help="Paper source ID")
     p_tag_add.add_argument("tags", nargs="+", help="Tags to add")
     p_tag_add.set_defaults(func=cmd_tag_add)
 
     p_tag_remove = tag_sub.add_parser("remove", help="Remove tags from a paper")
-    p_tag_remove.add_argument("paper_id", help="Paper source ID")
+    p_tag_remove.add_argument("source_id", help="Paper source ID")
     p_tag_remove.add_argument("tags", nargs="+", help="Tags to remove")
     p_tag_remove.set_defaults(func=cmd_tag_remove)
 
     p_tag_list = tag_sub.add_parser("list", help="List tags on a paper")
-    p_tag_list.add_argument("paper_id", help="Paper source ID")
+    p_tag_list.add_argument("source_id", help="Paper source ID")
     p_tag_list.set_defaults(func=cmd_tag_list)
 
     p_tag_list_all = tag_sub.add_parser("list-all", help="List all tags in the database")
@@ -469,12 +469,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_proj_add = proj_sub.add_parser("add-paper", help="Add a paper to a project")
     p_proj_add.add_argument("project_id", type=int, help="Project ID")
-    p_proj_add.add_argument("paper_id", help="Paper source ID")
+    p_proj_add.add_argument("source_id", help="Paper source ID")
     p_proj_add.set_defaults(func=cmd_project_add_paper)
 
     p_proj_rem = proj_sub.add_parser("remove-paper", help="Remove a paper from a project")
     p_proj_rem.add_argument("project_id", type=int, help="Project ID")
-    p_proj_rem.add_argument("paper_id", help="Paper source ID")
+    p_proj_rem.add_argument("source_id", help="Paper source ID")
     p_proj_rem.set_defaults(func=cmd_project_remove_paper)
 
     # note
@@ -482,7 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
     note_sub = p_note.add_subparsers(dest="note_command", required=True)
 
     p_note_create = note_sub.add_parser("create", help="Create a note on a paper")
-    p_note_create.add_argument("paper_id", help="Paper source ID")
+    p_note_create.add_argument("source_id", help="Paper source ID")
     p_note_create.add_argument("content", help="Note body text")
     p_note_create.add_argument("--title", default="", help="Note title")
     p_note_create.add_argument("--project-id", type=int, dest="project_id", default=None,
@@ -494,7 +494,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_note_get.set_defaults(func=cmd_note_get)
 
     p_note_list = note_sub.add_parser("list", help="List notes")
-    p_note_list.add_argument("--paper-id", dest="paper_id", default=None,
+    p_note_list.add_argument("--paper-id", dest="source_id", default=None,
                              help="Filter by paper source ID")
     p_note_list.add_argument("--project-id", type=int, dest="project_id", default=None,
                              help="Filter by project ID")
@@ -509,13 +509,13 @@ def build_parser() -> argparse.ArgumentParser:
     pdf_sub = p_pdf.add_subparsers(dest="pdf_command", required=True)
 
     p_pdf_path = pdf_sub.add_parser("path", help="Show local PDF path for a paper")
-    p_pdf_path.add_argument("paper_id", help="Paper source ID")
+    p_pdf_path.add_argument("source_id", help="Paper source ID")
     p_pdf_path.add_argument("--version", type=int, default=None,
                             help="Paper version (defaults to latest)")
     p_pdf_path.set_defaults(func=cmd_pdf_path)
 
     p_pdf_dl = pdf_sub.add_parser("download", help="Download PDF for a paper")
-    p_pdf_dl.add_argument("paper_id", help="Paper source ID")
+    p_pdf_dl.add_argument("source_id", help="Paper source ID")
     p_pdf_dl.add_argument("url", help="PDF download URL")
     p_pdf_dl.add_argument("--version", type=int, default=None,
                           help="Paper version (defaults to latest)")

@@ -450,7 +450,7 @@ class SearchPage(QWidget):
         self._meta_results = results
         for paper in results:
             row_widget = _ResultRow(paper.title, source=paper.source)
-            row_widget.set_checked(paper_svc.get_paper(paper.paper_id) is not None)
+            row_widget.set_checked(paper_svc.get_paper(paper.source_id) is not None)
             row_widget._checkbox.stateChanged.connect(
                 lambda state, p=paper: self._on_meta_checkbox_changed(p, state)
             )
@@ -498,7 +498,7 @@ class SearchPage(QWidget):
             tags = self._parse_tags()
             paper_svc.save_paper_metadata(paper, tags=tags if tags else None)
         else:
-            paper_svc.delete_paper(paper.paper_id)
+            paper_svc.delete_paper(paper.source_id)
 
     def _parse_tags(self) -> list[str]:
         raw = self._tag_input.text().strip()
@@ -546,7 +546,7 @@ class SearchPage(QWidget):
                 self._clear_sidebar()
                 return
             paper = self._meta_results[row]
-            key = (paper.paper_id, paper.version)
+            key = (paper.source_id, paper.version)
             self._current_paper_key = key
             authors = ", ".join(paper.authors[:5])
             if len(paper.authors) > 5:

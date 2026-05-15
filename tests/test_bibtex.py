@@ -73,7 +73,7 @@ class TestImportString:
         assert p.title == "A Great Paper"
         assert p.published == datetime.date(2020, 1, 1)
         assert p.doi == "10.1234/test"
-        assert p.paper_id == "10.1234/test"
+        assert p.source_id == "10.1234/test"
         assert p.journal_ref == "Nature"
         assert p.summary == "This is the abstract."
         assert p.url == "https://example.com/paper"
@@ -89,9 +89,9 @@ class TestImportString:
         papers = _fmt.import_string(_MULTI_AUTHOR_BIB)
         assert len(papers[0].authors) == 3
 
-    def test_no_doi_uses_key_as_paper_id(self):
+    def test_no_doi_uses_key_as_source_id(self):
         papers = _fmt.import_string(_NO_DOI_BIB)
-        assert papers[0].paper_id == "doe2019"
+        assert papers[0].source_id == "doe2019"
         assert papers[0].doi is None
 
     def test_booktitle_used_as_journal_ref(self):
@@ -146,7 +146,7 @@ class TestImportFile:
 class TestExportPapers:
     def _make_paper(self, **overrides):
         base = {
-            "paper_id": "2301.00001",
+            "source_id": "2301.00001",
             "title": "Test Export",
             "summary": "An abstract.",
             "published": datetime.date(2023, 1, 1),
@@ -178,7 +178,7 @@ class TestExportPapers:
         assert "https://example.com" in out
 
     def test_export_multiple_papers(self):
-        papers = [self._make_paper(paper_id="a"), self._make_paper(paper_id="b")]
+        papers = [self._make_paper(source_id="a"), self._make_paper(source_id="b")]
         out = _fmt.export_papers(papers)
         assert out.count("@article") == 2
 

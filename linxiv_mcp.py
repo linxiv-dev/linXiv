@@ -15,6 +15,9 @@ from storage.projects import (
 from sources.arxiv_source import ArxivSource
 from sources.openalex_source import OpenAlexSource
 
+from AI_tools import PaperContent, tag
+
+
 mcp = FastMCP("linxiv")
 
 _SOURCES = {
@@ -113,7 +116,6 @@ def tag_paper(paper_id: str) -> dict:
     Args:
         paper_id: The paper ID to tag (e.g. "2204.12985").
     """
-    from AI_tools import PaperContent, tag
 
     row = db.get_paper(paper_id)
     if row is None:

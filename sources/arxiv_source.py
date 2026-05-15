@@ -13,16 +13,16 @@ def _parse_arxiv_id(entry_id: str) -> tuple[str, int]:
     raw = entry_id.split("/")[-1]
     match = re.match(r"^(.+?)(?:v(\d+))?$", raw)
     assert match is not None
-    paper_id = match.group(1)
+    source_id = match.group(1)
     version = int(match.group(2)) if match.group(2) else 1
-    return paper_id, version
+    return source_id, version
 
 
 def _result_to_metadata(result: arxiv.Result) -> PaperMetadata:
     """Convert an arxiv.Result to a PaperMetadata."""
-    paper_id, version = _parse_arxiv_id(result.entry_id)
+    source_id, version = _parse_arxiv_id(result.entry_id)
     return PaperMetadata(
-        paper_id=paper_id,
+        source_id=source_id,
         version=version,
         title=result.title,
         authors=[a.name for a in result.authors],
@@ -65,16 +65,16 @@ class ArxivSource(PaperSource):
             raise ValueError(f"arXiv search failed: {e}") from e
         return [_result_to_metadata(r) for r in results]
 
-    def fetch_by_id(self, paper_id: str) -> PaperMetadata:
-        search = arxiv.Search(id_list=[paper_id])
+    def fetch_by_id(self, source_id: str) -> PaperMetadata:
+        search = arxiv.Search(id_list=[source_id])
         _check_ratelimit()
         try:
             result = next(self._client.results(search))
         except StopIteration:
-            raise ValueError(f"Paper '{paper_id}' not found on arXiv.")
+            raise ValueError(f"Paper '{source_id}' not found on arXiv.")
         except Exception as e:
             print(f"[arxiv] fetch error: {e}")
             if "429" in str(e):
                 _record_ratelimit()
-            raise ValueError(f"arXiv fetch failed for '{paper_id}': {e}") from e
+            raise ValueError(f"arXiv fetch failed for '{source_id}': {e}") from e
         return _result_to_metadata(result)
