@@ -213,7 +213,7 @@ def upsert(paper: PaperIn, tags: list[str] | None = None) -> tuple[str, int]:
     Returns (source_id, version).
     """
     meta = PaperMetadata(
-        paper_id=paper.source_id or "",
+        source_id=paper.source_id or "",
         version=paper.version or 1,
         title=paper.title,
         authors=paper.authors or [],
@@ -324,7 +324,7 @@ def set_pdf_path(source_id: str, path: str) -> None:
 # ---------------------------------------------------------------------------
 
 def set_full_text(source_id: str, version: int, full_text: str) -> None:
-    db.set_full_text(source_id, version, full_text)
+    db.set_full_text(full_text=full_text, paper_id=None, source_id=source_id, version=version)
 
 def search_full_text(query: str, limit: int = 20) -> list[sqlite3.Row]:
     return db.search_full_text(query, limit)

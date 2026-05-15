@@ -1082,7 +1082,7 @@ class LibraryPage(QWidget):
     def _on_remove_pdfs(self) -> None:
         if not self._selected:
             return
-        affected = [c for c in self._cards if c.source_id() in self._selected and c.local_pdf_path()]
+        affected = [c for c in self._cards if c.paper_id() in self._selected and c.local_pdf_path()]
         if not affected:
             return
         n = len(affected)
@@ -1102,7 +1102,7 @@ class LibraryPage(QWidget):
                 except OSError as e:
                     print(f"[remove_pdfs] Error removing PDF: {path}")
                     print(f"[remove_pdfs] {e}")
-            sid = paper_svc.get_source_id(card.source_id())
+            sid = paper_svc.get_source_id(card.paper_id())
             if sid:
                 paper_svc.set_pdf_path(sid, "")
                 paper_svc.set_has_pdf(sid, card._row["version"], False)

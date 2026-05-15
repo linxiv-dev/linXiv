@@ -414,14 +414,14 @@ def set_pdf_path(source_id: str, path: str, version: int | None = None) -> None:
         if version:
             conn.execute(
                 "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
-                "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? AND VERSION = ?",
+                "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? AND VERSION = ?)",
                 (path, source_id, version),
             )
         else:
             lastrow = conn.execute(
                 "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
-                "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? ",
-                (path, source_id, version),
+                "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ?)",
+                (path, source_id),
             )
             if lastrow:
                 print("Warning: you are updating the paths of all pdfs associated with this paper. This will cause the pdfs of other version to be deleted, those other version.")

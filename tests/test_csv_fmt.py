@@ -23,7 +23,7 @@ _tsv = TSVFormat()
 
 def _make_paper(**overrides) -> dict:
     base = {
-        "paper_id":  "2301.00001",
+        "source_id":  "2301.00001",
         "title":     "Test Paper",
         "authors":   ["Alice Author", "Bob Builder"],
         "category":  "cs.LG",
@@ -51,12 +51,12 @@ class TestExportPapers:
     def test_output_has_header(self):
         out = _fmt.export_papers([_make_paper()])
         reader = csv.DictReader(io.StringIO(out))
-        assert set(reader.fieldnames or []) >= {"paper_id", "title", "authors", "category", "tags", "published", "has_pdf"}
+        assert set(reader.fieldnames or []) >= {"source_id", "title", "authors", "category", "tags", "published", "has_pdf"}
 
     def test_single_paper_fields(self):
         out = _fmt.export_papers([_make_paper()])
         row = next(csv.DictReader(io.StringIO(out)))
-        assert row["paper_id"] == "2301.00001"
+        assert row["source_id"] == "2301.00001"
         assert row["title"] == "Test Paper"
         assert row["published"] == "2023-01-01"
         assert row["has_pdf"] == "N"
@@ -82,7 +82,7 @@ class TestExportPapers:
         assert row["published"].startswith("2022-03-05")
 
     def test_multiple_papers_row_count(self):
-        papers = [_make_paper(paper_id="a"), _make_paper(paper_id="b")]
+        papers = [_make_paper(source_id="a"), _make_paper(source_id="b")]
         out = _fmt.export_papers(papers)
         rows = list(csv.DictReader(io.StringIO(out)))
         assert len(rows) == 2
@@ -99,13 +99,13 @@ class TestExportPapers:
 
 class TestImportFile:
     def test_basic_fields(self):
-        content = "paper_id,title,authors,category,tags,published,has_pdf\n2301.00001,My Paper,A. Author,cs.LG,ml,2023-01-01,N\n"
+        content = "source_id,title,authors,category,tags,published,has_pdf\n2301.00001,My Paper,A. Author,cs.LG,ml,2023-01-01,N\n"
         path = _write_temp_csv(content)
         try:
             papers = _fmt.import_file(path)
             assert len(papers) == 1
             p = papers[0]
-            assert p.paper_id == "2301.00001"
+            assert p.source_id == "2301.00001"
             assert p.title == "My Paper"
             assert p.category == "cs.LG"
             assert p.published == datetime.date(2023, 1, 1)
@@ -113,7 +113,7 @@ class TestImportFile:
             os.unlink(path)
 
     def test_authors_parsed_from_semicolons(self):
-        content = "paper_id,title,authors,category,tags,published,has_pdf\n1,T,Alice; Bob,,,2020-01-01,N\n"
+        content = "source_id,title,authors,category,tags,published,has_pdf\n1,T,Alice; Bob,,,2020-01-01,N\n"
         path = _write_temp_csv(content)
         try:
             papers = _fmt.import_file(path)
@@ -122,8 +122,8 @@ class TestImportFile:
             os.unlink(path)
 
     def test_tags_parsed_from_commas(self):
-        content = "paper_id,title,authors,category,tags,published,has_pdf\n1,T,,,,2020-01-01,N\n"
-        content = "paper_id,title,authors,category,tags,published,has_pdf\n1,T,,cs.AI,\"ml, nlp\",2020-01-01,N\n"
+        content = "source_id,title,authors,category,tags,published,has_pdf\n1,T,,,,2020-01-01,N\n"
+        content = "source_id,title,authors,category,tags,published,has_pdf\n1,T,,cs.AI,\"ml, nlp\",2020-01-01,N\n"
         path = _write_temp_csv(content)
         try:
             papers = _fmt.import_file(path)
@@ -131,18 +131,18 @@ class TestImportFile:
         finally:
             os.unlink(path)
 
-    def test_skips_rows_without_paper_id(self):
-        content = "paper_id,title,authors,category,tags,published,has_pdf\n,No ID paper,,,,2020-01-01,N\n1,Has ID,,,,2021-01-01,N\n"
+    def test_skips_rows_without_source_id(self):
+        content = "source_id,title,authors,category,tags,published,has_pdf\n,No ID paper,,,,2020-01-01,N\n1,Has ID,,,,2021-01-01,N\n"
         path = _write_temp_csv(content)
         try:
             papers = _fmt.import_file(path)
             assert len(papers) == 1
-            assert papers[0].paper_id == "1"
+            assert papers[0].source_id == "1"
         finally:
             os.unlink(path)
 
     def test_missing_date_uses_fallback(self):
-        content = "paper_id,title,authors,category,tags,published,has_pdf\n1,T,,,,,N\n"
+        content = "source_id,title,authors,category,tags,published,has_pdf\n1,T,,,,,N\n"
         path = _write_temp_csv(content)
         try:
             papers = _fmt.import_file(path)
@@ -151,7 +151,7 @@ class TestImportFile:
             os.unlink(path)
 
     def test_multiple_rows(self):
-        content = "paper_id,title,authors,category,tags,published,has_pdf\n1,A,,,, 2021-01-01,N\n2,B,,,,2022-01-01,N\n"
+        content = "source_id,title,authors,category,tags,published,has_pdf\n1,A,,,, 2021-01-01,N\n2,B,,,,2022-01-01,N\n"
         path = _write_temp_csv(content)
         try:
             papers = _fmt.import_file(path)
@@ -175,7 +175,7 @@ class TestTSVFormat:
         try:
             papers = _tsv.import_file(path)
             assert len(papers) == 1
-            assert papers[0].paper_id == "2301.00001"
+            assert papers[0].source_id == "2301.00001"
         finally:
             os.unlink(path)
 
@@ -193,8 +193,8 @@ class TestRoundTrip:
         finally:
             os.unlink(path)
 
-    def test_preserves_paper_id(self):
-        assert self._round_trip(_make_paper())[0].paper_id == "2301.00001"
+    def test_preserves_source_id(self):
+        assert self._round_trip(_make_paper())[0].source_id == "2301.00001"
 
     def test_preserves_title(self):
         assert self._round_trip(_make_paper())[0].title == "Test Paper"
@@ -213,11 +213,11 @@ class TestRoundTrip:
         assert self._round_trip(_make_paper())[0].tags == ["ml", "nlp"]
 
     def test_two_papers_round_trip(self):
-        papers = [_make_paper(paper_id="a", title="A"), _make_paper(paper_id="b", title="B")]
+        papers = [_make_paper(source_id="a", title="A"), _make_paper(source_id="b", title="B")]
         exported = _fmt.export_papers(papers)
         path = _write_temp_csv(exported)
         try:
             rt = _fmt.import_file(path)
         finally:
             os.unlink(path)
-        assert {p.paper_id for p in rt} == {"a", "b"}
+        assert {p.source_id for p in rt} == {"a", "b"}
