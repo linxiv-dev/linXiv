@@ -17,7 +17,7 @@ from sources.base import PaperMetadata
 
 import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
-from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
+from gui.theme import ACCENT as ACCENT, TEXT as TEXT, MUTED as MUTED
 from gui.theme import (
     FONT_TITLE, FONT_SUBHEADING, FONT_BODY, FONT_SECONDARY, FONT_TERTIARY,
     SPACE_XL, SPACE_MD, SPACE_XS,
@@ -57,7 +57,7 @@ class _LookupWorker(QThread):
 class DoiPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {_BG}; color: {TEXT};")
         self._result: PaperMetadata | None = None
         self._worker: _LookupWorker | None = None
 
@@ -68,10 +68,10 @@ class DoiPage(QWidget):
         # Header
         self._title_lbl = QLabel("Add by DOI")
         self._title_lbl.setStyleSheet(
-            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;"
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {ACCENT}; background: transparent;"
         )
         self._sub_lbl = QLabel("Look up any paper by its DOI and add it to your library.")
-        self._sub_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
+        self._sub_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {MUTED}; background: transparent;")
         outer.addWidget(self._title_lbl)
         outer.addSpacing(SPACE_XS)
         outer.addWidget(self._sub_lbl)
@@ -85,10 +85,10 @@ class DoiPage(QWidget):
         self._doi_input.setStyleSheet(f"""
             QLineEdit {{
                 background: {_PANEL}; border: 1px solid {_BORDER};
-                border-radius: {RADIUS_MD}px; color: {_TEXT}; font-size: {FONT_BODY}px;
+                border-radius: {RADIUS_MD}px; color: {TEXT}; font-size: {FONT_BODY}px;
                 padding: 8px 12px;
             }}
-            QLineEdit:focus {{ border-color: {_ACCENT}; }}
+            QLineEdit:focus {{ border-color: {ACCENT}; }}
         """)
         self._doi_input.returnPressed.connect(self._on_lookup)
 
@@ -105,7 +105,7 @@ class DoiPage(QWidget):
 
         # Status label
         self._status = QLabel("")
-        self._status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_MUTED}; background: transparent;")
+        self._status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED}; background: transparent;")
         self._status.setWordWrap(True)
         outer.addWidget(self._status)
         outer.addSpacing(CARD_PAD_H)
@@ -161,14 +161,14 @@ class DoiPage(QWidget):
 
         self._res_title = QLabel()
         self._res_title.setWordWrap(True)
-        self._res_title.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_TEXT};")
+        self._res_title.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {TEXT};")
 
         self._res_meta = QLabel()
-        self._res_meta.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_MUTED};")
+        self._res_meta.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED};")
 
         self._res_abstract = QLabel()
         self._res_abstract.setWordWrap(True)
-        self._res_abstract.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_TEXT}; line-height: 1.5;")
+        self._res_abstract.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {TEXT}; line-height: 1.5;")
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(SPACE_MD)
@@ -179,7 +179,7 @@ class DoiPage(QWidget):
         self._save_btn.clicked.connect(self._on_save)
 
         self._source_lbl = QLabel()
-        self._source_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
+        self._source_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
 
         btn_row.addWidget(self._save_btn)
         btn_row.addStretch()
@@ -230,9 +230,9 @@ class DoiPage(QWidget):
             "crossref":      "CrossRef",
         }
         src = meta.source or ""
-        self._source_lbl.setText(f"via {source_labels.get(src, src)}: {meta.paper_id}")
+        self._source_lbl.setText(f"via {source_labels.get(src, src)}: {meta.source_id}")
 
-        already = paper_svc.get_paper(meta.paper_id) is not None
+        already = paper_svc.get_paper(meta.source_id) is not None
         if already:
             self._save_btn.setText("Already in library")
             self._save_btn.setEnabled(False)
@@ -259,5 +259,5 @@ class DoiPage(QWidget):
     def _set_busy(self, busy: bool) -> None:
         self._lookup_btn.setEnabled(not busy)
         self._doi_input.setEnabled(not busy)
-        self._status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_MUTED}; background: transparent;")
+        self._status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED}; background: transparent;")
         self._status.setText("Looking up…" if busy else "")

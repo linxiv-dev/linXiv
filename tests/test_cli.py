@@ -40,17 +40,17 @@ class _MockSource:
             raise self._error
         return self._results[:max_results]
 
-    def fetch_by_id(self, paper_id):
+    def fetch_by_id(self, source_id):
         if self._error:
             raise self._error
         if self._fetch is None:
-            raise RuntimeError(f"No paper: {paper_id}")
+            raise RuntimeError(f"No paper: {source_id}")
         return self._fetch
 
 
-def _make_meta(paper_id=ARXIV_ID, title="Attention Is All You Need", source="arxiv"):
+def _make_meta(source_id=ARXIV_ID, title="Attention Is All You Need", source="arxiv"):
     return PaperMetadata(
-        paper_id=paper_id,
+        source_id=source_id,
         version=1,
         title=title,
         authors=["Vaswani et al."],
@@ -72,7 +72,7 @@ def _mock_sources(monkeypatch, results=(), fetch=None, error=None):
 
 
 def _seed(source_id=ARXIV_ID, title="Test Paper", source="arxiv"):
-    meta = _make_meta(paper_id=source_id, title=title, source=source)
+    meta = _make_meta(source_id=source_id, title=title, source=source)
     svc_paper.save_paper_metadata(meta, None)
     return source_id
 
@@ -116,7 +116,7 @@ class TestArgValidation:
         main(["fetch", "2204.12985v2"])
 
     def test_valid_old_style_id_passes(self, monkeypatch):
-        _mock_sources(monkeypatch, fetch=_make_meta(paper_id=OLD_ARXIV_ID))
+        _mock_sources(monkeypatch, fetch=_make_meta(source_id=OLD_ARXIV_ID))
         main(["fetch", OLD_ARXIV_ID])
 
     def test_invalid_id_exits_nonzero_with_error_json(self, monkeypatch, capsys):
@@ -129,8 +129,8 @@ class TestArgValidation:
 
         class _Spy:
             def search(self, *a, **kw): ...
-            def fetch_by_id(self, paper_id):
-                calls.append(paper_id)
+            def fetch_by_id(self, source_id):
+                calls.append(source_id)
                 raise AssertionError("should not be called")
 
         monkeypatch.setattr(linxiv_cli, "_SOURCES", {"arxiv": lambda: _Spy()})
@@ -152,13 +152,13 @@ class TestSearchCommand:
         assert data[0]["title"] == "Attention Is All You Need"
 
     def test_max_forwarded_to_source(self, monkeypatch, capsys):
-        results = [_make_meta(paper_id=f"2204.{10000 + i}") for i in range(20)]
+        results = [_make_meta(source_id=f"2204.{10000 + i}") for i in range(20)]
         _mock_sources(monkeypatch, results=results)
         data = _stdout_json(capsys, ["search", "q", "--max", "5"])
         assert len(data) == 5
 
     def test_source_openalex_routes_correctly(self, monkeypatch, capsys):
-        _mock_sources(monkeypatch, results=[_make_meta(paper_id="W123", source="openalex")])
+        _mock_sources(monkeypatch, results=[_make_meta(source_id="W123", source="openalex")])
         data = _stdout_json(capsys, ["search", "q", "--source", "openalex"])
         assert isinstance(data, list)
 
@@ -186,10 +186,10 @@ class TestFetchCommand:
         assert svc_paper.get(svc_paper.Paper(source_id=ARXIV_ID)) is not None
 
     def test_non_arxiv_source_emits_json(self, monkeypatch, capsys):
-        _mock_sources(monkeypatch, fetch=_make_meta(paper_id="W9999", source="openalex"))
+        _mock_sources(monkeypatch, fetch=_make_meta(source_id="W9999", source="openalex"))
         main(["fetch", "W9999", "--source", "openalex"])
         data = json.loads(capsys.readouterr().out)
-        assert data["paper_id"] == "W9999"
+        assert data["source_id"] == "W9999"
 
     def test_network_error_exits_nonzero(self, monkeypatch, capsys):
         _mock_sources(monkeypatch, error=ConnectionError("timeout"))
@@ -416,7 +416,7 @@ class TestProjectPaperManagement:
         proj_id = self._setup(capsys)
         result = _stdout_json(capsys, ["project", "add-paper", str(proj_id), ARXIV_ID])
         assert result["project_id"] == proj_id
-        assert result["paper_id"] == ARXIV_ID
+        assert result["source_id"] == ARXIV_ID
 
     def test_add_paper_is_idempotent(self, capsys):
         proj_id = self._setup(capsys)

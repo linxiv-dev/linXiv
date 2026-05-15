@@ -2,14 +2,14 @@
 Shared QPushButton stylesheet constants — templates live in formats/styles.json.
 """
 from __future__ import annotations
-
 import json
 from pathlib import Path
 
-import user_settings as _us
 from gui.theme import ACCENT, BORDER, MUTED, PANEL, TEXT
 from gui.theme import FONT_BODY, FONT_SECONDARY, FONT_TERTIARY
 from gui.theme import RADIUS_MD, RADIUS_SM, SPACE_SM, SPACE_XS
+import gui.theme as _gt
+import user_settings as _us
 
 _raw = json.loads(
     (Path(__file__).resolve().parent.parent.parent / "formats" / "styles.json").read_text()
@@ -78,7 +78,6 @@ def btn_colored_outline(color: str, *, hover_bg: str = "rgba(91,141,238,0.08)") 
 
 def reload() -> None:
     """Rebuild all button stylesheet constants from the current theme values."""
-    import gui.theme as _gt
     _theme.update({
         "ACCENT": _gt.ACCENT, "BORDER": _gt.BORDER, "MUTED": _gt.MUTED,
         "PANEL": _gt.PANEL, "TEXT": _gt.TEXT,

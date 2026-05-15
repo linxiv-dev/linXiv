@@ -31,8 +31,8 @@ class TestParseArxivId:
         assert _parse_arxiv_id("2204.12985") == ("2204.12985", 1)
 
     def test_five_digit_id(self):
-        paper_id, ver = _parse_arxiv_id("http://arxiv.org/abs/2204.123456v1")
-        assert paper_id == "2204.123456"
+        source_id, ver = _parse_arxiv_id("http://arxiv.org/abs/2204.123456v1")
+        assert source_id == "2204.123456"
         assert ver == 1
 
 
@@ -69,9 +69,9 @@ class TestResultToMetadata:
         assert isinstance(meta, PaperMetadata)
         assert meta.source == "arxiv"
 
-    def test_extracts_paper_id_from_entry_id(self):
+    def test_extracts_source_id_from_entry_id(self):
         meta = _result_to_metadata(self._make_result(entry_id="http://arxiv.org/abs/2204.12985v1"))
-        assert meta.paper_id == "2204.12985"
+        assert meta.source_id == "2204.12985"
 
     def test_extracts_version_from_entry_id(self):
         meta = _result_to_metadata(self._make_result(entry_id="http://arxiv.org/abs/2204.12985v3"))
@@ -176,14 +176,14 @@ class TestWorkToMetadata:
     def test_basic_conversion(self):
         meta = _work_to_metadata(self._make_work())
         assert isinstance(meta, PaperMetadata)
-        assert meta.paper_id == "W3123456789"
+        assert meta.source_id == "W3123456789"
         assert meta.source == "openalex"
         assert meta.title == "OpenAlex Paper"
         assert meta.version == 1
 
     def test_extracts_openalex_id_from_url(self):
         meta = _work_to_metadata(self._make_work(id="https://openalex.org/W9876543210"))
-        assert meta.paper_id == "W9876543210"
+        assert meta.source_id == "W9876543210"
 
     def test_extracts_authors(self):
         work = self._make_work(authorships=[
@@ -323,7 +323,7 @@ class TestOpenAlexSourceFetchById:
         with patch.object(source._http, "get", return_value=mock_resp):
             result = source.fetch_by_id("W9999")
         assert result.title == "Fetched Paper"
-        assert result.paper_id == "W9999"
+        assert result.source_id == "W9999"
 
     def test_fetch_by_id_raises_value_error_on_error(self):
         source = OpenAlexSource()

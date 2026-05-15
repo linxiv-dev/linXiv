@@ -194,7 +194,7 @@ class TestProjectSaveAndFilter:
 
 @pytest.mark.usefixtures("tmp_db")
 class TestProjectAddPaper:
-    def test_add_paper_appears_in_paper_ids(self):
+    def test_add_paper_appears_in_source_ids(self):
         p = Project(name="Paper Collector")
         p.save()
         p.add_paper(_sfk("2204.12985"))
