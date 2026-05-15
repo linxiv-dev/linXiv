@@ -230,9 +230,9 @@ class DoiPage(QWidget):
             "crossref":      "CrossRef",
         }
         src = meta.source or ""
-        self._source_lbl.setText(f"via {source_labels.get(src, src)}: {meta.paper_id}")
+        self._source_lbl.setText(f"via {source_labels.get(src, src)}: {meta.source_id}")
 
-        already = paper_svc.get_paper(meta.paper_id) is not None
+        already = paper_svc.get_paper(meta.source_id) is not None
         if already:
             self._save_btn.setText("Already in library")
             self._save_btn.setEnabled(False)

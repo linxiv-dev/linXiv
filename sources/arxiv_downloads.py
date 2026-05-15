@@ -2,6 +2,8 @@ import os
 import re
 import tarfile
 import tempfile
+from collections.abc import Sequence
+
 import arxiv
 from pathlib import Path
 from urllib.parse import urlparse
@@ -50,7 +52,7 @@ def download_source(
     return written
 
 def download_pdf_batch(
-    papers: list[arxiv.Result],
+    papers: Sequence[arxiv.Result],
     dirpath: str = './',
     domain: str = DOWNLOAD_DOMAIN,
 ) -> list[str]:
@@ -87,7 +89,7 @@ def saved_pdfs_size(paths: set[str]) -> int:
     return sum(os.path.getsize(p) for p in paths if os.path.isfile(p))
 
 def download_source_batch(
-    papers: list[arxiv.Result],
+    papers: Sequence[arxiv.Result],
     dirpath: str = './',
     domain: str = DOWNLOAD_DOMAIN,
 ) -> list[str]:

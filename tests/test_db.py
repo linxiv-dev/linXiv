@@ -17,42 +17,42 @@ import storage.db as db
 
 class TestParseEntryId:
     def test_full_url_with_version(self):
-        paper_id, version = db.parse_entry_id("http://arxiv.org/abs/2204.12985v4")
-        assert paper_id == "2204.12985"
+        source_id, version = db.parse_entry_id("http://arxiv.org/abs/2204.12985v4")
+        assert source_id == "2204.12985"
         assert version == 4
 
     def test_https_url_with_version(self):
-        paper_id, version = db.parse_entry_id("https://arxiv.org/abs/2301.00001v1")
-        assert paper_id == "2301.00001"
+        source_id, version = db.parse_entry_id("https://arxiv.org/abs/2301.00001v1")
+        assert source_id == "2301.00001"
         assert version == 1
 
     def test_bare_id_with_version(self):
-        paper_id, version = db.parse_entry_id("2204.12985v2")
-        assert paper_id == "2204.12985"
+        source_id, version = db.parse_entry_id("2204.12985v2")
+        assert source_id == "2204.12985"
         assert version == 2
 
     def test_bare_id_no_version_defaults_to_1(self):
-        paper_id, version = db.parse_entry_id("2204.12985")
-        assert paper_id == "2204.12985"
+        source_id, version = db.parse_entry_id("2204.12985")
+        assert source_id == "2204.12985"
         assert version == 1
 
     def test_old_style_url_takes_last_segment(self):
         # parse_entry_id uses split('/')[-1], so for URLs like
         # "http://arxiv.org/abs/hep-th/9901001v1" the category prefix is
         # dropped and only the numeric part is kept.
-        paper_id, version = db.parse_entry_id("http://arxiv.org/abs/hep-th/9901001v1")
-        assert paper_id == "9901001"
+        source_id, version = db.parse_entry_id("http://arxiv.org/abs/hep-th/9901001v1")
+        assert source_id == "9901001"
         assert version == 1
 
     def test_old_style_url_higher_version(self):
-        paper_id, version = db.parse_entry_id("http://arxiv.org/abs/math/0501234v3")
-        assert paper_id == "0501234"
+        source_id, version = db.parse_entry_id("http://arxiv.org/abs/math/0501234v3")
+        assert source_id == "0501234"
         assert version == 3
 
     def test_old_style_bare_takes_last_segment(self):
         # Bare old-style ID — split('/') picks "9901001", no version → default 1
-        paper_id, version = db.parse_entry_id("hep-th/9901001")
-        assert paper_id == "9901001"
+        source_id, version = db.parse_entry_id("hep-th/9901001")
+        assert source_id == "9901001"
         assert version == 1
 
 
@@ -127,10 +127,10 @@ class TestSavePaper:
         assert row is not None
         assert row["category"] == "math.CO"
 
-    def test_save_returns_paper_id_and_version(self):
+    def test_save_returns_source_id_and_version(self):
         result = _make_result("2204.12985v2")
-        paper_id, version = db.save_paper(result)
-        assert paper_id == "2204.12985"
+        source_id, version = db.save_paper(result)
+        assert source_id == "2204.12985"
         assert version == 2
 
     def test_get_paper_missing_returns_none(self):
@@ -155,7 +155,7 @@ class TestSavePaperMetadata:
     def _make_meta(self, **kwargs):
         from sources.base import PaperMetadata
         defaults = dict(
-            paper_id="W3123456789",
+            source_id="W3123456789",
             version=1,
             title="OpenAlex Paper",
             authors=["Jane Doe"],
@@ -197,9 +197,9 @@ class TestSavePaperMetadata:
         assert "ml" in row["tags"]
 
     def test_save_metadata_returns_id_and_version(self):
-        meta = self._make_meta(paper_id="W999", version=1)
-        paper_id, version = db.save_paper_metadata(meta)
-        assert paper_id == "W999"
+        meta = self._make_meta(source_id="W999", version=1)
+        source_id, version = db.save_paper_metadata(meta)
+        assert source_id == "W999"
         assert version == 1
 
 
@@ -250,7 +250,7 @@ class TestListPapers:
 class TestFullTextSearch:
     def test_set_full_text_stores_text(self):
         db.save_paper(_make_result("2204.12985v1"))
-        db.set_full_text("2204.12985", 1, "This paper studies transformers.")
+        db.set_full_text("This paper studies transformers.", None, "2204.12985", 1)
         row = db.get_paper("2204.12985")
         assert row is not None
         assert row["full_text"] == "This paper studies transformers."
@@ -262,7 +262,7 @@ class TestFullTextSearch:
         assert row_before is not None
         assert not row_before["downloaded_source"]
 
-        db.set_full_text("2204.12985", 1, "Some TeX content.")
+        db.set_full_text("Some TeX content.", None, "2204.12985", 1)
         row_after = db.get_paper("2204.12985")
         assert row_after is not None
         assert row_after["downloaded_source"]  # set_full_text should mark this True
@@ -427,7 +427,7 @@ class TestDeletePaper:
         db.save_paper(_make_result("2204.12985v1"))
         db.delete_paper("2204.12985")
         rows = db.list_papers()
-        ids = [r["paper_id"] for r in rows]
+        ids = [r["source_id"] for r in rows]
         assert "2204.12985" not in ids
 
 
@@ -490,8 +490,8 @@ class TestGetGraphData:
         db.save_paper(_make_result("2204.12985v1", authors=["Alice Smith"]))
         nodes, edges = db.get_graph_data()
         paper_nodes = [n for n in nodes if n.get("type") == "paper"]
-        paper_id = paper_nodes[0]["id"]
-        assert any(e["source"] == paper_id and "Alice Smith" in e["target"] for e in edges)
+        source_id = paper_nodes[0]["id"]
+        assert any(e["source"] == source_id and "Alice Smith" in e["target"] for e in edges)
 
     def test_shared_author_has_single_node(self):
         db.save_paper(_make_result("2204.12985v1", authors=["Shared Author"]))
@@ -670,7 +670,7 @@ class TestSearchFullText:
 
     def test_finds_paper_with_matching_content(self):
         db.save_paper(_make_result("2204.12985v1"))
-        db.set_full_text("2204.12985", 1, "This paper studies transformers in NLP.")
+        db.set_full_text("This paper studies transformers in NLP.", None, "2204.12985", 1)
         results = db.search_full_text("transformers")
         assert len(results) >= 1
         assert any(r["source_id"] == "2204.12985" for r in results)
@@ -678,8 +678,8 @@ class TestSearchFullText:
     def test_does_not_return_non_matching_paper(self):
         db.save_paper(_make_result("2204.12985v1"))
         db.save_paper(_make_result("2301.00001v1"))
-        db.set_full_text("2204.12985", 1, "This paper studies transformers.")
-        db.set_full_text("2301.00001", 1, "This paper is about diffusion models.")
+        db.set_full_text("This paper studies transformers.", None, "2204.12985", 1)
+        db.set_full_text("This paper is about diffusion models.", None, "2301.00001", 1)
         results = db.search_full_text("transformers")
         ids = [r["source_id"] for r in results]
         assert "2204.12985" in ids
@@ -687,15 +687,15 @@ class TestSearchFullText:
 
     def test_limit_parameter_respected(self):
         for i in range(5):
-            pid = f"2204.1298{i}v1"
-            db.save_paper(_make_result(pid, title=f"Paper {i}"))
-            db.set_full_text(f"2204.1298{i}", 1, "quantum computing research paper")
+            sid = f"2204.1298{i}v1"
+            db.save_paper(_make_result(sid, title=f"Paper {i}"))
+            db.set_full_text("quantum computing research paper", None, f"2204.1298{i}", 1)
         results = db.search_full_text("quantum", limit=3)
         assert len(results) <= 3
 
     def test_multi_word_query(self):
         db.save_paper(_make_result("2204.12985v1"))
-        db.set_full_text("2204.12985", 1, "attention mechanisms in neural networks.")
+        db.set_full_text("attention mechanisms in neural networks.", None, "2204.12985", 1)
         results = db.search_full_text("attention neural")
         assert any(r["source_id"] == "2204.12985" for r in results)
 
