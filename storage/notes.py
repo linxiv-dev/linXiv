@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .db import _connect
+from .config.queries import (
+    get_note as _get_note_row,
+    list_notes as _list_notes,
+    count_project_notes as _count_project_notes,
+)
 from service.models.note import NoteDetails
 
 
@@ -101,8 +106,7 @@ class Note:
 # ── Queries ───────────────────────────────────────────────────────────────────
 
 def get_note(note_id: int) -> Optional[NoteDetails]:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM LIBRARY_NOTE WHERE NOTE_SK = ?", (note_id,)).fetchone()
+    row = _get_note_row(note_id)
     return Note.from_row(row).to_details() if row is not None else None
 
 
@@ -141,11 +145,7 @@ def get_project_notes(project_id: int) -> list[NoteDetails]:
 
 
 def count_project_notes(project_id: int) -> int:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM LIBRARY_NOTE WHERE PROJECT_FK = ?", (project_id,)
-        ).fetchone()
-    return row[0] if row else 0
+    return _count_project_notes(project_id)
 
 
 def count_paper_notes(source_fk: int, project_id: Optional[int] = None) -> int:
@@ -171,11 +171,7 @@ def list_all_notes() -> list[NoteDetails]:
 
 
 def get_notes_by_paper_id(paper_id: int) -> list[NoteDetails]:
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM LIBRARY_NOTE WHERE PAPER_ID_FK = ? ORDER BY CREATED_AT ASC",
-            (paper_id,),
-        ).fetchall()
+    rows = _list_notes(paper_id_fk=paper_id)
     return [Note.from_row(row).to_details() for row in rows]
 
 

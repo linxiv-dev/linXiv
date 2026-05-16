@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Optional
 
 from .db import _connect
+from .config.queries import (
+    get_author_from_key as _get_author_row,
+    list_authors as _list_authors_rows,
+)
 from service.models.author import BasicAuthorDetails
 
 
@@ -17,10 +21,7 @@ def _row_to_details(row) -> BasicAuthorDetails:
 
 
 def get_author(author_id: int) -> Optional[BasicAuthorDetails]:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM AUTHOR WHERE AUTHOR_FK = ?", (author_id,)
-        ).fetchone()
+    row = _get_author_row(author_id)
     return _row_to_details(row) if row is not None else None
 
 
@@ -28,19 +29,10 @@ def list_authors(
     paper_id: int | None = None,
     name:     str | None = None,
 ) -> list[BasicAuthorDetails]:
+    if paper_id is not None:
+        return [_row_to_details(r) for r in _list_authors_rows(paper_id=paper_id)]
     with _connect() as conn:
-        if paper_id is not None:
-            rows = conn.execute(
-                """
-                SELECT a.*
-                FROM AUTHOR a
-                JOIN PAPER_TO_AUTHOR pta ON pta.AUTHOR_FK = a.AUTHOR_FK
-                WHERE pta.PAPER_ID = ?
-                ORDER BY pta.AUTHOR_INDEX
-                """,
-                (paper_id,),
-            ).fetchall()
-        elif name is not None:
+        if name is not None:
             rows = conn.execute(
                 "SELECT * FROM AUTHOR WHERE AUTHOR_FULL_NAME = ? COLLATE NOCASE",
                 (name,),
