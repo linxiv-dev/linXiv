@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import cast
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayoutItem,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -120,9 +123,10 @@ class HomePage(QWidget):
 
         # Rebuild stat cards
         while self._stats_row.count():
-            item = self._stats_row.takeAt(0)
-            if item.widget():  # pyright: ignore[reportOptionalMemberAccess]
-                item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._stats_row.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
 
         for value, label in (
             (str(total),    "Papers saved"),
@@ -134,9 +138,10 @@ class HomePage(QWidget):
 
         # Rebuild recent papers
         while self._recent_layout.count() > 1:
-            item = self._recent_layout.takeAt(0)
-            if item.widget():  # pyright: ignore[reportOptionalMemberAccess]
-                item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._recent_layout.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
 
         for p in papers[:_RECENT_N]:
             card = PaperCard(p, parent=self._recent_widget)

@@ -1,6 +1,8 @@
 import os
 import json
+from typing import cast
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QUrl
 
@@ -21,9 +23,10 @@ class MarkdownView(QWebEngineView):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._wp: QWebEnginePage = cast(QWebEnginePage, self.page())
         self._loaded = False
         self._pending = ""
-        self.page().setBackgroundColor(QColor("transparent"))  # pyright: ignore[reportOptionalMemberAccess]
+        self._wp.setBackgroundColor(QColor("transparent"))
         self.loadFinished.connect(self._on_load_finished)
         html_path = os.path.abspath(
             os.path.join(os.path.dirname(__file__), "web", "markdown.html")
@@ -51,7 +54,7 @@ class MarkdownView(QWebEngineView):
 
     def _push_title(self) -> None:
         title = getattr(self, "_pending_title", "")
-        self.page().runJavaScript(f"setTitle({json.dumps(title)})")  # pyright: ignore[reportOptionalMemberAccess]
+        self._wp.runJavaScript(f"setTitle({json.dumps(title)})")
 
     def _push(self) -> None:
-        self.page().runJavaScript(f"setContent({json.dumps(self._pending)})")  # pyright: ignore[reportOptionalMemberAccess]
+        self._wp.runJavaScript(f"setContent({json.dumps(self._pending)})")

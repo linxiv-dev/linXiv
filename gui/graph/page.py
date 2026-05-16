@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import cast
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -70,13 +71,14 @@ class PaperListPanel(QWidget):
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(False)
-        self._table.verticalHeader().setVisible(False)  # pyright: ignore[reportOptionalMemberAccess]
+        vh = cast(QHeaderView, self._table.verticalHeader())
+        vh.setVisible(False)
         self._table.setSortingEnabled(True)
 
-        hdr = self._table.horizontalHeader()
+        hdr = cast(QHeaderView, self._table.horizontalHeader())
         for i, w in enumerate(_COL_WIDTHS):
             self._table.setColumnWidth(i, w)
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # pyright: ignore[reportOptionalMemberAccess]
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self._table)
 

@@ -10,8 +10,8 @@ class _GraphPage(QWebEnginePage):
 
     console_message_received = pyqtSignal(str)
 
-    def javaScriptConsoleMessage(self, level, message, line, source):  # pyright: ignore[reportIncompatibleMethodOverride] — Qt override
-        self.console_message_received.emit(message)
+    def javaScriptConsoleMessage(self, level: QWebEnginePage.JavaScriptConsoleMessageLevel, message: str | None, lineNumber: int, sourceID: str | None) -> None:
+        self.console_message_received.emit(message or "")
 
 
 class GraphView(QWebEngineView):
@@ -59,18 +59,18 @@ class GraphView(QWebEngineView):
 
     def _push(self) -> None:
         data = json.dumps({"nodes": self._pending_nodes, "edges": self._pending_edges})
-        self.page().runJavaScript(f"loadGraph({data})")  # pyright: ignore[reportOptionalMemberAccess]
+        self._page.runJavaScript(f"loadGraph({data})")
 
     def _push_filter_options(self) -> None:
         cats  = json.dumps(self._pending_categories)
         tags  = json.dumps(self._pending_tags)
         projs = json.dumps(self._pending_projects)
-        self.page().runJavaScript(f"setFilterOptions({cats}, {tags}, {projs})")  # pyright: ignore[reportOptionalMemberAccess]
+        self._page.runJavaScript(f"setFilterOptions({cats}, {tags}, {projs})")
 
     def run_js(self, code: str) -> None:
         """Run arbitrary JavaScript in the graph page."""
         if self._loaded:
-            self.page().runJavaScript(code)  # pyright: ignore[reportOptionalMemberAccess]
+            self._page.runJavaScript(code)
 
     def filter_graph(self, opts: dict) -> None:
         """Call JS filterGraph with the given options dict."""
@@ -95,7 +95,7 @@ class GraphView(QWebEngineView):
     def get_selected_paper_data(self, callback) -> None:
         """Retrieve data for selected papers from JS. Calls callback(dict) with result."""
         if self._loaded:
-            self.page().runJavaScript(  # pyright: ignore[reportOptionalMemberAccess]
+            self._page.runJavaScript(
                 "getSelectedPaperData()",
                 lambda result: callback(json.loads(result) if isinstance(result, str) else {"papers": [], "edges": []}),
             )

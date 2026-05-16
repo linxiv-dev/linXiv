@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
@@ -9,6 +11,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayoutItem,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -550,8 +553,8 @@ class NotesDialog(QDialog):
 
     def _rebuild(self) -> None:
         while self._notes_layout.count() > 1:
-            item = self._notes_layout.takeAt(0)
-            w = item.widget()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._notes_layout.takeAt(0))
+            w = item.widget()
             if w is not None:
                 self._retire_card(w)
         self._cards.clear()
@@ -579,8 +582,8 @@ class NotesDialog(QDialog):
     def closeEvent(self, event: QCloseEvent) -> None:
         # Tear down note cards while this dialog still exists (orderly widget cleanup).
         while self._notes_layout.count() > 1:
-            item = self._notes_layout.takeAt(0)
-            w = item.widget()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._notes_layout.takeAt(0))
+            w = item.widget()
             if w is not None:
                 self._retire_card(w)
         for card in self._retired_cards:
@@ -830,9 +833,10 @@ class ProjectDetailView(QWidget):
         self._paper_action_bar.set_count(0)
 
         while self._papers_layout.count() > 1:
-            item = self._papers_layout.takeAt(0)
-            if item.widget():  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
-                item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._papers_layout.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
 
         paper_ids = self._project.source_fks if self._project and self._project.source_fks else []
         self._papers_lbl.setText(f"Papers  ({len(paper_ids)})")
@@ -1242,9 +1246,10 @@ class ProjectsPage(QWidget):
 
     def _refresh(self) -> None:
         while self._list_layout.count() > 1:
-            item = self._list_layout.takeAt(0)
-            if item.widget():  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
-                item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._list_layout.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
 
         try:
             project_svc.ensure_projects_db()
