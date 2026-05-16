@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from mcp.server.fastmcp import FastMCP # pyright: ignore
+from mcp.server.fastmcp import FastMCP  # pyright: ignore[reportMissingImports]
 
 import storage.db as db
 from storage.notes import Note, ensure_notes_db, get_notes, get_project_notes
