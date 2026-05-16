@@ -152,20 +152,55 @@ Then run from anywhere:
 
 ```bash
 linxiv --version
+
+# Search papers (arxiv, openalex, or crossref)
 linxiv search "attention is all you need" --max 5
 linxiv search "diffusion models" --source openalex --max 10
+linxiv search "lattice QCD" --source crossref --max 3
+
+# Fetch and save a paper by ID
 linxiv fetch 2204.12985
 linxiv fetch W3123456789 --source openalex
-linxiv list --limit 20 --category cs.LG
+
+# List papers in the database
+linxiv list --limit 20 --offset 0 --category cs.LG
+
+# Paper management
+linxiv paper get 2204.12985
+linxiv paper versions 2204.12985
+linxiv paper delete 2204.12985
+
+# Tag management
 linxiv tag add 2204.12985 transformers attention deep-learning
 linxiv tag remove 2204.12985 attention
 linxiv tag list 2204.12985
+linxiv tag list-all
+linxiv tag create my-tag
+linxiv tag delete 42
+
+# Project management
 linxiv project list
-linxiv project list --status active
+linxiv project list --status active      # active | archived | deleted
+linxiv project get 1
 linxiv project create "Diffusion Models" --description "Score-based generative models"
+linxiv project update 1 --name "Diffusion Models v2" --description "Updated"
 linxiv project add-paper 1 2006.11239
+linxiv project remove-paper 1 2006.11239
+linxiv project delete 1
+
+# Note management
 linxiv note create 2204.12985 "Key insight: scaled dot-product attention" --title "Reading notes"
 linxiv note create 2204.12985 "Follow-up question" --project-id 1
+linxiv note get 7
+linxiv note list --paper-id 2204.12985
+linxiv note list --project-id 1
+linxiv note delete 7
+
+# PDF management
+linxiv pdf path 2204.12985
+linxiv pdf path 2204.12985 --version 2
+linxiv pdf download 2204.12985 https://arxiv.org/pdf/2204.12985
+linxiv pdf storage
 ```
 
 All commands output JSON (or a formatted markdown card for `fetch`). Pass `--help` to any subcommand for full options.
