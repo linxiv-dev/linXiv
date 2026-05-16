@@ -30,6 +30,8 @@ import service.tag as svc_tag
 import service.project as svc_project
 import service.note as svc_note
 import service.files as svc_files
+import service.export_import as svc_ei
+from service.export_import import ProjectImportError
 from service.paper import Paper
 from service.tag import Tag, TagIn
 from service.project import Project, Projects, ProjectIn, Status
@@ -286,6 +288,40 @@ def cmd_project_remove_paper(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Commands — project export / import
+# ---------------------------------------------------------------------------
+
+def cmd_project_export(args: argparse.Namespace) -> None:
+    try:
+        out = svc_ei.export_project(args.project_id, Path(args.dest), include_pdfs=args.pdfs)
+    except Exception as e:
+        print(f"[export] {e}", file=sys.stderr)
+        print(json.dumps({"error": str(e)}), file=sys.stderr)
+        sys.exit(1)
+    _output({"path": str(out), "project_id": args.project_id})
+
+
+def cmd_project_import(args: argparse.Namespace) -> None:
+    zip_path = Path(args.zip_path)
+    if args.preview:
+        try:
+            preview = svc_ei.preview_import(zip_path)
+        except Exception as e:
+            print(f"[import] {e}", file=sys.stderr)
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+        _output(_details_to_dict(preview))
+    else:
+        try:
+            fk = svc_ei.commit_import(zip_path, on_conflict=args.on_conflict)
+        except (ProjectImportError, Exception) as e:
+            print(f"[import] {e}", file=sys.stderr)
+            print(json.dumps({"error": str(e)}), file=sys.stderr)
+            sys.exit(1)
+        _output({"project_id": fk})
+
+
+# ---------------------------------------------------------------------------
 # Commands — note subgroup
 # ---------------------------------------------------------------------------
 
@@ -476,6 +512,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_proj_rem.add_argument("project_id", type=int, help="Project ID")
     p_proj_rem.add_argument("source_id", help="Paper source ID")
     p_proj_rem.set_defaults(func=cmd_project_remove_paper)
+
+    p_proj_export = proj_sub.add_parser("export", help="Export a project to a .lxproj archive")
+    p_proj_export.add_argument("project_id", type=int, help="Project ID")
+    p_proj_export.add_argument("dest", help="Destination path (.lxproj extension added automatically)")
+    p_proj_export.add_argument("--pdfs", action="store_true", default=False,
+                               help="Include bundled PDFs in the archive")
+    p_proj_export.set_defaults(func=cmd_project_export)
+
+    p_proj_import = proj_sub.add_parser("import", help="Import a project from a .lxproj archive")
+    p_proj_import.add_argument("zip_path", help="Path to .lxproj archive")
+    p_proj_import.add_argument("--preview", action="store_true", default=False,
+                               help="Show archive summary without modifying the database")
+    p_proj_import.add_argument("--on-conflict", choices=["merge", "overwrite"], default="merge",
+                               dest="on_conflict",
+                               help="How to handle papers that already exist (default: merge)")
+    p_proj_import.set_defaults(func=cmd_project_import)
 
     # note
     p_note = sub.add_parser("note", help="Manage notes")
