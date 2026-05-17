@@ -49,6 +49,11 @@ def _validate_arxiv_id(source_id: str) -> str:
     return source_id
 
 
+def _as_source_id(raw: str, source: str = "arxiv") -> str:
+    """Prefix a bare paper ID with its namespace; already-prefixed IDs are returned unchanged."""
+    return raw if ":" in raw else f"{source}:{raw}"
+
+
 def _render_paper(meta: PaperMetadata) -> str | None:
     template_path = _FORMATS_DIR / f"{meta.source}_paper.md"
     if not template_path.exists():
@@ -144,20 +149,23 @@ def cmd_list(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_paper_get(args: argparse.Namespace) -> None:
-    details = _resolve_paper_or_exit(args.source_id)
+    source_id = _as_source_id(args.source_id)
+    details = _resolve_paper_or_exit(source_id)
     _output(_details_to_dict(details))
 
 
 def cmd_paper_delete(args: argparse.Namespace) -> None:
-    _resolve_paper_or_exit(args.source_id)
-    svc_paper.delete_paper(args.source_id)
-    _output({"deleted": args.source_id})
+    source_id = _as_source_id(args.source_id)
+    _resolve_paper_or_exit(source_id)
+    svc_paper.delete_paper(source_id)
+    _output({"deleted": source_id})
 
 
 def cmd_paper_versions(args: argparse.Namespace) -> None:
-    all_versions = svc_paper.get_all(Paper(source_id=args.source_id))
+    source_id = _as_source_id(args.source_id)
+    all_versions = svc_paper.get_all(Paper(source_id=source_id))
     if all_versions is None:
-        print(json.dumps({"error": f"Paper {args.source_id!r} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {source_id!r} not found in DB"}), file=sys.stderr)
         sys.exit(1)
     _output(_details_to_dict(all_versions))
 
@@ -167,26 +175,29 @@ def cmd_paper_versions(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_tag_add(args: argparse.Namespace) -> None:
+    source_id = _as_source_id(args.source_id)
     try:
-        updated = svc_tag.add_paper_tags(args.source_id, args.tags)
+        updated = svc_tag.add_paper_tags(source_id, args.tags)
     except KeyError:
-        print(json.dumps({"error": f"Paper {args.source_id} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {source_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
-    _output({"source_id": args.source_id, "tags": updated})
+    _output({"source_id": source_id, "tags": updated})
 
 
 def cmd_tag_remove(args: argparse.Namespace) -> None:
+    source_id = _as_source_id(args.source_id)
     try:
-        updated = svc_tag.remove_paper_tags(args.source_id, args.tags)
+        updated = svc_tag.remove_paper_tags(source_id, args.tags)
     except KeyError:
-        print(json.dumps({"error": f"Paper {args.source_id} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {source_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
-    _output({"source_id": args.source_id, "tags": updated})
+    _output({"source_id": source_id, "tags": updated})
 
 
 def cmd_tag_list(args: argparse.Namespace) -> None:
-    tags = svc_tag.get_paper_tags(args.source_id)
-    _output({"source_id": args.source_id, "tags": tags})
+    source_id = _as_source_id(args.source_id)
+    tags = svc_tag.get_paper_tags(source_id)
+    _output({"source_id": source_id, "tags": tags})
 
 
 def cmd_tag_list_all(args: argparse.Namespace) -> None:
@@ -253,10 +264,11 @@ def cmd_project_delete(args: argparse.Namespace) -> None:
 
 
 def cmd_project_add_paper(args: argparse.Namespace) -> None:
+    source_id = _as_source_id(args.source_id)
     details = _resolve_project_or_exit(args.project_id)
-    root = svc_paper.get_paper_root(args.source_id)
+    root = svc_paper.get_paper_root(source_id)
     if root is None:
-        print(json.dumps({"error": f"Paper {args.source_id} not found in database"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {source_id} not found in database"}), file=sys.stderr)
         sys.exit(1)
     source_fk = int(root["SOURCE_FK"])
     if source_fk not in details.source_fks:
@@ -267,14 +279,15 @@ def cmd_project_add_paper(args: argparse.Namespace) -> None:
             tags=details.project_tags,
             source_fks=details.source_fks + [source_fk],
         ), project_fk=args.project_id)
-    _output({"project_id": args.project_id, "source_id": args.source_id})
+    _output({"project_id": args.project_id, "source_id": source_id})
 
 
 def cmd_project_remove_paper(args: argparse.Namespace) -> None:
+    source_id = _as_source_id(args.source_id)
     details = _resolve_project_or_exit(args.project_id)
-    root = svc_paper.get_paper_root(args.source_id)
+    root = svc_paper.get_paper_root(source_id)
     if root is None:
-        print(json.dumps({"error": f"Paper {args.source_id} not found in database"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {source_id} not found in database"}), file=sys.stderr)
         sys.exit(1)
     source_fk = int(root["SOURCE_FK"])
     svc_project.upsert(ProjectIn(
@@ -284,7 +297,7 @@ def cmd_project_remove_paper(args: argparse.Namespace) -> None:
         tags=details.project_tags,
         source_fks=[fk for fk in details.source_fks if fk != source_fk],
     ), project_fk=args.project_id)
-    _output({"project_id": args.project_id, "source_id": args.source_id, "removed": True})
+    _output({"project_id": args.project_id, "source_id": source_id, "removed": True})
 
 
 # ---------------------------------------------------------------------------
@@ -326,9 +339,10 @@ def cmd_project_import(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_note_create(args: argparse.Namespace) -> None:
-    root = svc_paper.get_paper_root(args.source_id)
+    source_id = _as_source_id(args.source_id)
+    root = svc_paper.get_paper_root(source_id)
     if root is None:
-        print(json.dumps({"error": f"Paper {args.source_id} not found in DB"}), file=sys.stderr)
+        print(json.dumps({"error": f"Paper {source_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
     source_fk = int(root["SOURCE_FK"])
     note_id = svc_note.upsert(NoteIn(
@@ -351,9 +365,10 @@ def cmd_note_get(args: argparse.Namespace) -> None:
 def cmd_note_list(args: argparse.Namespace) -> None:
     source_fk = None
     if args.source_id is not None:
-        root = svc_paper.get_paper_root(args.source_id)
+        sid = _as_source_id(args.source_id)
+        root = svc_paper.get_paper_root(sid)
         if root is None:
-            print(json.dumps({"error": f"Paper {args.source_id!r} not found in DB"}), file=sys.stderr)
+            print(json.dumps({"error": f"Paper {sid!r} not found in DB"}), file=sys.stderr)
             sys.exit(1)
         source_fk = int(root["SOURCE_FK"])
     notes = svc_note.get_many(Notes(source_fk=source_fk, project_fk=args.project_id))
@@ -374,14 +389,14 @@ def cmd_note_delete(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 def cmd_pdf_path(args: argparse.Namespace) -> None:
-    paper = _resolve_paper_or_exit(args.source_id)
+    paper = _resolve_paper_or_exit(_as_source_id(args.source_id))
     version = args.version if args.version is not None else paper.version
     path = svc_files.pdf_path(paper.source_id, version, paper.pdf_path)
     _output({"source_id": args.source_id, "version": version, "path": path})
 
 
 def cmd_pdf_download(args: argparse.Namespace) -> None:
-    paper = _resolve_paper_or_exit(args.source_id)
+    paper = _resolve_paper_or_exit(_as_source_id(args.source_id))
     version = args.version if args.version is not None else paper.version
     try:
         path = svc_files.download_pdf(paper.source_id, version, args.url)
