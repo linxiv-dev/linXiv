@@ -100,9 +100,10 @@ class TrashPanel(QWidget):
     def rebuild(self, deleted_projects, on_restore, on_hard_delete) -> None:
         while self._container_layout.count() > 0:
             item = self._container_layout.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
+            if item:
+                w = item.widget()
+                if w is not None:
+                    w.deleteLater()
 
         count = len(deleted_projects)
         if count == 0:
