@@ -3,17 +3,22 @@ from __future__ import annotations
 from typing import Optional
 
 from .db import _connect
+from .config.queries import (
+    Q,
+    get_tag as _get_tag_row,
+    list_tags_by_paper,
+    list_tags_by_project,
+)
 from service.models.tag import TagDetails
 
 
-def get_tag(tag_id: int) -> Optional[TagDetails]:
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT TAG_FK, TAG FROM TAG WHERE TAG_FK = ?", (tag_id,)
-        ).fetchone()
-    if row is None:
-        return None
+def _row_to_tag(row) -> TagDetails:
     return TagDetails(tag_id=row["TAG_FK"], label=row["TAG"])
+
+
+def get_tag(tag_id: int) -> Optional[TagDetails]:
+    row = _get_tag_row(tag_id)
+    return _row_to_tag(row) if row is not None else None
 
 
 def list_tags(
@@ -21,30 +26,14 @@ def list_tags(
     project_id: int | None = None,
     label:      str | None = None,
 ) -> list[TagDetails]:
+    if paper_id is not None:
+        rows = list_tags_by_paper(Q("ptt.PAPER_ID = ?", paper_id))
+        return [_row_to_tag(r) for r in rows]
+    if project_id is not None:
+        rows = list_tags_by_project(Q("ptt.PROJECT_FK = ?", project_id))
+        return [_row_to_tag(r) for r in rows]
     with _connect() as conn:
-        if paper_id is not None:
-            rows = conn.execute(
-                """
-                SELECT DISTINCT t.TAG_FK, t.TAG
-                FROM TAG t
-                JOIN PAPER_TO_TAG ptt ON ptt.TAG_FK = t.TAG_FK
-                WHERE ptt.PAPER_ID = ?
-                ORDER BY t.TAG
-                """,
-                (paper_id,),
-            ).fetchall()
-        elif project_id is not None:
-            rows = conn.execute(
-                """
-                SELECT DISTINCT t.TAG_FK, t.TAG
-                FROM TAG t
-                JOIN PROJECT_TO_TAG pt ON pt.TAG_FK = t.TAG_FK
-                WHERE pt.PROJECT_FK = ?
-                ORDER BY t.TAG
-                """,
-                (project_id,),
-            ).fetchall()
-        elif label is not None:
+        if label is not None:
             rows = conn.execute(
                 "SELECT TAG_FK, TAG FROM TAG WHERE TAG = ? COLLATE NOCASE ORDER BY TAG",
                 (label,),
