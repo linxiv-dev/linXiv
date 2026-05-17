@@ -19,7 +19,7 @@ _TABLE_DDL_ORDER: tuple[str, ...] = (
     "PAPER_TO_TAG.sql",
     "PROJECT_TO_PAPER.sql",
     "PROJECT_TO_TAG.SQL",
-    "NOTES.SQL",
+    "NOTE.SQL",
     "papers_fts.sql",
 )
 
