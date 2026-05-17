@@ -18,7 +18,7 @@ def _row_to_tag(row) -> TagDetails:
 
 def get_tag(tag_id: int) -> Optional[TagDetails]:
     row = _get_tag_row(tag_id)
-    return _row_to_tag(row) if row is not None else None
+    return _row_to_tag(row) if row else None
 
 
 def list_tags(
@@ -26,14 +26,14 @@ def list_tags(
     project_id: int | None = None,
     label:      str | None = None,
 ) -> list[TagDetails]:
-    if paper_id is not None:
+    if paper_id:
         rows = list_tags_by_paper(Q("ptt.PAPER_ID = ?", paper_id))
         return [_row_to_tag(r) for r in rows]
-    if project_id is not None:
+    if project_id:
         rows = list_tags_by_project(Q("ptt.PROJECT_FK = ?", project_id))
         return [_row_to_tag(r) for r in rows]
     with _connect() as conn:
-        if label is not None:
+        if label:
             rows = conn.execute(
                 "SELECT TAG_FK, TAG FROM TAG WHERE TAG = ? COLLATE NOCASE ORDER BY TAG",
                 (label,),
@@ -50,7 +50,7 @@ def create_tag(label: str) -> int | None:
         existing = conn.execute(
             "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1", (label,)
         ).fetchone()
-        if existing is not None:
+        if existing:
             return int(existing["TAG_FK"])
         cur = conn.execute("INSERT INTO TAG (TAG) VALUES (?)", (label,))
         return cur.lastrowid
@@ -70,7 +70,7 @@ def add_project_tags(project_id: int, tags: list[str]) -> list[str]:
     tag_fks = [create_tag(label) for label in tags]
     with _connect() as conn:
         for tag_fk in tag_fks:
-            if tag_fk is not None:
+            if tag_fk:
                 conn.execute(
                     "INSERT OR IGNORE INTO PROJECT_TO_TAG (PROJECT_FK, TAG_FK) VALUES (?, ?)",
                     (project_id, tag_fk),
@@ -84,7 +84,7 @@ def remove_project_tags(project_id: int, tags: list[str]) -> list[str]:
             row = conn.execute(
                 "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1", (label,)
             ).fetchone()
-            if row is not None:
+            if row:
                 conn.execute(
                     "DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ? AND TAG_FK = ?",
                     (project_id, int(row["TAG_FK"])),

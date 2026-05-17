@@ -27,7 +27,7 @@ def get_augmented_graph_data() -> dict:
     try:
         paper_to_projects: dict[str, list[int]] = {}
         for proj in filter_projects():
-            if proj.id is not None:
+            if proj.id:
                 for sfk in proj.source_fks:
                     source_id = get_source_id(sfk)
                     if source_id:
@@ -47,7 +47,7 @@ def project_filter_options() -> list[dict]:
 
     out: list[dict] = []
     for p in filter_projects():
-        if p.id is not None and p.status != Status.DELETED:
+        if p.id and p.status != Status.DELETED:
             out.append(
                 {
                     "id": p.id,

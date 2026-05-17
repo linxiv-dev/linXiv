@@ -235,7 +235,7 @@ def api_project_create(body: ProjectCreate) -> dict:
     color = color_from_hex(body.color_hex) if body.color_hex else None
     p = Project(name=body.name.strip(), description=body.description.strip(), color=color)
     p.save()
-    assert p.id is not None
+    assert p.id
     return {"project": {"id": p.id, "name": p.name}}
 
 
@@ -249,7 +249,7 @@ def api_project_get(project_id: int) -> dict:
         "name": p.name,
         "description": p.description or "",
         "color_hex": color_to_hex(p.color) if p.color else None,
-        "project_tags": get_project_tags(p.id) if p.id is not None else [],
+        "project_tags": get_project_tags(p.id) if p.id else [],
         "source_ids": sfks_to_source_ids(p.source_fks),
         "status": p.status.value,
     }
@@ -260,13 +260,13 @@ def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    if body.name is not None:
+    if body.name:
         p.name = body.name.strip()
-    if body.description is not None:
+    if body.description:
         p.description = body.description
-    if body.color_hex is not None:
+    if body.color_hex:
         p.color = color_from_hex(body.color_hex)
-    if body.status is not None:
+    if body.status:
         try:
             p.status = Status(body.status)
         except ValueError as e:

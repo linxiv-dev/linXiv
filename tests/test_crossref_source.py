@@ -189,7 +189,7 @@ class TestFetchByDoi:
         with patch("httpx.Client") as mock_client_cls:
             mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_resp
             result = fetch_by_doi("10.9999/test")
-        assert result is not None
+        assert result
         assert result.source_id == "doi:10.9999/test"
 
 

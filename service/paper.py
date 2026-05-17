@@ -114,11 +114,11 @@ def get(paper: Paper) -> PaperDetails | None:
       source_fk  → latest version for this PAPER_ROOTS row
       source_id  → latest version, or pinned version if Paper.version is set
     """
-    if paper.paper_id is not None:
+    if paper.paper_id:
         row = db.get_paper_by_id(paper.paper_id)
-    elif paper.source_fk is not None:
+    elif paper.source_fk:
         row = db.get_paper_by_source_fk(paper.source_fk)
-    elif paper.source_id is not None:
+    elif paper.source_id:
         row = db.get_paper(paper.source_id, paper.version)
     else:
         return None
@@ -132,14 +132,14 @@ def get_all(paper: Paper) -> PaperDetailsAll | None:
 
     Accepts the same Paper key variants as get().
     """
-    if paper.source_id is not None:
+    if paper.source_id:
         source_id = paper.source_id
-    elif paper.paper_id is not None:
+    elif paper.paper_id:
         row = db.get_paper_by_id(paper.paper_id)
         if row is None:
             return None
         source_id = row["source_id"]
-    elif paper.source_fk is not None:
+    elif paper.source_fk:
         row = db.get_paper_by_source_fk(paper.source_fk)
         if row is None:
             return None
@@ -179,22 +179,22 @@ def get_many(papers: Papers) -> list[PaperDetails]:
     rows = db.list_papers(latest_only=True)
     results: list[PaperDetails] = []
     for row in rows:
-        if papers.paper_ids is not None and row["paper_id"] not in papers.paper_ids:
+        if papers.paper_ids and row["paper_id"] not in papers.paper_ids:
             continue
-        if papers.source_ids is not None and row["source_id"] not in papers.source_ids:
+        if papers.source_ids and row["source_id"] not in papers.source_ids:
             continue
-        if papers.tags is not None:
+        if papers.tags:
             row_tags = row["tags"] or []
             if not any(t in row_tags for t in papers.tags):
                 continue
         results.append(_row_to_paper_details(row))
 
-    if papers.source_fks is not None:
+    if papers.source_fks:
         fk_set = set(papers.source_fks)
         fk_results: list[PaperDetails] = []
         for detail in results:
             root = db.get_paper_root(detail.source_id)
-            if root is not None and root["SOURCE_FK"] in fk_set:
+            if root and root["SOURCE_FK"] in fk_set:
                 fk_results.append(detail)
         results = fk_results
 
@@ -283,7 +283,7 @@ def list_paper_details(
     return [_row_to_paper_details(r) for r in rows]
 
 def sfks_to_source_ids(source_fks: list[int]) -> list[str]:
-    return [sid for sfk in source_fks if (sid := db.get_source_id(sfk)) is not None]
+    return [sid for sfk in source_fks if (sid := db.get_source_id(sfk))]
 
 def get_papers(papers: Papers) -> list[PaperDetails]:
     return get_many(papers)

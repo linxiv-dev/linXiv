@@ -68,12 +68,12 @@ class Project:
     @classmethod
     def from_row(cls, row) -> Project:
         proj_fk = row["PROJECT_FK"]
-        source_fks = _load_source_fks(proj_fk) if proj_fk is not None else []
+        source_fks = _load_source_fks(proj_fk) if proj_fk else []
         return cls(
             id           = proj_fk,
             name         = row["NAME"],
             description  = row["DESCRIPTION"] or "",
-            color        = int(row["COLOR"]) if row["COLOR"] is not None else None,
+            color        = int(row["COLOR"]) if row["COLOR"] else None,
             source_fks   = source_fks,
             status       = Status(row["STATUS"]),
             created_at   = row["CREATED_AT"],
@@ -98,7 +98,7 @@ class Project:
                      self.created_at, self.updated_at, self.archived_at),
                 )
                 self.id = cur.lastrowid
-                assert self.id is not None
+                assert self.id 
                 _save_source_fks(conn, self.id, self.source_fks)
         else:
             with _connect() as conn:
@@ -112,7 +112,7 @@ class Project:
                     (self.name, self.description, self.color, self.status,
                      self.updated_at, self.archived_at, self.id),
                 )
-                assert self.id is not None
+                assert self.id 
                 _save_source_fks(conn, self.id, self.source_fks)
 
     def delete(self) -> None:
@@ -187,7 +187,7 @@ def get_project(project_id: int) -> Optional[Project]:
         row = conn.execute(
             "SELECT * FROM PROJECT WHERE PROJECT_FK = ?", (project_id,)
         ).fetchone()
-    return Project.from_row(row) if row is not None else None
+    return Project.from_row(row) if row else None
 
 
 def filter_projects(condition: Q | None = None) -> list[Project]:

@@ -87,7 +87,7 @@ def gen_md_file(paper: arxiv.Result, additional_tags: None | Sequence[str] = Non
     authors: list[str] = [author.name for author in paper.authors]
     tags: list[str] = ["clippings", "research", "clipping"]
 
-    if additional_tags is not None:
+    if additional_tags:
         for s in additional_tags:
             tags.append(s)
 

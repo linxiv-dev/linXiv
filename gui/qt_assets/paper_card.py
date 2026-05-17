@@ -114,7 +114,7 @@ class _DownloadWorker(QThread):
         url = f"https://arxiv.org/pdf/{self.source_id}v{self.version}"
         _check_ratelimit()  # wait out any rate limit recorded by prior API calls
         for delay in (None, *self._RETRY_DELAYS):
-            if delay is not None:
+            if delay:
                 self.rate_limited.emit(self.source_id, self.version)
                 time.sleep(delay)
             try:
@@ -238,8 +238,8 @@ class PaperCard(QFrame):
         self._worker: _DownloadWorker | None = None
         self._pdf_btn:  QPushButton | None = None
         self._selected  = False
-        self._row_mode  = project_id is not None
-        self._card_mode = not self._row_mode and pdf_window is not None
+        self._row_mode  = project_id
+        self._card_mode = not self._row_mode and pdf_window
 
         self._base_style = lambda: f"""
             QFrame#paperCard {{
@@ -349,7 +349,7 @@ class PaperCard(QFrame):
         self._note_btn.clicked.connect(self._on_open_notes)
         outer.addWidget(self._note_btn)
 
-        if self._pdf_window is not None:
+        if self._pdf_window:
             self._pdf_btn = QPushButton()
             self._pdf_btn.setFixedSize(116, BTN_H_SM)
             self._pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -472,14 +472,14 @@ class PaperCard(QFrame):
     def _on_download_done(self, paper_id: str, version: int, path: str) -> None:
         paper_svc.set_pdf_path(paper_id, path)
         paper_svc.set_has_pdf(paper_id, version, True)
-        if self._pdf_btn is not None:
+        if self._pdf_btn:
             self._pdf_btn.setEnabled(True)
         self._refresh_pdf_btn()
-        if self._pdf_window is not None:
+        if self._pdf_window:
             self._pdf_window.load_pdf(path)
 
     def _on_download_rate_limited(self, _pid: str, _ver: int) -> None:
-        if self._pdf_btn is not None:
+        if self._pdf_btn:
             self._pdf_btn.setText("Rate limited — retrying…")
 
     def _on_download_failed(self, _pid: str, _ver: int, err: str) -> None:
@@ -525,7 +525,7 @@ class PaperCard(QFrame):
             host,
         )
         dlg.exec()
-        if host is not None:
+        if host:
             host.raise_()
             host.activateWindow()
         self._note_btn.setText(self._note_label())

@@ -218,7 +218,7 @@ class TestGraph:
         assert r.status_code == 200
         projects = r.json()["projects"]
         tagged = next((p for p in projects if p["id"] == pid), None)
-        assert tagged is not None
+        assert tagged
         assert "graph-tag" in tagged["tags"]
 
 
@@ -373,7 +373,7 @@ class TestNotes:
         assert len(notes) == 1
         assert notes[0]["title"] == "My Note"
         assert notes[0]["content"] == "Some content"
-        assert notes[0]["created_at"] is not None
+        assert notes[0]["created_at"]
 
     def test_note_with_project(self, client):
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]

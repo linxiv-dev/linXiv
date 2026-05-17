@@ -199,7 +199,7 @@ class NewProjectDialog(QDialog):
 
         p = Project(name=name, description=desc, color=self._color)
         p.save()
-        if project_tags and p.id is not None:
+        if project_tags and p.id:
             import storage.tags as _tags_storage
             _tags_storage.add_project_tags(p.id, project_tags)
         self.accept()
@@ -327,7 +327,7 @@ class _NoBarHorizontalScrollArea(QScrollArea):
             dx = x - self._drag_last_x
             self._drag_last_x = x
             bar = self.horizontalScrollBar()
-            if bar is not None:
+            if bar:
                 bar.setValue(bar.value() - dx)
             event.accept()
             return
@@ -344,7 +344,7 @@ class _NoBarHorizontalScrollArea(QScrollArea):
     def wheelEvent(self, event) -> None:
         bar = self.horizontalScrollBar()
         delta = event.angleDelta().x() or event.angleDelta().y()
-        if delta and bar is not None:
+        if delta and bar:
             bar.setValue(bar.value() - int(delta / 2))
             event.accept()
             return
@@ -466,7 +466,7 @@ class NoteEditorDialog(QDialog):
 
     def _on_save(self) -> None:
         import service.note as note_svc
-        if self._note is not None:
+        if self._note:
             note_svc.upsert(note_svc.NoteIn(
                 note_id    = self._note.note_id,
                 source_fk  = self._note.source_fk,
@@ -558,7 +558,7 @@ class NotesDialog(QDialog):
         while self._notes_layout.count() > 1:
             item = cast(QLayoutItem, self._notes_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 self._retire_card(w)
         self._cards.clear()
 
@@ -570,7 +570,7 @@ class NotesDialog(QDialog):
             for note in notes:
                 card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.note_id is not None:
+                if note.note_id:
                     self._cards[note.note_id] = card
         else:
             self._empty_lbl.setVisible(True)
@@ -587,7 +587,7 @@ class NotesDialog(QDialog):
         while self._notes_layout.count() > 1:
             item = cast(QLayoutItem, self._notes_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 self._retire_card(w)
         for card in self._retired_cards:
             card.deleteLater()
@@ -597,15 +597,15 @@ class NotesDialog(QDialog):
 
     def _pop_and_recreate(self, note) -> None:
         note_id = note.note_id
-        old_card = self._cards.pop(note_id, None) if note_id is not None else None
-        if old_card is not None:
+        old_card = self._cards.pop(note_id, None) if note_id else None
+        if old_card:
             idx = self._notes_layout.indexOf(old_card)
             self._retire_card(old_card)
         else:
             idx = self._notes_layout.count() - 1
         card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
         self._notes_layout.insertWidget(idx, card)
-        if note_id is not None:
+        if note_id:
             self._cards[note_id] = card
 
     def _edit_note(self, note) -> None:
@@ -617,8 +617,8 @@ class NotesDialog(QDialog):
         import service.note as note_svc
         note_id = note.note_id
         note_svc.delete(note_svc.Note(note_id=note_id))
-        card = self._cards.pop(note_id, None) if note_id is not None else None
-        if card is not None:
+        card = self._cards.pop(note_id, None) if note_id else None
+        if card:
             self._retire_card(card)
             if self._notes_layout.count() <= 1:
                 self._empty_lbl.setVisible(True)
@@ -635,7 +635,7 @@ class NotesDialog(QDialog):
             for note in new_notes:
                 card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.note_id is not None:
+                if note.note_id:
                     self._cards[note.note_id] = card
 
 
@@ -827,7 +827,7 @@ class ProjectDetailView(QWidget):
         self._import_pdf_btn.setStyleSheet(_qt_styles.BTN_MUTED)
 
     def _is_readonly(self) -> bool:
-        return self._project is not None and self._project.status == Status.ARCHIVED
+        return self._project and self._project.status == Status.ARCHIVED
 
     def load(self, project) -> None:
         self._project = project
@@ -843,12 +843,12 @@ class ProjectDetailView(QWidget):
         self._import_pdf_btn.setVisible(not archived)
         self._paper_action_bar.setVisible(not archived)
 
-        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color else ACCENT
         self._color_stripe.setStyleSheet(f"background: {hex_color}; border-radius: 3px;")
         self._title_lbl.setText(project.name)
         self._title_lbl.adjustSize()
         hbar = self._title_scroll.horizontalScrollBar()
-        if hbar is not None:
+        if hbar:
             hbar.setValue(0)
         self._desc_lbl.setText(project.description)
         self._desc_lbl.setVisible(bool(project.description))
@@ -864,14 +864,14 @@ class ProjectDetailView(QWidget):
         while self._papers_layout.count() > 1:
             item = cast(QLayoutItem, self._papers_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 w.deleteLater()
 
         paper_ids = self._project.source_fks if self._project and self._project.source_fks else []
         self._papers_lbl.setText(f"Papers  ({len(paper_ids)})")
 
         if paper_ids:
-            assert self._project is not None  # paper_ids is non-empty only when _project is set
+            assert self._project  # paper_ids is non-empty only when _project is set
             self._empty_papers_lbl.setVisible(False)
             rendered_count = 0
             for pid in paper_ids:
@@ -1017,7 +1017,7 @@ class ProjectDetailView(QWidget):
         paper_svc.set_pdf_path(meta.source_id, path)
         paper_svc.set_has_pdf(meta.source_id, meta.version, True)
         root = paper_svc.get_paper_root(meta.source_id)
-        if root is not None:
+        if root:
             try:
                 self._project.add_paper(int(root["SOURCE_FK"]))
             except Exception:
@@ -1095,7 +1095,7 @@ class ProjectCard(QFrame):
 
         stripe = QWidget()
         stripe.setFixedWidth(6)
-        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color else ACCENT
         stripe.setStyleSheet(f"background: {hex_color}; border-radius: 10px 0 0 10px;")
         outer.addWidget(stripe)
 
@@ -1279,7 +1279,7 @@ class ProjectsPage(QWidget):
         while self._list_layout.count() > 2:
             item = cast(QLayoutItem, self._list_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 w.deleteLater()
 
         try:
@@ -1357,9 +1357,9 @@ class ProjectsPage(QWidget):
         self._return_to_library_paper_id = None
         self._refresh()
         self._inner.setCurrentIndex(0)
-        if prior_shell and self._app_shell is not None:
+        if prior_shell and self._app_shell:
             self._app_shell.go_back()
-            if paper_id and self._library_page is not None:
+            if paper_id and self._library_page:
                 lib = self._library_page
                 QTimer.singleShot(0, lambda pid=paper_id, lp=lib: lp.show_paper_detail_by_id(pid))
 

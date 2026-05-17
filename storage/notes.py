@@ -20,7 +20,7 @@ def _notes_table_exists() -> bool:
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='NOTE'"
         ).fetchone()
-    return row is not None
+    return row
 
 
 def ensure_notes_db() -> None:
@@ -107,7 +107,7 @@ class Note:
 
 def get_note(note_id: int) -> Optional[NoteDetails]:
     row = _get_note_row(note_id)
-    return Note.from_row(row).to_details() if row is not None else None
+    return Note.from_row(row).to_details() if row else None
 
 
 def get_notes(
