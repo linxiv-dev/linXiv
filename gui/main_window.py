@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import cast
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction
@@ -57,17 +58,17 @@ class PaperListPanel(QWidget):
         self._table.setHorizontalHeaderLabels(_COLUMNS)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.verticalHeader().setVisible(False)  # pyright: ignore[reportOptionalMemberAccess]
+        cast(QHeaderView, self._table.verticalHeader()).setVisible(False)
         self._table.setSortingEnabled(True)
         # TODO: Fix coloring of edges
         self._table.setStyleSheet(
             f"background: {TABLE_BG}; color: {TABLE_TEXT}; gridline-color: {TABLE_GRID};"
         )
 
-        hdr = self._table.horizontalHeader()
+        hdr = cast(QHeaderView, self._table.horizontalHeader())
         for i, w in enumerate(_COL_WIDTHS):
             self._table.setColumnWidth(i, w)
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # pyright: ignore[reportOptionalMemberAccess]
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self._table)
 

@@ -29,7 +29,7 @@ def tmp_db(tmp_path, monkeypatch):
         c.execute("PRAGMA foreign_keys = ON")
         return c
 
-    for mod_name in ["storage.db", "storage.projects", "storage.notes", "storage.tags", "storage.authors"]:
+    for mod_name in ["storage.db", "storage.config.queries", "storage.projects", "storage.notes", "storage.tags", "storage.authors"]:
         mod = importlib.import_module(mod_name)
         if hasattr(mod, "_connect"):
             monkeypatch.setattr(mod, "_connect", _fake_connect)

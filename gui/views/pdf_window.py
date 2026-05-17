@@ -1,10 +1,11 @@
 import os
+from typing import cast
 
 from service import paper as paper_svc
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QMainWindow, QToolBar, QLabel, QPushButton, QWidget
 from PyQt6.QtPdfWidgets import QPdfView
-from PyQt6.QtPdf import QPdfDocument
+from PyQt6.QtPdf import QPdfDocument, QPdfPageNavigator
 from PyQt6.QtCore import Qt
 
 from gui.theme import BTN_H_SM
@@ -52,7 +53,8 @@ class PdfWindow(QMainWindow):
         bar.addWidget(spacer)
         bar.addWidget(self._page_label)
 
-        self._view.pageNavigator().currentPageChanged.connect(self._update_page_label)  # pyright: ignore[reportOptionalMemberAccess]
+        nav = cast(QPdfPageNavigator, self._view.pageNavigator())
+        nav.currentPageChanged.connect(self._update_page_label)
 
     @staticmethod
     def resolve_pdf_path(source_id: str, version: int, fallback_dir: str) -> str | None:

@@ -45,40 +45,69 @@ linXiv/
 ├── AI_tools.py                # Gemini: tag(), summarize(), find_related(); PaperContent input type
 ├── linxiv_cli.py              # CLI entry point (linxiv command via pyproject.toml)
 ├── linxiv_mcp.py              # MCP server for Claude integration
+├── config.py                  # App-wide configuration constants
+├── user_settings.py           # User-editable settings (API keys, paths)
 ├── search.py                  # Standalone search script
+├── pdf.py                     # PDF utility helpers
 ├── pyproject.toml             # Package metadata + CLI/MCP entry points
 ├── requirements.txt           # Pip-compatible dependency list
+├── assets/
+│   ├── app_icon.png           # Application icon
+│   └── wide_logo.png          # Wide logo (README header)
 ├── api/
 │   ├── __main__.py            # Entry point: python -m api
-│   ├── app.py                 # FastAPI routes + /assets/graph (bundled D3 graph for iframe/proxy)
+│   ├── app.py                 # FastAPI routes + /assets/graph (bundled graph for iframe/proxy)
 │   ├── graph_payload.py       # Graph JSON (tags + projects) for /api/graph
 │   └── run_api.py             # uvicorn launcher helper
 ├── sources/
-│   ├── base.py                # PaperSource ABC + PaperMetadata dataclass
+│   ├── base.py                # PaperSource protocol + PaperMetadata model
 │   ├── arxiv_source.py        # ArxivSource: search and fetch from arXiv API
+│   ├── crossref_source.py     # CrossRefSource: fetch by DOI, search by title
 │   ├── openalex_source.py     # OpenAlexSource: lookup via OpenAlex
 │   ├── doi_resolve.py         # DOI resolution (arXiv, Semantic Scholar, CrossRef fallback)
 │   ├── fetch_paper_metadata.py# High-level fetch/search helpers + Obsidian note generation
+│   ├── pdf_metadata.py        # PDF metadata extraction and resolution pipeline
 │   └── arxiv_downloads.py     # PDF and TeX source download helpers
+├── service/
+│   ├── paper.py               # Paper service: get, get_all, get_many, upsert, graph data
+│   ├── author.py              # Author service: get, upsert, link/unlink to papers
+│   ├── tag.py                 # Tag service: get, upsert, paper/project tag management
+│   ├── note.py                # Note service: get, upsert, count by paper/project
+│   ├── project.py             # Project service: get, upsert, filter, status management
+│   ├── content.py             # Content service: full-text and file content
+│   ├── files.py               # File utilities for paper sources
+│   └── models/                # Typed return types (PaperDetails, ProjectDetails, etc.)
 ├── storage/
 │   ├── db.py                  # SQLite DB: versioned paper storage, graph data queries
+│   ├── authors.py             # Author CRUD and paper linkage
+│   ├── tags.py                # Tag CRUD
 │   ├── projects.py            # Projects: data model, Status enum, Q query builder
-│   └── notes.py               # Notes: per-paper annotations scoped to projects
+│   ├── notes.py               # Notes: per-paper annotations scoped to projects
+│   ├── paths.py               # Filesystem paths (project root, DB, PDFs)
+│   ├── config/
+│   │   ├── core.py            # Schema application: apply_sql_schema, init_db
+│   │   ├── queries.py         # Typed query helpers + composable Q predicate builder
+│   │   └── sql/               # SQL table, view, and index definitions
+│   └── migrations/            # One-off schema migration scripts
 ├── formats/
 │   ├── table_format.md        # YAML frontmatter template for Obsidian notes
 │   └── arxiv_paper.md         # Plain-text paper card template
 ├── gui/
-│   ├── app_shell.py           # QApplication + AppShell wiring (run via main_shell.py)
+│   ├── app.py                 # QApplication bootstrap
+│   ├── app_shell.py           # AppShell wiring (run via main_shell.py)
 │   ├── shell.py               # AppShell: sidebar nav + QStackedWidget page container
+│   ├── main_window.py         # Main window with paper list panel
 │   ├── theme.py               # Shared colours, fonts, spacing constants
+│   ├── qt_assets/             # Reusable Qt widgets (cards, dialogs, selection bar, styles)
 │   ├── home/page.py           # Home: stat cards, recent papers list
 │   ├── graph/
 │   │   ├── page.py            # Graph page (embedded in shell)
-│   │   ├── view.py            # QWebEngineView wrapper for D3 graph
-│   │   └── web/               # D3 force-directed graph (HTML/JS/CSS + bundled D3)
+│   │   ├── view.py            # QWebEngineView wrapper for D3/Cytoscape graph
+│   │   └── web/               # Graph assets (D3, Cytoscape, HTML/JS/CSS)
 │   ├── library/page.py        # Library: full paper list with filtering
 │   ├── projects/page.py       # Projects: list, detail view, add paper/note dialogs
 │   ├── doi/page.py            # Add by DOI: three-strategy resolution + save to library
+│   ├── settings/page.py       # Settings: user-configurable application preferences
 │   ├── setup/page.py          # Setup: API key instructions and status
 │   ├── search/
 │   │   ├── _window.py         # Search page: tri-pane with TeX rendering and PDF button
@@ -152,20 +181,55 @@ Then run from anywhere:
 
 ```bash
 linxiv --version
+
+# Search papers (arxiv, openalex, or crossref)
 linxiv search "attention is all you need" --max 5
 linxiv search "diffusion models" --source openalex --max 10
+linxiv search "lattice QCD" --source crossref --max 3
+
+# Fetch and save a paper by ID
 linxiv fetch 2204.12985
 linxiv fetch W3123456789 --source openalex
-linxiv list --limit 20 --category cs.LG
+
+# List papers in the database
+linxiv list --limit 20 --offset 0 --category cs.LG
+
+# Paper management
+linxiv paper get 2204.12985
+linxiv paper versions 2204.12985
+linxiv paper delete 2204.12985
+
+# Tag management
 linxiv tag add 2204.12985 transformers attention deep-learning
 linxiv tag remove 2204.12985 attention
 linxiv tag list 2204.12985
+linxiv tag list-all
+linxiv tag create my-tag
+linxiv tag delete 42
+
+# Project management
 linxiv project list
-linxiv project list --status active
+linxiv project list --status active      # active | archived | deleted
+linxiv project get 1
 linxiv project create "Diffusion Models" --description "Score-based generative models"
+linxiv project update 1 --name "Diffusion Models v2" --description "Updated"
 linxiv project add-paper 1 2006.11239
+linxiv project remove-paper 1 2006.11239
+linxiv project delete 1
+
+# Note management
 linxiv note create 2204.12985 "Key insight: scaled dot-product attention" --title "Reading notes"
 linxiv note create 2204.12985 "Follow-up question" --project-id 1
+linxiv note get 7
+linxiv note list --paper-id 2204.12985
+linxiv note list --project-id 1
+linxiv note delete 7
+
+# PDF management
+linxiv pdf path 2204.12985
+linxiv pdf path 2204.12985 --version 2
+linxiv pdf download 2204.12985 https://arxiv.org/pdf/2204.12985
+linxiv pdf storage
 ```
 
 All commands output JSON (or a formatted markdown card for `fetch`). Pass `--help` to any subcommand for full options.

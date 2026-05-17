@@ -5,25 +5,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from storage.db import _connect
+from storage.config.queries import Q
 from service.models.project import Status
-
-
-# ── Query builder ─────────────────────────────────────────────────────────────
-
-class Q:
-    """A composable SQL predicate. Combine with &, |, ~."""
-    def __init__(self, sql: str, *params) -> None:
-        self.sql    = sql
-        self.params = params
-
-    def __and__(self, other: Q) -> Q:
-        return Q(f"({self.sql} AND {other.sql})", *self.params, *other.params)
-
-    def __or__(self, other: Q) -> Q:
-        return Q(f"({self.sql} OR {other.sql})", *self.params, *other.params)
-
-    def __invert__(self) -> Q:
-        return Q(f"(NOT {self.sql})", *self.params)
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+from typing import cast
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QListWidget, QListWidgetItem, QCheckBox,
@@ -76,13 +77,15 @@ class _ClauseRow(QWidget):
 class _ResultList(QListWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        w = self.viewport().width()  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
+        w = cast(QWidget, self.viewport()).width()
         for i in range(self.count()):
             item = self.item(i)
+            if item is None:
+                continue
             widget = self.itemWidget(item)
             if widget is not None:
                 widget.setFixedWidth(w)
-                item.setSizeHint(widget.sizeHint())  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
+                item.setSizeHint(widget.sizeHint())
 
 
 class _ResultRow(QWidget):
