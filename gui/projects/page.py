@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
 from PyQt6.QtWidgets import (
@@ -639,6 +639,59 @@ class NotesDialog(QDialog):
                     self._cards[note.note_id] = card
 
 
+# ── Trash row (compact, no click-to-open) ────────────────────────────────────
+
+class _TrashRow(QFrame):
+    def __init__(self, project, on_restore, on_hard_delete, parent=None) -> None:
+        super().__init__(parent)
+        self._confirming = False
+        self._on_hard_delete = on_hard_delete
+        self.setFixedHeight(36)
+        self.setStyleSheet(
+            f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
+            f" border-radius: {RADIUS_SM}px; }}"
+            f" QLabel {{ border: none; background: transparent; }}"
+        )
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 0, 8, 0)
+        lay.setSpacing(8)
+
+        name_lbl = ElidedLabel(project.name)
+        name_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED};")
+        lay.addWidget(name_lbl, stretch=1)
+
+        restore_btn = QPushButton("Restore")
+        restore_btn.setFixedHeight(24)
+        restore_btn.setStyleSheet(_BTN_MUTED_STYLE)
+        restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        restore_btn.clicked.connect(on_restore)
+        lay.addWidget(restore_btn)
+
+        self._del_btn = QPushButton("Delete forever")
+        self._del_btn.setFixedHeight(24)
+        self._del_btn.setStyleSheet(_BTN_DANGER)
+        self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._del_btn.clicked.connect(self._on_del_click)
+        self._del_btn.installEventFilter(self)
+        lay.addWidget(self._del_btn)
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._del_btn and event.type() == QEvent.Type.FocusOut:
+            self._confirming = False
+            self._del_btn.setText("Delete forever")
+        return super().eventFilter(obj, event)
+
+    def _on_del_click(self) -> None:
+        if not self._confirming:
+            self._confirming = True
+            self._del_btn.setText("⚠ Confirm?")
+        else:
+            self._confirming = False
+            self._del_btn.setText("Delete forever")
+            self._on_hard_delete()
+
+
 # ── Project detail view ───────────────────────────────────────────────────────
 
 class ProjectDetailView(QWidget):
@@ -703,6 +756,15 @@ class ProjectDetailView(QWidget):
         self._title_scroll.setFixedHeight(max(self._title_lbl.sizeHint().height(), 36))
         self._title_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         header.addWidget(self._title_scroll, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        self._readonly_badge = QLabel("Read-only")
+        self._readonly_badge.setStyleSheet(
+            f"font-size: {FONT_TERTIARY}px; color: {MUTED}; background: {PANEL};"
+            f" border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;"
+            f" padding: 2px 8px;"
+        )
+        self._readonly_badge.setVisible(False)
+        header.addWidget(self._readonly_badge, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self._archive_btn = QPushButton("Archive")
         self._archive_btn.setStyleSheet(_BTN_MUTED_STYLE)
@@ -807,15 +869,32 @@ class ProjectDetailView(QWidget):
         self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.ACCENT}; background: transparent;")
         self._papers_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;")
         self._empty_papers_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._readonly_badge.setStyleSheet(
+            f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED}; background: {_theme.PANEL};"
+            f" border: 1px solid {_theme.BORDER}; border-radius: {RADIUS_SM}px;"
+            f" padding: 2px 8px;"
+        )
         self._archive_btn.setStyleSheet(_qt_styles.BTN_MUTED)
         self._delete_btn.setStyleSheet(_qt_styles.BTN_DANGER)
         self._add_paper_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
         self._import_pdf_btn.setStyleSheet(_qt_styles.BTN_MUTED)
 
+    def _is_readonly(self) -> bool:
+        return self._project is not None and self._project.status == Status.ARCHIVED
+
     def load(self, project) -> None:
         self._project = project
         self._delete_confirming = False
         self._delete_btn.setText("Delete")
+
+        archived = project.status == Status.ARCHIVED
+        self._readonly_badge.setVisible(archived)
+        self._archive_btn.setText("Unarchive" if archived else "Archive")
+        self._add_paper_btn.setEnabled(not archived)
+        self._add_paper_btn.setVisible(not archived)
+        self._import_pdf_btn.setEnabled(not archived)
+        self._import_pdf_btn.setVisible(not archived)
+        self._paper_action_bar.setVisible(not archived)
 
         hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
         self._color_stripe.setStyleSheet(f"background: {hex_color}; border-radius: 3px;")
@@ -860,7 +939,8 @@ class ProjectDetailView(QWidget):
                 card.double_clicked.connect(
                     lambda r: self.navigate_to_paper.emit(r["source_fk"])
                 )
-                card.selection_toggled.connect(self._on_card_selection_toggled)
+                if not self._is_readonly():
+                    card.selection_toggled.connect(self._on_card_selection_toggled)
                 self._papers_layout.insertWidget(self._papers_layout.count() - 1, card)
             self._papers_lbl.setText(f"Papers  ({rendered_count})")
         else:
@@ -1024,16 +1104,12 @@ class ProjectDetailView(QWidget):
     def _on_archive(self) -> None:
         if self._project is None:
             return
-        reply = QMessageBox.question(
-            self,
-            "Archive Project",
-            f"Archive \"{self._project.name}\"?\nIt can be restored later.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._project.archive()
-            self.back_requested.emit()
+        fk = project_svc.Project(project_fk=self._project.id)
+        if self._project.status == Status.ARCHIVED:
+            project_svc.restore(fk)
+        else:
+            project_svc.archive(fk)
+        self.back_requested.emit()
 
     def _on_delete(self) -> None:
         if self._project is None:
@@ -1044,7 +1120,7 @@ class ProjectDetailView(QWidget):
         else:
             self._delete_confirming = False
             self._delete_btn.setText("Delete")
-            self._project.delete()
+            project_svc.delete(project_svc.Project(project_fk=self._project.id))
             self.back_requested.emit()
 
 
@@ -1053,13 +1129,14 @@ class ProjectDetailView(QWidget):
 class ProjectCard(QFrame):
     clicked = pyqtSignal(object)   # emits the Project
 
-    def __init__(self, project, parent: QWidget | None = None) -> None:
+    def __init__(self, project, archived: bool = False, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._project = project
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        border_col = MUTED if archived else BORDER
         self.setStyleSheet(f"""
             QFrame {{
-                background: {PANEL}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px;
+                background: {PANEL}; border: 1px solid {border_col}; border-radius: {RADIUS_LG}px;
             }}
             QLabel {{ border: none; background: transparent; }}
         """)
@@ -1092,16 +1169,16 @@ class ProjectCard(QFrame):
         stats_row.setSpacing(SPACE_MD)
         stats_row.setContentsMargins(0, SPACE_XS, 0, 0)
 
-        paper_count = project.paper_count
-        note_count = self._note_count(project)
-
-        for icon, value, label in [
-            ("📄", paper_count, "paper" if paper_count == 1 else "papers"),
-            ("📝", note_count,  "note"  if note_count  == 1 else "notes"),
-        ]:
-            lbl = QLabel(f"{icon} {value} {label}")
-            lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
-            stats_row.addWidget(lbl)
+        if not archived:
+            paper_count = project.paper_count
+            note_count = self._note_count(project)
+            for icon, value, lbl_text in [
+                ("📄", paper_count, "paper" if paper_count == 1 else "papers"),
+                ("📝", note_count,  "note"  if note_count  == 1 else "notes"),
+            ]:
+                lbl = QLabel(f"{icon} {value} {lbl_text}")
+                lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
+                stats_row.addWidget(lbl)
 
         if project.project_tags:
             tags_lbl = QLabel("  ".join(f"#{t}" for t in project.project_tags))
@@ -1137,6 +1214,7 @@ class ProjectsPage(QWidget):
         self._library_page: LibraryPage | None = None
         self._project_detail_prior_shell_tab = False
         self._return_to_library_paper_id: int | None = None
+        self._trash_expanded = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1235,6 +1313,25 @@ class ProjectsPage(QWidget):
         self._list_layout.setSpacing(SPACE_MD)
         self._list_layout.addStretch()
 
+        self._trash_toggle_btn = QPushButton("Trash (0)")
+        self._trash_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._trash_toggle_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; text-align: left;"
+            f" font-size: {FONT_SECONDARY}px; color: {MUTED}; padding: {SPACE_SM}px 0px; }}"
+            f" QPushButton:hover {{ color: {TEXT}; }}"
+        )
+        self._trash_toggle_btn.setVisible(False)
+        self._trash_toggle_btn.clicked.connect(self._toggle_trash)
+        self._list_layout.addWidget(self._trash_toggle_btn)
+
+        self._trash_container = QWidget()
+        self._trash_container.setStyleSheet("background: transparent;")
+        self._trash_cl = QVBoxLayout(self._trash_container)
+        self._trash_cl.setContentsMargins(0, 0, 0, 0)
+        self._trash_cl.setSpacing(4)
+        self._trash_container.setVisible(False)
+        self._list_layout.addWidget(self._trash_container)
+
         scroll.setWidget(self._list_widget)
         outer.addWidget(scroll, stretch=1)
 
@@ -1248,7 +1345,8 @@ class ProjectsPage(QWidget):
         return page
 
     def _refresh(self) -> None:
-        while self._list_layout.count() > 1:
+        # Last 3 items are permanent: stretch, trash_toggle_btn, trash_container
+        while self._list_layout.count() > 3:
             item = cast(QLayoutItem, self._list_layout.takeAt(0))
             w = item.widget()
             if w is not None:
@@ -1257,18 +1355,75 @@ class ProjectsPage(QWidget):
         try:
             project_svc.ensure_projects_db()
             ensure_notes_db()
-            projects = filter_projects(Q("status = ?", Status.ACTIVE))
+            active_projects   = filter_projects(Q("status = ?", Status.ACTIVE))
+            archived_projects = filter_projects(Q("status = ?", Status.ARCHIVED))
+            deleted_projects  = filter_projects(Q("status = ?", Status.DELETED))
         except Exception:
-            projects = []
+            active_projects = archived_projects = deleted_projects = []
 
-        if projects:
-            self._empty_lbl.setVisible(False)
-            for p in projects:
-                card = ProjectCard(p)
+        has_any = bool(active_projects or archived_projects)
+        self._empty_lbl.setVisible(not has_any)
+
+        # Insert before stretch (count - 3 = position just before stretch)
+        for p in active_projects:
+            card = ProjectCard(p)
+            card.clicked.connect(self._open_project)
+            self._list_layout.insertWidget(self._list_layout.count() - 3, card)
+
+        if archived_projects:
+            sep = QLabel("Archived")
+            sep.setStyleSheet(
+                f"font-size: {FONT_SECONDARY}px; color: {MUTED}; font-weight: 600;"
+                f" padding-top: {SPACE_MD}px; background: transparent;"
+            )
+            self._list_layout.insertWidget(self._list_layout.count() - 3, sep)
+            for p in archived_projects:
+                card = ProjectCard(p, archived=True)
                 card.clicked.connect(self._open_project)
-                self._list_layout.insertWidget(self._list_layout.count() - 1, card)
-        else:
-            self._empty_lbl.setVisible(True)
+                self._list_layout.insertWidget(self._list_layout.count() - 3, card)
+
+        self._rebuild_trash(deleted_projects)
+
+    def _rebuild_trash(self, deleted_projects) -> None:
+        while self._trash_cl.count() > 0:
+            item = self._trash_cl.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        count = len(deleted_projects)
+        if count == 0:
+            self._trash_toggle_btn.setVisible(False)
+            self._trash_container.setVisible(False)
+            return
+
+        self._trash_toggle_btn.setVisible(True)
+        indicator = "▲" if self._trash_expanded else "▼"
+        self._trash_toggle_btn.setText(f"Trash ({count})  {indicator}")
+        self._trash_container.setVisible(self._trash_expanded)
+
+        for p in deleted_projects:
+            row = _TrashRow(
+                p,
+                on_restore=lambda proj=p: self._on_trash_restore(proj),
+                on_hard_delete=lambda proj=p: self._on_trash_hard_delete(proj),
+            )
+            self._trash_cl.addWidget(row)
+
+    def _toggle_trash(self) -> None:
+        self._trash_expanded = not self._trash_expanded
+        self._trash_container.setVisible(self._trash_expanded)
+        count = self._trash_cl.count()
+        indicator = "▲" if self._trash_expanded else "▼"
+        self._trash_toggle_btn.setText(f"Trash ({count})  {indicator}")
+
+    def _on_trash_restore(self, project) -> None:
+        project_svc.restore(project_svc.Project(project_fk=project.id))
+        self._refresh()
+
+    def _on_trash_hard_delete(self, project) -> None:
+        project_svc.hard_delete(project_svc.Project(project_fk=project.id))
+        self._refresh()
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
