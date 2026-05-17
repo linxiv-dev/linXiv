@@ -27,6 +27,30 @@ class PaperDetails:
     full_text:         str | None       = None
     downloaded_source: bool             = False
 
+    def to_dict(self) -> dict:
+        return {
+            "paper_id":          self.paper_id,
+            "source_id":         self.source_id,
+            "version":           self.version,
+            "title":             self.title,
+            "summary":           self.summary,
+            "published":         self.published.isoformat() if self.published else None,
+            "updated":           self.updated.isoformat() if self.updated else None,
+            "url":               self.url,
+            "doi":               self.doi,
+            "category":          self.category,
+            "categories":        self.categories,
+            "journal_ref":       self.journal_ref,
+            "comment":           self.comment,
+            "authors":           self.authors,
+            "tags":              self.tags,
+            "has_pdf":           self.has_pdf,
+            "pdf_path":          self.pdf_path,
+            "source":            self.source,
+            "full_text":         self.full_text,
+            "downloaded_source": self.downloaded_source,
+        }
+
 
 @dataclass
 class PaperDetailsAll:

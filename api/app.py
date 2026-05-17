@@ -28,17 +28,22 @@ from .graph_payload import get_augmented_graph_data, project_filter_options
 from storage.db import (
     delete_paper,
     get_categories,
-    get_paper,
     get_tags,
     init_db,
-    list_papers,
     parse_entry_id,
     save_paper,
     save_papers,
     save_paper_metadata,
 )
 from sources import resolve_doi, fetch_paper_metadata, search_papers
-from service.paper import ensure_paper_root, get_paper_root, get_source_id
+from service.paper import (
+    Paper,
+    ensure_paper_root,
+    get as get_paper_details,
+    get_paper_root,
+    list_paper_details,
+    sfks_to_source_ids,
+)
 from storage.notes import Note, ensure_notes_db, get_notes
 from storage.projects import (
     Project,
@@ -64,26 +69,6 @@ def _cors_config() -> tuple[list[str], bool]:
     return origins, True
 
 
-def _paper_row_dict(row) -> dict:
-    out: dict = {}
-    for k in row.keys():
-        v = row[k]
-        if hasattr(v, "isoformat"):
-            out[k] = v.isoformat()
-        else:
-            out[k] = v
-    out["source_id"] = row["source_id"]  # expose text ID as source_id
-    return out
-
-
-def _sfks_to_source_ids(source_fks: list[int]) -> list[str]:
-    result: list[str] = []
-    for sfk in source_fks:
-        sid = get_source_id(sfk)
-        if sid is not None:
-            result.append(sid)
-    return result
-
 
 def _arxiv_result_summary(p: arxiv.Result) -> dict:
     sid, ver = parse_entry_id(p.entry_id)
@@ -101,12 +86,12 @@ def _arxiv_result_summary(p: arxiv.Result) -> dict:
 
 
 def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
-    row = get_paper(source_id) if version is None else get_paper(source_id, version)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id, version=version))
+    if not paper:
         return None
-    ver = row["version"] if version is None else version
-    if row["pdf_path"] and os.path.isfile(row["pdf_path"]):
-        return row["pdf_path"]
+    ver = paper.version if version is None else version
+    if paper.pdf_path and os.path.isfile(paper.pdf_path):
+        return paper.pdf_path
     std = PDF_DIR / f"{source_id}v{ver}.pdf"
     if std.is_file():
         return str(std)
@@ -152,13 +137,12 @@ def health() -> dict:
 
 @app.get("/api/stats")
 def stats() -> dict:
-    papers = list_papers(latest_only=True)
+    papers = list_paper_details(latest_only=True)
     tags = get_tags()
-    recent = [_paper_row_dict(r) for r in papers[:10]]
     return {
         "paper_count": len(papers),
         "tag_count": len(tags),
-        "recent_papers": recent,
+        "recent_papers": [p.to_dict() for p in papers[:10]],
     }
 
 
@@ -167,22 +151,22 @@ def api_list_papers(
     limit: int | None = Query(default=200, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
-    rows = list_papers(latest_only=True, limit=limit, offset=offset)
-    return {"papers": [_paper_row_dict(r) for r in rows]}
+    papers = list_paper_details(latest_only=True, limit=limit, offset=offset)
+    return {"papers": [p.to_dict() for p in papers]}
 
 
 @app.get("/api/papers/{source_id}")
 def api_get_paper(source_id: str) -> dict:
-    row = get_paper(source_id)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id))
+    if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    return _paper_row_dict(row)
+    return paper.to_dict()
 
 
 @app.delete("/api/papers/{source_id}")
 def api_delete_paper(source_id: str) -> dict:
-    row = get_paper(source_id)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id))
+    if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
     delete_paper(source_id)
     return {"deleted": source_id}
@@ -217,7 +201,7 @@ def api_projects() -> dict:
                 "description": p.description or "",
                 "color_hex": color_to_hex(p.color) if p.color else None,
                 "project_tags": p.project_tags or [],
-                "source_ids": _sfks_to_source_ids(p.source_fks),
+                "source_ids": sfks_to_source_ids(p.source_fks),
                 "status": p.status.value,
                 "paper_count": p.paper_count,
             }
@@ -263,7 +247,7 @@ def api_project_get(project_id: int) -> dict:
         "description": p.description or "",
         "color_hex": color_to_hex(p.color) if p.color else None,
         "project_tags": p.project_tags or [],
-        "source_ids": _sfks_to_source_ids(p.source_fks),
+        "source_ids": sfks_to_source_ids(p.source_fks),
         "status": p.status.value,
     }
 
@@ -437,15 +421,14 @@ def api_note_create(body: NoteCreate) -> dict:
 
 @app.get("/api/papers/{source_id}/pdf", response_model=None)
 def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
-    row = get_paper(source_id) if version is None else get_paper(source_id, version)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id, version=version))
+    if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
     path = _resolve_local_pdf(source_id, version)
     if path:
         return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
-    url = row["url"]
-    if url:
-        return RedirectResponse(url)
+    if paper.url:
+        return RedirectResponse(paper.url)
     raise HTTPException(status_code=404, detail="No PDF available")
 
 

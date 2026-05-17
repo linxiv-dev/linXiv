@@ -1,7 +1,7 @@
 -- SOURCE_FK is required; a note always belongs to a paper across all versions by default.
 -- PAPER_ID_FK is optional: when present, the note is pinned to a specific version of the paper.
 -- PROJECT_FK is optional: when present, the note is scoped to a project rather than the whole library.
-CREATE TABLE IF NOT EXISTS LIBRARY_NOTE(
+CREATE TABLE IF NOT EXISTS NOTE(
     NOTE_SK     INTEGER NOT NULL,
     SOURCE_FK   INTEGER NOT NULL,
     PAPER_ID_FK INTEGER,

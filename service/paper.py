@@ -274,6 +274,17 @@ def list_papers(
 ) -> list[sqlite3.Row]:
     return db.list_papers(latest_only=latest_only, limit=limit, offset=offset)
 
+def list_paper_details(
+    latest_only: bool = True,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[PaperDetails]:
+    rows = db.list_papers(latest_only=latest_only, limit=limit, offset=offset)
+    return [_row_to_paper_details(r) for r in rows]
+
+def sfks_to_source_ids(source_fks: list[int]) -> list[str]:
+    return [sid for sfk in source_fks if (sid := db.get_source_id(sfk)) is not None]
+
 def get_papers(papers: Papers) -> list[PaperDetails]:
     return get_many(papers)
 
@@ -328,6 +339,9 @@ def set_full_text(source_id: str, version: int, full_text: str) -> None:
 
 def search_full_text(query: str, limit: int = 20) -> list[sqlite3.Row]:
     return db.search_full_text(query, limit)
+
+def search_full_text_details(query: str, limit: int = 20) -> list[PaperDetails]:
+    return [_row_to_paper_details(r) for r in db.search_full_text(query, limit)]
 
 
 # ---------------------------------------------------------------------------

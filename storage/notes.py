@@ -18,14 +18,14 @@ from service.models.note import NoteDetails
 def _notes_table_exists() -> bool:
     with _connect() as conn:
         row = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='LIBRARY_NOTE'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='NOTE'"
         ).fetchone()
     return row is not None
 
 
 def ensure_notes_db() -> None:
     if not _notes_table_exists():
-        raise RuntimeError("LIBRARY_NOTE table not found — run apply_sql_schema first")
+        raise RuntimeError("NOTE table not found — run apply_sql_schema first")
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ class Note:
             with _connect() as conn:
                 cur = conn.execute(
                     """
-                    INSERT INTO LIBRARY_NOTE
+                    INSERT INTO NOTE
                         (SOURCE_FK, PAPER_ID_FK, PROJECT_FK, TITLE, NOTE, CREATED_AT, UPDATED_AT)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -86,7 +86,7 @@ class Note:
             with _connect() as conn:
                 conn.execute(
                     """
-                    UPDATE LIBRARY_NOTE
+                    UPDATE NOTE
                     SET SOURCE_FK = ?, PAPER_ID_FK = ?, PROJECT_FK = ?,
                         TITLE = ?, NOTE = ?, UPDATED_AT = ?
                     WHERE NOTE_SK = ?
@@ -99,7 +99,7 @@ class Note:
         if self.id is None:
             return
         with _connect() as conn:
-            conn.execute("DELETE FROM LIBRARY_NOTE WHERE NOTE_SK = ?", (self.id,))
+            conn.execute("DELETE FROM NOTE WHERE NOTE_SK = ?", (self.id,))
         self.id = None
 
 
@@ -119,17 +119,17 @@ def get_notes(
     with _connect() as conn:
         if all_projects:
             rows = conn.execute(
-                "SELECT * FROM LIBRARY_NOTE WHERE SOURCE_FK = ? ORDER BY CREATED_AT ASC",
+                "SELECT * FROM NOTE WHERE SOURCE_FK = ? ORDER BY CREATED_AT ASC",
                 (source_fk,),
             ).fetchall()
         elif project_id is None:
             rows = conn.execute(
-                "SELECT * FROM LIBRARY_NOTE WHERE SOURCE_FK = ? AND PROJECT_FK IS NULL ORDER BY CREATED_AT ASC",
+                "SELECT * FROM NOTE WHERE SOURCE_FK = ? AND PROJECT_FK IS NULL ORDER BY CREATED_AT ASC",
                 (source_fk,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM LIBRARY_NOTE WHERE SOURCE_FK = ? AND PROJECT_FK = ? ORDER BY CREATED_AT ASC",
+                "SELECT * FROM NOTE WHERE SOURCE_FK = ? AND PROJECT_FK = ? ORDER BY CREATED_AT ASC",
                 (source_fk, project_id),
             ).fetchall()
     return [Note.from_row(row).to_details() for row in rows]
@@ -138,7 +138,7 @@ def get_notes(
 def get_project_notes(project_id: int) -> list[NoteDetails]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM LIBRARY_NOTE WHERE PROJECT_FK = ? ORDER BY SOURCE_FK ASC, CREATED_AT ASC",
+            "SELECT * FROM NOTE WHERE PROJECT_FK = ? ORDER BY SOURCE_FK ASC, CREATED_AT ASC",
             (project_id,),
         ).fetchall()
     return [Note.from_row(row).to_details() for row in rows]
@@ -152,11 +152,11 @@ def count_paper_notes(source_fk: int, project_id: Optional[int] = None) -> int:
     with _connect() as conn:
         if project_id is None:
             row = conn.execute(
-                "SELECT COUNT(*) FROM LIBRARY_NOTE WHERE SOURCE_FK = ?", (source_fk,)
+                "SELECT COUNT(*) FROM NOTE WHERE SOURCE_FK = ?", (source_fk,)
             ).fetchone()
         else:
             row = conn.execute(
-                "SELECT COUNT(*) FROM LIBRARY_NOTE WHERE SOURCE_FK = ? AND PROJECT_FK = ?",
+                "SELECT COUNT(*) FROM NOTE WHERE SOURCE_FK = ? AND PROJECT_FK = ?",
                 (source_fk, project_id),
             ).fetchone()
     return row[0] if row else 0
@@ -165,7 +165,7 @@ def count_paper_notes(source_fk: int, project_id: Optional[int] = None) -> int:
 def list_all_notes() -> list[NoteDetails]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM LIBRARY_NOTE ORDER BY CREATED_AT ASC"
+            "SELECT * FROM NOTE ORDER BY CREATED_AT ASC"
         ).fetchall()
     return [Note.from_row(row).to_details() for row in rows]
 
@@ -187,7 +187,7 @@ def note_counts_by_paper_for_project(project_id: int) -> dict[int, int]:
             FROM PROJECT_TO_PAPER pp
             LEFT JOIN (
                 SELECT SOURCE_FK, COUNT(*) AS cnt
-                FROM LIBRARY_NOTE
+                FROM NOTE
                 WHERE PROJECT_FK = ?
                 GROUP BY SOURCE_FK
             ) AS n ON n.SOURCE_FK = pp.SOURCE_FK

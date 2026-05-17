@@ -382,7 +382,7 @@ class TestNoteCountsByPaperForProject:
         proj = Project(name="P", source_fks=[sfk_a, sfk_b, sfk_c])
         proj.save()
         assert proj.id is not None
-        # Insert a PROJECT row so the FK constraint in LIBRARY_NOTE is satisfied
+        # Insert a PROJECT row so the FK constraint in NOTE is satisfied
         with _db._connect() as conn:
             conn.execute("INSERT OR IGNORE INTO PROJECT (PROJECT_FK) VALUES (?)", (proj.id,))
         Note(source_fk=sfk_a, project_id=proj.id, title="n1").save()
