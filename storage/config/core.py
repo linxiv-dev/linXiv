@@ -10,7 +10,7 @@ _VIEWS_DIR = _SQL_DIR / "views"
 # Apply in dependency order (FK-safe). Versioned rows: ``PAPER`` + ``PAPER_META``; root id in ``paper_roots``.
 _TABLE_DDL_ORDER: tuple[str, ...] = (
     "AUTHOR.sql",
-    "TAG.SQL",
+    "TAG.sql",
     "PROJECT.sql",
     "PAPER_ROOTS.sql",
     "PAPER.sql",
@@ -18,8 +18,8 @@ _TABLE_DDL_ORDER: tuple[str, ...] = (
     "PAPER_TO_AUTHOR.sql",
     "PAPER_TO_TAG.sql",
     "PROJECT_TO_PAPER.sql",
-    "PROJECT_TO_TAG.SQL",
-    "NOTES.SQL",
+    "PROJECT_TO_TAG.sql",
+    "NOTE.sql",
     "papers_fts.sql",
     "DB_VERSION.sql",
 )

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 class PaperMetadata(BaseModel):
     """Normalized paper representation (source-agnostic)."""
-    source_id: str       # source-specific ID (arxiv: 2204.12985, openalex: W3123456789)
+    source_id: str       # namespaced paper ID (e.g. "arxiv:2204.12985", "openalex:W3123456789", "doi:10.48550/...", "local:{hash}")
     version: int        # defaults to 1 for non-arxiv sources
     title: str
     authors: list[str]

@@ -55,7 +55,7 @@ class TestParseCrossrefWork:
 
     def test_source_id_is_doi(self):
         meta = _parse_crossref_work(_make_msg(), doi="10.1000/xyz")
-        assert meta.source_id == "10.1000/xyz"
+        assert meta.source_id == "doi:10.1000/xyz"
 
     def test_doi_field_set(self):
         meta = _parse_crossref_work(_make_msg(), doi="10.1000/xyz")
@@ -154,7 +154,7 @@ class TestFetchByDoi:
             result = fetch_by_doi("10.1000/xyz")
         assert isinstance(result, PaperMetadata)
         assert result.source == "crossref"
-        assert result.source_id == "10.1000/xyz"
+        assert result.source_id == "doi:10.1000/xyz"
 
     def test_404_returns_none(self):
         mock_resp = _mock_response(404, {})
@@ -190,7 +190,7 @@ class TestFetchByDoi:
             mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_resp
             result = fetch_by_doi("10.9999/test")
         assert result is not None
-        assert result.source_id == "10.9999/test"
+        assert result.source_id == "doi:10.9999/test"
 
 
 # ---------------------------------------------------------------------------

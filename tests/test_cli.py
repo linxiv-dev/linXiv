@@ -26,7 +26,7 @@ import service.paper as svc_paper
 # Helpers
 # ---------------------------------------------------------------------------
 
-ARXIV_ID = "2204.12985"
+ARXIV_ID = "arxiv:2204.12985"
 OLD_ARXIV_ID = "hep-th/9901001"
 
 
@@ -117,7 +117,7 @@ class TestArgValidation:
         main(["fetch", "2204.12985v2"])
 
     def test_valid_old_style_id_passes(self, monkeypatch):
-        _mock_sources(monkeypatch, fetch=_make_meta(source_id=OLD_ARXIV_ID))
+        _mock_sources(monkeypatch, fetch=_make_meta(source_id=f"arxiv:{OLD_ARXIV_ID}"))
         main(["fetch", OLD_ARXIV_ID])
 
     def test_invalid_id_exits_nonzero_with_error_json(self, monkeypatch, capsys):
@@ -153,13 +153,13 @@ class TestSearchCommand:
         assert data[0]["title"] == "Attention Is All You Need"
 
     def test_max_forwarded_to_source(self, monkeypatch, capsys):
-        results = [_make_meta(source_id=f"2204.{10000 + i}") for i in range(20)]
+        results = [_make_meta(source_id=f"arxiv:2204.{10000 + i}") for i in range(20)]
         _mock_sources(monkeypatch, results=results)
         data = _stdout_json(capsys, ["search", "q", "--max", "5"])
         assert len(data) == 5
 
     def test_source_openalex_routes_correctly(self, monkeypatch, capsys):
-        _mock_sources(monkeypatch, results=[_make_meta(source_id="W123", source="openalex")])
+        _mock_sources(monkeypatch, results=[_make_meta(source_id="openalex:W123", source="openalex")])
         data = _stdout_json(capsys, ["search", "q", "--source", "openalex"])
         assert isinstance(data, list)
 
@@ -176,25 +176,25 @@ class TestSearchCommand:
 class TestFetchCommand:
     def test_arxiv_renders_markdown_template(self, monkeypatch, capsys):
         _mock_sources(monkeypatch, fetch=_make_meta())
-        main(["fetch", ARXIV_ID])
+        main(["fetch", "2204.12985"])
         out = capsys.readouterr().out
         assert "Attention Is All You Need" in out
         assert ARXIV_ID in out
 
     def test_arxiv_fetch_persists_paper_to_db(self, monkeypatch):
         _mock_sources(monkeypatch, fetch=_make_meta())
-        main(["fetch", ARXIV_ID])
+        main(["fetch", "2204.12985"])
         assert svc_paper.get(svc_paper.Paper(source_id=ARXIV_ID)) is not None
 
     def test_non_arxiv_source_emits_json(self, monkeypatch, capsys):
-        _mock_sources(monkeypatch, fetch=_make_meta(source_id="W9999", source="openalex"))
+        _mock_sources(monkeypatch, fetch=_make_meta(source_id="openalex:W9999", source="openalex"))
         main(["fetch", "W9999", "--source", "openalex"])
         data = json.loads(capsys.readouterr().out)
-        assert data["source_id"] == "W9999"
+        assert data["source_id"] == "openalex:W9999"
 
     def test_network_error_exits_nonzero(self, monkeypatch, capsys):
         _mock_sources(monkeypatch, error=ConnectionError("timeout"))
-        err = _exit_err(capsys, ["fetch", ARXIV_ID])
+        err = _exit_err(capsys, ["fetch", "2204.12985"])
         assert "error" in err
 
 
@@ -214,13 +214,13 @@ class TestListCommand:
 
     def test_limit_restricts_results(self, capsys):
         for i in range(5):
-            _seed(source_id=f"2204.1000{i}", title=f"Paper {i}")
+            _seed(source_id=f"arxiv:2204.1000{i}", title=f"Paper {i}")
         data = _stdout_json(capsys, ["list", "--limit", "2"])
         assert len(data) == 2
 
     def test_offset_skips_results(self, capsys):
         for i in range(4):
-            _seed(source_id=f"2204.2000{i}", title=f"Paper {i}")
+            _seed(source_id=f"arxiv:2204.2000{i}", title=f"Paper {i}")
         all_data = _stdout_json(capsys, ["list"])
         offset_data = _stdout_json(capsys, ["list", "--offset", "2"])
         assert len(offset_data) == len(all_data) - 2
@@ -478,9 +478,9 @@ class TestNoteCommands:
 
     def test_list_notes_filtered_by_paper(self, capsys):
         _seed()
-        _seed(source_id="2204.99999", title="Other")
+        _seed(source_id="arxiv:2204.99999", title="Other")
         main(["note", "create", ARXIV_ID, "for first"])
-        main(["note", "create", "2204.99999", "for second"])
+        main(["note", "create", "arxiv:2204.99999", "for second"])
         data = _stdout_json(capsys, ["note", "list", "--paper-id", ARXIV_ID])
         assert len(data) == 1
 

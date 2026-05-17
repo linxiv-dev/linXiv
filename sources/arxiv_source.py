@@ -13,7 +13,7 @@ def _parse_arxiv_id(entry_id: str) -> tuple[str, int]:
     raw = entry_id.split("/")[-1]
     match = re.match(r"^(.+?)(?:v(\d+))?$", raw)
     assert match is not None
-    source_id = match.group(1)
+    source_id = f"arxiv:{match.group(1)}"
     version = int(match.group(2)) if match.group(2) else 1
     return source_id, version
 
@@ -66,7 +66,8 @@ class ArxivSource(PaperSource):
         return [_result_to_metadata(r) for r in results]
 
     def fetch_by_id(self, source_id: str) -> PaperMetadata:
-        search = arxiv.Search(id_list=[source_id])
+        bare_id = source_id.removeprefix("arxiv:")
+        search = arxiv.Search(id_list=[bare_id])
         _check_ratelimit()
         try:
             result = next(self._client.results(search))

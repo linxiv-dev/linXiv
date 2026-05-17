@@ -4,6 +4,7 @@ from typing import Optional
 
 from service.models.project import ProjectDetails, Status
 from storage.notes import count_project_notes as _count_project_notes
+import storage.db as _db
 from storage.projects import (
     Q,
     Project as _StorageProject,
@@ -13,6 +14,7 @@ from storage.projects import (
     get_project as _get_project,
     filter_projects as _filter_projects,
 )
+import storage.tags as _tags_storage
 
 
 @dataclass
@@ -45,7 +47,7 @@ def _to_details(p: _StorageProject) -> ProjectDetails:
         name         = p.name,
         description  = p.description,
         color        = p.color,
-        project_tags = p.project_tags,
+        project_tags = _tags_storage.get_project_tags(p.id) if p.id is not None else [],
         source_fks   = p.source_fks,
         status       = p.status,
         created_at   = p.created_at,
@@ -89,11 +91,12 @@ def upsert(project: ProjectIn, project_fk: int | None = None) -> int:
             name         = project.name,
             description  = project.description,
             color        = project.color,
-            project_tags = project.tags,
             source_fks   = project.source_fks,
         )
         p.save()
         assert p.id is not None
+        if project.tags:
+            _tags_storage.add_project_tags(p.id, project.tags)
         return p.id
     else:
         p = _get_project(project_fk)
@@ -102,10 +105,13 @@ def upsert(project: ProjectIn, project_fk: int | None = None) -> int:
         p.name         = project.name
         p.description  = project.description
         p.color        = project.color
-        p.project_tags = project.tags
         p.source_fks   = project.source_fks
         p.save()
         assert p.id is not None
+        existing = _tags_storage.get_project_tags(p.id)
+        _tags_storage.remove_project_tags(p.id, existing)
+        if project.tags:
+            _tags_storage.add_project_tags(p.id, project.tags)
         return p.id
 
 
@@ -116,6 +122,35 @@ def delete(project: Project) -> None:
     if p is None:
         return
     p.delete()
+
+
+def restore(project: Project) -> None:
+    if project.project_fk is None:
+        return
+    p = _get_project(project.project_fk)
+    if p is None:
+        return
+    p.restore()
+
+
+def archive(project: Project) -> None:
+    if project.project_fk is None:
+        return
+    p = _get_project(project.project_fk)
+    if p is None:
+        return
+    p.archive()
+
+
+def hard_delete(project: Project) -> None:
+    if project.project_fk is None:
+        return
+    fk = project.project_fk
+    with _db._connect() as conn:
+        conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ?", (fk,))
+        conn.execute("DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ?", (fk,))
+        conn.execute("UPDATE NOTE SET PROJECT_FK = NULL WHERE PROJECT_FK = ?", (fk,))
+        conn.execute("DELETE FROM PROJECT WHERE PROJECT_FK = ?", (fk,))
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +233,7 @@ def get_project_details(project_id: int) -> Optional[ProjectDetails]:
             id           = project.id,
             description  = project.description,
             color        = project.color,
-            project_tags = project.project_tags,
+            project_tags = _tags_storage.get_project_tags(project_id),
             source_fks   = project.source_fks,
             status       = project.status,
             created_at   = project.created_at,
