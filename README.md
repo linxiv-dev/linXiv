@@ -5,7 +5,7 @@ A local-first, Python application for discovering, managing, and visualizing aca
 
 Upload your pdfs, create projects, manage notes, tags, and more to organize your files. All locally without ever sending out your data intermediately. This project aims to be a one-stop-shop for researchers who look to manage their literature, with the near-term goal of extending this to research groups who seek to share their knowledge and literature with each other, without going to the web.
 
-> **Development status:** The database schema and paper identifier format are actively changing. `source_id` values are being migrated to a namespaced format (`arxiv:2204.12985`, `doi:10.48550/…`, `openalex:W3123456789`, `local:{hash}`). Until that work lands, existing `papers.db` files will not be compatible with new builds — delete `papers.db` and let it rebuild on first run. No stable release has been cut yet.
+> **Development status:** The database schema and paper identifier format are actively changing. `source_id` values are being migrated to a namespaced format (`arxiv:2204.12985`, `doi:10.48550/…`, `openalex:W3123456789`, `local:{hash}`). Until that work lands, existing `papers.db` files will not be compatible with new builds — delete `papers.db` and let it rebuild on first run. No stable release has been cut yet. Migrations from version 0.1.0 to 0.1.1 will be accounted for.
 
 ## Table of Contents
 
