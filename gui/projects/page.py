@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.library.page import LibraryPage
-from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar
+from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, ProjectExportButton, ProjectImportButton
 from gui.qt_assets.note_card import NoteCard
 import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
@@ -698,6 +698,10 @@ class ProjectDetailView(QWidget):
         self._title_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         header.addWidget(self._title_scroll, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
 
+        self._export_btn = ProjectExportButton()
+        self._export_btn.setFixedHeight(BTN_H_MD)
+        header.addWidget(self._export_btn)
+
         self._archive_btn = QPushButton("Archive")
         self._archive_btn.setStyleSheet(_BTN_MUTED_STYLE)
         self._archive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -801,6 +805,7 @@ class ProjectDetailView(QWidget):
         self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.ACCENT}; background: transparent;")
         self._papers_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;")
         self._empty_papers_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._export_btn.refresh_styles()
         self._archive_btn.setStyleSheet(_qt_styles.BTN_MUTED)
         self._delete_btn.setStyleSheet(_qt_styles.BTN_DANGER)
         self._add_paper_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
@@ -810,6 +815,7 @@ class ProjectDetailView(QWidget):
         self._project = project
         self._delete_confirming = False
         self._delete_btn.setText("Delete")
+        self._export_btn.set_project_fk(project.id)
 
         hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
         self._color_stripe.setStyleSheet(f"background: {hex_color}; border-radius: 3px;")
@@ -1169,6 +1175,7 @@ class ProjectsPage(QWidget):
         )
         self._add_proj_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
         self._refresh_proj_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._import_proj_btn.refresh_styles()
         self._empty_lbl.setStyleSheet(
             f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
         )
@@ -1208,9 +1215,15 @@ class ProjectsPage(QWidget):
         refresh_btn.setStyleSheet(_BTN_MUTED_STYLE)
         refresh_btn.clicked.connect(self._refresh)
 
+        self._import_proj_btn = ProjectImportButton()
+        self._import_proj_btn.setFixedHeight(40)
+        self._import_proj_btn.import_done.connect(self._refresh)
+
         header.addLayout(col)
         header.addStretch()
         header.addWidget(refresh_btn, alignment=Qt.AlignmentFlag.AlignBottom)
+        header.addSpacing(SPACE_SM)
+        header.addWidget(self._import_proj_btn, alignment=Qt.AlignmentFlag.AlignBottom)
         header.addSpacing(SPACE_SM)
         header.addWidget(add_btn, alignment=Qt.AlignmentFlag.AlignBottom)
         outer.addLayout(header)
