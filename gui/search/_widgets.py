@@ -83,7 +83,7 @@ class _ResultList(QListWidget):
             if item is None:
                 continue
             widget = self.itemWidget(item)
-            if widget is not None:
+            if widget:
                 widget.setFixedWidth(w)
                 item.setSizeHint(widget.sizeHint())
 
