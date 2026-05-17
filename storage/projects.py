@@ -74,7 +74,6 @@ class Project:
             name         = row["NAME"],
             description  = row["DESCRIPTION"] or "",
             color        = int(row["COLOR"]) if row["COLOR"] is not None else None,
-            project_tags = row["PROJECT_TAGS"] or [],
             source_fks   = source_fks,
             status       = Status(row["STATUS"]),
             created_at   = row["CREATED_AT"],
@@ -91,12 +90,12 @@ class Project:
                 cur = conn.execute(
                     """
                     INSERT INTO PROJECT
-                        (NAME, DESCRIPTION, COLOR, STATUS, PROJECT_TAGS,
+                        (NAME, DESCRIPTION, COLOR, STATUS,
                          CREATED_AT, UPDATED_AT, ARCHIVED_AT)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (self.name, self.description, self.color, self.status,
-                     self.project_tags, self.created_at, self.updated_at, self.archived_at),
+                     self.created_at, self.updated_at, self.archived_at),
                 )
                 self.id = cur.lastrowid
                 assert self.id is not None
@@ -107,11 +106,11 @@ class Project:
                     """
                     UPDATE PROJECT
                     SET NAME = ?, DESCRIPTION = ?, COLOR = ?, STATUS = ?,
-                        PROJECT_TAGS = ?, UPDATED_AT = ?, ARCHIVED_AT = ?
+                        UPDATED_AT = ?, ARCHIVED_AT = ?
                     WHERE PROJECT_FK = ?
                     """,
                     (self.name, self.description, self.color, self.status,
-                     self.project_tags, self.updated_at, self.archived_at, self.id),
+                     self.updated_at, self.archived_at, self.id),
                 )
                 assert self.id is not None
                 _save_source_fks(conn, self.id, self.source_fks)
