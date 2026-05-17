@@ -827,7 +827,7 @@ class ProjectDetailView(QWidget):
         self._import_pdf_btn.setStyleSheet(_qt_styles.BTN_MUTED)
 
     def _is_readonly(self) -> bool:
-        return self._project and self._project.status == Status.ARCHIVED
+        return bool(self._project and self._project.status == Status.ARCHIVED)
 
     def load(self, project) -> None:
         self._project = project

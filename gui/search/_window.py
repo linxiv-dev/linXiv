@@ -434,7 +434,7 @@ class SearchPage(QWidget):
         for paper in results:
             row_widget = _ResultRow(paper.title)
             paper_id, _ = paper_svc.parse_entry_id(paper.entry_id)
-            row_widget.set_checked(paper_svc.get_paper(paper_id))
+            row_widget.set_checked(bool(paper_svc.get_paper(paper_id)))
             row_widget._checkbox.stateChanged.connect(
                 lambda state, p=paper: self._on_checkbox_changed(p, state)
             )
@@ -450,7 +450,7 @@ class SearchPage(QWidget):
         self._meta_results = results
         for paper in results:
             row_widget = _ResultRow(paper.title, source=paper.source)
-            row_widget.set_checked(paper_svc.get_paper(paper.source_id))
+            row_widget.set_checked(bool(paper_svc.get_paper(paper.source_id)))
             row_widget._checkbox.stateChanged.connect(
                 lambda state, p=paper: self._on_meta_checkbox_changed(p, state)
             )
