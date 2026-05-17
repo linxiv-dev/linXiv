@@ -59,3 +59,34 @@ def create_tag(label: str) -> int | None:
 def delete_tag(tag_id: int) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM TAG WHERE TAG_FK = ?", (tag_id,))
+
+
+def get_project_tags(project_id: int) -> list[str]:
+    rows = list_tags_by_project(Q("ptt.PROJECT_FK = ?", project_id))
+    return [row["TAG"] for row in rows]
+
+
+def add_project_tags(project_id: int, tags: list[str]) -> list[str]:
+    tag_fks = [create_tag(label) for label in tags]
+    with _connect() as conn:
+        for tag_fk in tag_fks:
+            if tag_fk is not None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO PROJECT_TO_TAG (PROJECT_FK, TAG_FK) VALUES (?, ?)",
+                    (project_id, tag_fk),
+                )
+    return get_project_tags(project_id)
+
+
+def remove_project_tags(project_id: int, tags: list[str]) -> list[str]:
+    with _connect() as conn:
+        for label in tags:
+            row = conn.execute(
+                "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1", (label,)
+            ).fetchone()
+            if row is not None:
+                conn.execute(
+                    "DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ? AND TAG_FK = ?",
+                    (project_id, int(row["TAG_FK"])),
+                )
+    return get_project_tags(project_id)

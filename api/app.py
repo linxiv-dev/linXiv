@@ -54,6 +54,7 @@ from storage.projects import (
     filter_projects,
     get_project,
 )
+from storage.tags import get_project_tags
 
 ROOT = Path(__file__).resolve().parent.parent
 PDF_DIR = ROOT / "pdfs"
@@ -200,7 +201,7 @@ def api_projects() -> dict:
                 "name": p.name,
                 "description": p.description or "",
                 "color_hex": color_to_hex(p.color) if p.color else None,
-                "project_tags": p.project_tags or [],
+                "project_tags": get_project_tags(p.id),
                 "source_ids": sfks_to_source_ids(p.source_fks),
                 "status": p.status.value,
                 "paper_count": p.paper_count,
@@ -214,6 +215,8 @@ def api_graph_project_options() -> dict:
     return {"projects": project_filter_options()}
 
 
+# TODO: add tags: list[str] = [] to ProjectCreate and ProjectUpdate, then call
+#       storage.tags.add_project_tags / remove+add in api_project_create and api_project_patch
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
@@ -246,7 +249,7 @@ def api_project_get(project_id: int) -> dict:
         "name": p.name,
         "description": p.description or "",
         "color_hex": color_to_hex(p.color) if p.color else None,
-        "project_tags": p.project_tags or [],
+        "project_tags": get_project_tags(p.id) if p.id is not None else [],
         "source_ids": sfks_to_source_ids(p.source_fks),
         "status": p.status.value,
     }

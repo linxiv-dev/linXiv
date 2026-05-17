@@ -197,8 +197,11 @@ class NewProjectDialog(QDialog):
         project_svc.ensure_projects_db()
         ensure_notes_db()
 
-        p = Project(name=name, description=desc, color=self._color, project_tags=project_tags)
+        p = Project(name=name, description=desc, color=self._color)
         p.save()
+        if project_tags and p.id is not None:
+            import storage.tags as _tags_storage
+            _tags_storage.add_project_tags(p.id, project_tags)
         self.accept()
 
 

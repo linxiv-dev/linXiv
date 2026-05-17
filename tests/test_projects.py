@@ -8,6 +8,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import storage.db as _db
+import storage.tags as _tags
 
 from storage.projects import (
     color_to_hex,
@@ -17,6 +18,8 @@ from storage.projects import (
     Status,
     filter_projects,
 )
+import service.project as _svc_project
+import service.tag as _svc_tag
 
 
 def _sfk(label: str) -> int:
@@ -244,6 +247,172 @@ class TestProjectAddPaper:
         assert p.paper_count == 1
         p.add_paper(_sfk("2301.00001"))
         assert p.paper_count == 2
+
+
+# ---------------------------------------------------------------------------
+# storage.tags — project tag join-table functions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.usefixtures("tmp_db")
+class TestStorageProjectTags:
+    def _project(self, name: str = "Tag Test Project") -> int:
+        p = Project(name=name)
+        p.save()
+        assert p.id is not None
+        return p.id
+
+    def test_get_project_tags_empty(self):
+        pid = self._project()
+        assert _tags.get_project_tags(pid) == []
+
+    def test_add_project_tags_returns_labels(self):
+        pid = self._project()
+        result = _tags.add_project_tags(pid, ["ml", "vision"])
+        assert set(result) == {"ml", "vision"}
+
+    def test_add_project_tags_persisted(self):
+        pid = self._project()
+        _tags.add_project_tags(pid, ["nlp", "graphs"])
+        assert set(_tags.get_project_tags(pid)) == {"nlp", "graphs"}
+
+    def test_add_project_tags_no_duplicates(self):
+        pid = self._project()
+        _tags.add_project_tags(pid, ["ml"])
+        result = _tags.add_project_tags(pid, ["ml"])
+        assert result.count("ml") == 1
+
+    def test_add_project_tags_upserts_into_tag_table(self):
+        pid = self._project()
+        _tags.add_project_tags(pid, ["brand-new-label"])
+        # Tag must now exist in TAG table
+        with _tags._connect() as conn:
+            row = conn.execute("SELECT TAG FROM TAG WHERE TAG = 'brand-new-label'").fetchone()
+        assert row is not None
+
+    def test_remove_project_tags_removes_specific_label(self):
+        pid = self._project()
+        _tags.add_project_tags(pid, ["keep", "remove"])
+        remaining = _tags.remove_project_tags(pid, ["remove"])
+        assert "keep" in remaining
+        assert "remove" not in remaining
+
+    def test_remove_project_tags_returns_remaining(self):
+        pid = self._project()
+        _tags.add_project_tags(pid, ["a", "b", "c"])
+        remaining = _tags.remove_project_tags(pid, ["b"])
+        assert set(remaining) == {"a", "c"}
+
+    def test_remove_nonexistent_tag_is_noop(self):
+        pid = self._project()
+        _tags.add_project_tags(pid, ["real"])
+        remaining = _tags.remove_project_tags(pid, ["ghost"])
+        assert remaining == ["real"]
+
+    def test_remove_project_tags_case_insensitive(self):
+        pid = self._project()
+        _tags.add_project_tags(pid, ["ML"])
+        remaining = _tags.remove_project_tags(pid, ["ml"])
+        assert remaining == []
+
+    def test_tags_isolated_between_projects(self):
+        pid1 = self._project("Project A")
+        pid2 = self._project("Project B")
+        _tags.add_project_tags(pid1, ["exclusive"])
+        assert _tags.get_project_tags(pid2) == []
+
+
+# ---------------------------------------------------------------------------
+# service.project.upsert — tag round-trips (insert + update branches)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.usefixtures("tmp_db")
+class TestServiceProjectUpsertTags:
+    def test_insert_branch_persists_tags(self):
+        fk = _svc_project.upsert(
+            _svc_project.ProjectIn(name="Tagged", description="", tags=["research", "ml"])
+        )
+        assert set(_tags.get_project_tags(fk)) == {"research", "ml"}
+
+    def test_insert_branch_no_tags(self):
+        fk = _svc_project.upsert(
+            _svc_project.ProjectIn(name="No Tags", description="", tags=[])
+        )
+        assert _tags.get_project_tags(fk) == []
+
+    def test_update_branch_replaces_tags(self):
+        fk = _svc_project.upsert(
+            _svc_project.ProjectIn(name="Evolving", description="", tags=["old"])
+        )
+        _svc_project.upsert(
+            _svc_project.ProjectIn(name="Evolving", description="", tags=["new"]),
+            project_fk=fk,
+        )
+        remaining = _tags.get_project_tags(fk)
+        assert "new" in remaining
+        assert "old" not in remaining
+
+    def test_update_branch_clears_tags_when_empty(self):
+        fk = _svc_project.upsert(
+            _svc_project.ProjectIn(name="Clearable", description="", tags=["gone"])
+        )
+        _svc_project.upsert(
+            _svc_project.ProjectIn(name="Clearable", description="", tags=[]),
+            project_fk=fk,
+        )
+        assert _tags.get_project_tags(fk) == []
+
+    def test_update_branch_idempotent(self):
+        fk = _svc_project.upsert(
+            _svc_project.ProjectIn(name="Stable", description="", tags=["x", "y"])
+        )
+        _svc_project.upsert(
+            _svc_project.ProjectIn(name="Stable", description="", tags=["x", "y"]),
+            project_fk=fk,
+        )
+        assert set(_tags.get_project_tags(fk)) == {"x", "y"}
+
+    def test_get_via_service_reflects_join_table(self):
+        fk = _svc_project.upsert(
+            _svc_project.ProjectIn(name="Readable", description="", tags=["svc-tag"])
+        )
+        details = _svc_project.get(_svc_project.Project(project_fk=fk))
+        assert details is not None
+        assert "svc-tag" in details.project_tags
+
+    def test_upsert_update_nonexistent_raises(self):
+        with pytest.raises(ValueError):
+            _svc_project.upsert(
+                _svc_project.ProjectIn(name="Ghost", description=""),
+                project_fk=9999,
+            )
+
+
+# ---------------------------------------------------------------------------
+# service.tag — project tag wrappers
+# ---------------------------------------------------------------------------
+
+@pytest.mark.usefixtures("tmp_db")
+class TestServiceTagProjectWrappers:
+    def _project_fk(self, name: str = "Wrapper Test") -> int:
+        p = Project(name=name)
+        p.save()
+        assert p.id is not None
+        return p.id
+
+    def test_get_project_tags_empty(self):
+        pid = self._project_fk()
+        assert _svc_tag.get_project_tags(pid) == []
+
+    def test_add_project_tags_returns_list(self):
+        pid = self._project_fk()
+        result = _svc_tag.add_project_tags(pid, ["a", "b"])
+        assert set(result) == {"a", "b"}
+
+    def test_remove_project_tags_returns_remaining(self):
+        pid = self._project_fk()
+        _svc_tag.add_project_tags(pid, ["keep", "drop"])
+        remaining = _svc_tag.remove_project_tags(pid, ["drop"])
+        assert remaining == ["keep"]
 
 
 # ---------------------------------------------------------------------------
