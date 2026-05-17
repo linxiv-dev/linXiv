@@ -19,20 +19,20 @@ from sources.openalex_source import _reconstruct_abstract, _work_to_metadata, Op
 
 class TestParseArxivId:
     def test_full_http_url_with_version(self):
-        assert _parse_arxiv_id("http://arxiv.org/abs/2204.12985v4") == ("2204.12985", 4)
+        assert _parse_arxiv_id("http://arxiv.org/abs/2204.12985v4") == ("arxiv:2204.12985", 4)
 
     def test_full_https_url_with_version(self):
-        assert _parse_arxiv_id("https://arxiv.org/abs/2204.12985v2") == ("2204.12985", 2)
+        assert _parse_arxiv_id("https://arxiv.org/abs/2204.12985v2") == ("arxiv:2204.12985", 2)
 
     def test_bare_id_with_version(self):
-        assert _parse_arxiv_id("2204.12985v3") == ("2204.12985", 3)
+        assert _parse_arxiv_id("2204.12985v3") == ("arxiv:2204.12985", 3)
 
     def test_bare_id_no_version_defaults_to_1(self):
-        assert _parse_arxiv_id("2204.12985") == ("2204.12985", 1)
+        assert _parse_arxiv_id("2204.12985") == ("arxiv:2204.12985", 1)
 
     def test_five_digit_id(self):
         source_id, ver = _parse_arxiv_id("http://arxiv.org/abs/2204.123456v1")
-        assert source_id == "2204.123456"
+        assert source_id == "arxiv:2204.123456"
         assert ver == 1
 
 
@@ -71,7 +71,7 @@ class TestResultToMetadata:
 
     def test_extracts_source_id_from_entry_id(self):
         meta = _result_to_metadata(self._make_result(entry_id="http://arxiv.org/abs/2204.12985v1"))
-        assert meta.source_id == "2204.12985"
+        assert meta.source_id == "arxiv:2204.12985"
 
     def test_extracts_version_from_entry_id(self):
         meta = _result_to_metadata(self._make_result(entry_id="http://arxiv.org/abs/2204.12985v3"))
@@ -176,14 +176,14 @@ class TestWorkToMetadata:
     def test_basic_conversion(self):
         meta = _work_to_metadata(self._make_work())
         assert isinstance(meta, PaperMetadata)
-        assert meta.source_id == "W3123456789"
+        assert meta.source_id == "openalex:W3123456789"
         assert meta.source == "openalex"
         assert meta.title == "OpenAlex Paper"
         assert meta.version == 1
 
     def test_extracts_openalex_id_from_url(self):
         meta = _work_to_metadata(self._make_work(id="https://openalex.org/W9876543210"))
-        assert meta.source_id == "W9876543210"
+        assert meta.source_id == "openalex:W9876543210"
 
     def test_extracts_authors(self):
         work = self._make_work(authorships=[
@@ -323,7 +323,7 @@ class TestOpenAlexSourceFetchById:
         with patch.object(source._http, "get", return_value=mock_resp):
             result = source.fetch_by_id("W9999")
         assert result.title == "Fetched Paper"
-        assert result.source_id == "W9999"
+        assert result.source_id == "openalex:W9999"
 
     def test_fetch_by_id_raises_value_error_on_error(self):
         source = OpenAlexSource()
