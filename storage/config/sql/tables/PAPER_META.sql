@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS PAPER_META(
     JOURNAL_REF       TEXT,
     COMMENT           TEXT,
     SUMMARY           TEXT,
-    SOURCE            TEXT DEFAULT 'arxiv',
+    PROVIDER          TEXT DEFAULT 'arxiv',
     PDF_PATH          TEXT,
     FULL_TEXT         TEXT,
     DOWNLOADED_SOURCE BOOL DEFAULT 0,

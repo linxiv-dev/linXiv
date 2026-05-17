@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP  # pyright: ignore[reportMissingImports]
 
-import storage.db as db
+import service.paper as svc_paper
+from service.paper import Paper
 from storage.notes import Note, ensure_notes_db, get_notes, get_project_notes
 from storage.projects import (
     Project, Status, Q,
@@ -25,13 +26,9 @@ _SOURCES = {
     "openalex": OpenAlexSource,
 }
 
-db.init_db()
+svc_paper.init_db()
 ensure_projects_db()
 ensure_notes_db()
-
-
-def _row(row) -> dict[str, Any]:
-    return {k: row[k] for k in row.keys()}
 
 
 # ── Paper tools ───────────────────────────────────────────────────────────────
@@ -63,7 +60,7 @@ def fetch_paper(paper_id: str, source: str = "arxiv") -> dict:
     if cls is None:
         raise ValueError(f"Unknown source {source!r}. Use 'arxiv' or 'openalex'.")
     meta = cls().fetch_by_id(paper_id)
-    db.save_paper_metadata(meta)
+    svc_paper.save_paper_metadata(meta)
     return meta.model_dump(mode="json")
 
 
@@ -76,11 +73,11 @@ def list_papers(limit: Optional[int] = None, offset: int = 0, category: Optional
         offset: Number of papers to skip for pagination.
         category: Filter by arXiv primary category (e.g. "cs.LG").
     """
-    rows = db.list_papers(limit=limit, offset=offset)
-    papers = [_row(r) for r in rows]
+    papers = svc_paper.list_paper_details(limit=limit, offset=offset)
+    results = [p.to_dict() for p in papers]
     if category:
-        papers = [p for p in papers if p.get("category") == category]
-    return papers
+        results = [p for p in results if p.get("category") == category]
+    return results
 
 
 @mcp.tool()
@@ -90,8 +87,8 @@ def get_paper(paper_id: str) -> Optional[dict]:
     Args:
         paper_id: The paper ID (e.g. "2204.12985").
     """
-    row = db.get_paper(paper_id)
-    return _row(row) if row is not None else None
+    paper = svc_paper.get(Paper(source_id=paper_id))
+    return paper.to_dict() if paper is not None else None
 
 
 @mcp.tool()
@@ -104,7 +101,7 @@ def search_full_text(query: str, limit: int = 20) -> list[dict]:
         query: SQLite FTS5 query string.
         limit: Maximum number of results (default 20).
     """
-    return [_row(r) for r in db.search_full_text(query, limit=limit)]
+    return [p.to_dict() for p in svc_paper.search_full_text_details(query, limit=limit)]
 
 
 @mcp.tool()
@@ -117,12 +114,12 @@ def tag_paper(paper_id: str) -> dict:
         paper_id: The paper ID to tag (e.g. "2204.12985").
     """
 
-    row = db.get_paper(paper_id)
-    if row is None:
+    paper = svc_paper.get(Paper(source_id=paper_id))
+    if paper is None:
         raise ValueError(f"Paper {paper_id!r} not found. Run fetch_paper first.")
     content = PaperContent(
-        abstract=row["summary"] or "",
-        full_text=row["full_text"] if "full_text" in row.keys() else None,
+        abstract=paper.summary or "",
+        full_text=paper.full_text,
     )
     return {"paper_id": paper_id, "tags": tag(content)}
 
@@ -178,7 +175,7 @@ def add_paper_to_project(project_id: int, paper_id: str) -> dict:
     p = get_project(project_id)
     if p is None:
         raise ValueError(f"Project {project_id} not found.")
-    root = db.get_paper_root(paper_id)
+    root = svc_paper.get_paper_root(paper_id)
     if root is None:
         raise ValueError(f"Paper {paper_id!r} not found in database.")
     p.add_paper(int(root["SOURCE_FK"]))
@@ -196,7 +193,7 @@ def remove_paper_from_project(project_id: int, paper_id: str) -> dict:
     p = get_project(project_id)
     if p is None:
         raise ValueError(f"Project {project_id} not found.")
-    root = db.get_paper_root(paper_id)
+    root = svc_paper.get_paper_root(paper_id)
     if root is None:
         raise ValueError(f"Paper {paper_id!r} not found in database.")
     p.remove_paper(int(root["SOURCE_FK"]))
@@ -222,7 +219,7 @@ def create_note(
         title: Optional note title.
         project_id: Associate the note with a specific project.
     """
-    root = db.get_paper_root(paper_id)
+    root = svc_paper.get_paper_root(paper_id)
     if root is None:
         raise ValueError(f"Paper {paper_id!r} not found. Run fetch_paper first.")
     note = Note(source_fk=int(root["SOURCE_FK"]), project_id=project_id, title=title, content=content)
@@ -238,7 +235,7 @@ def get_notes_for_paper(paper_id: str, project_id: Optional[int] = None) -> list
         paper_id: Paper ID to look up notes for.
         project_id: Scope to a specific project (None returns unscoped notes).
     """
-    root = db.get_paper_root(paper_id)
+    root = svc_paper.get_paper_root(paper_id)
     if root is None:
         return []
     return [

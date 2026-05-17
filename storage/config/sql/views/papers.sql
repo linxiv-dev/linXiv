@@ -20,7 +20,7 @@ SELECT
     m.AUTHORS           AS authors,
     m.TAGS              AS tags,
     p.HAS_PDF           AS has_pdf,
-    m.SOURCE            AS source,
+    m.PROVIDER          AS source,
     m.PDF_PATH          AS pdf_path,
     m.FULL_TEXT         AS full_text,
     m.DOWNLOADED_SOURCE AS downloaded_source,

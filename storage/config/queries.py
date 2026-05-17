@@ -160,10 +160,6 @@ def get_paper_meta(paper_id: int) -> Optional[sqlite3.Row]:
     return _fetch_one("PAPER_META", Q("PAPER_ID = ?", paper_id))
 
 
-def get_paper_content(paper_id: int) -> Optional[sqlite3.Row]:
-    # CONTENT_FK == PAPER_ID by convention (1-to-1, no FK constraint in schema)
-    return _fetch_one("CONTENT", Q("CONTENT_FK = ?", paper_id))
-
 
 # ---------------------------------------------------------------------------
 # TAG
@@ -281,11 +277,11 @@ def list_projects_for_paper(source_fk: int) -> list[sqlite3.Row]:
 
 
 # ---------------------------------------------------------------------------
-# LIBRARY_NOTE
+# NOTE
 # ---------------------------------------------------------------------------
 
 def get_note(note_sk: int) -> Optional[sqlite3.Row]:
-    return _fetch_one("LIBRARY_NOTE", Q("NOTE_SK = ?", note_sk))
+    return _fetch_one("NOTE", Q("NOTE_SK = ?", note_sk))
 
 
 def list_notes(
@@ -305,8 +301,8 @@ def list_notes(
     q = clauses[0]
     for c in clauses[1:]:
         q = q & c
-    return _fetch_all("LIBRARY_NOTE", q, order_by="NOTE_SK")
+    return _fetch_all("NOTE", q, order_by="NOTE_SK")
 
 
 def count_project_notes(project_fk: int) -> int:
-    return _count("LIBRARY_NOTE", Q("PROJECT_FK = ?", project_fk))
+    return _count("NOTE", Q("PROJECT_FK = ?", project_fk))

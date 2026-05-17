@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from sources.base import PaperMetadata
 
 DB_PATH = str(Path(__file__).parent.parent / "papers.db")
-_MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # --- adapters: Python → SQLite storage ---
 sqlite3.register_adapter(list,              lambda v: json.dumps(v))
@@ -199,7 +198,7 @@ def _write_paper_version(
         """
         INSERT INTO PAPER_META (
             PAPER_ID, URL, PUBLISHED, UPDATED, CATEGORIES, DOI, JOURNAL_REF,
-            COMMENT, SUMMARY, SOURCE, PDF_PATH, FULL_TEXT, DOWNLOADED_SOURCE, AUTHORS, TAGS
+            COMMENT, SUMMARY, PROVIDER, PDF_PATH, FULL_TEXT, DOWNLOADED_SOURCE, AUTHORS, TAGS
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
