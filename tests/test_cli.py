@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -545,3 +546,335 @@ class TestPdfCommands:
         assert "storage_mb" in data
         assert "pdf_dir" in data
         assert isinstance(data["storage_mb"], (int, float))
+
+
+# ---------------------------------------------------------------------------
+# project export
+# ---------------------------------------------------------------------------
+
+class TestProjectExportCommand:
+    def test_export_success_returns_path_and_project_id(self, monkeypatch, capsys, tmp_path):
+        fake_out = tmp_path / "my_export.lxproj"
+        fake_out.touch()
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project",
+                            lambda fk, dest, include_pdfs=False: fake_out)
+        create = _stdout_json(capsys, ["project", "create", "Test Project"])
+        proj_id = create["id"]
+        data = _stdout_json(capsys, ["project", "export", str(proj_id), str(tmp_path / "out")])
+        assert data["project_id"] == proj_id
+        assert data["path"] == str(fake_out)
+
+    def test_export_service_exception_exits_nonzero_with_error_json(self, monkeypatch, capsys, tmp_path):
+        def _raise(*a, **kw):
+            raise ValueError("project not found")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project", _raise)
+        create = _stdout_json(capsys, ["project", "create", "P"])
+        err = _exit_err(capsys, ["project", "export", str(create["id"]), str(tmp_path / "out")])
+        assert err["error"] == "project not found"
+
+    def test_export_passes_pdfs_flag_true(self, monkeypatch, capsys, tmp_path):
+        calls = []
+        fake_out = tmp_path / "export.lxproj"
+        fake_out.touch()
+        def _spy(fk, dest, include_pdfs=False):
+            calls.append(include_pdfs)
+            return fake_out
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project", _spy)
+        create = _stdout_json(capsys, ["project", "create", "P"])
+        _stdout_json(capsys, ["project", "export", str(create["id"]), str(tmp_path / "out"), "--pdfs"])
+        assert calls == [True]
+
+    def test_export_without_pdfs_flag_defaults_to_false(self, monkeypatch, capsys, tmp_path):
+        calls = []
+        fake_out = tmp_path / "export.lxproj"
+        fake_out.touch()
+        def _spy(fk, dest, include_pdfs=False):
+            calls.append(include_pdfs)
+            return fake_out
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project", _spy)
+        create = _stdout_json(capsys, ["project", "create", "P"])
+        _stdout_json(capsys, ["project", "export", str(create["id"]), str(tmp_path / "out")])
+        assert calls == [False]
+
+    def test_export_passes_dest_as_path(self, monkeypatch, capsys, tmp_path):
+        received = []
+        fake_out = tmp_path / "export.lxproj"
+        fake_out.touch()
+        def _spy(fk, dest, include_pdfs=False):
+            received.append(dest)
+            return fake_out
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project", _spy)
+        create = _stdout_json(capsys, ["project", "create", "P"])
+        dest_arg = str(tmp_path / "out")
+        _stdout_json(capsys, ["project", "export", str(create["id"]), dest_arg])
+        assert received == [Path(dest_arg)]
+
+    def test_export_forwards_project_id_to_service(self, monkeypatch, capsys, tmp_path):
+        received = []
+        fake_out = tmp_path / "export.lxproj"
+        fake_out.touch()
+        def _spy(fk, dest, include_pdfs=False):
+            received.append(fk)
+            return fake_out
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project", _spy)
+        create = _stdout_json(capsys, ["project", "create", "P"])
+        proj_id = create["id"]
+        _stdout_json(capsys, ["project", "export", str(proj_id), str(tmp_path / "out")])
+        assert received == [proj_id]
+
+    def test_export_error_has_tag_prefix_in_stderr(self, monkeypatch, capsys, tmp_path):
+        def _raise(*a, **kw):
+            raise ValueError("boom")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project", _raise)
+        create = _stdout_json(capsys, ["project", "create", "P"])
+        capsys.readouterr()
+        with pytest.raises(SystemExit):
+            main(["project", "export", str(create["id"]), str(tmp_path / "out")])
+        assert "[export]" in capsys.readouterr().err
+
+    def test_export_error_stdout_is_empty(self, monkeypatch, capsys, tmp_path):
+        def _raise(*a, **kw):
+            raise ValueError("boom")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "export_project", _raise)
+        create = _stdout_json(capsys, ["project", "create", "P"])
+        capsys.readouterr()
+        with pytest.raises(SystemExit):
+            main(["project", "export", str(create["id"]), str(tmp_path / "out")])
+        out, _ = capsys.readouterr()
+        assert out == ""
+
+
+# ---------------------------------------------------------------------------
+# project import — preview
+# ---------------------------------------------------------------------------
+
+class TestProjectImportPreviewCommand:
+    def test_preview_outputs_all_fields(self, monkeypatch, capsys, tmp_path):
+        from service.export_import import ImportPreview
+        fake_preview = ImportPreview(
+            project_name="Imported",
+            description="Desc",
+            paper_count=3,
+            note_count=1,
+            has_pdfs=False,
+            format_version=1,
+        )
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import", lambda p: fake_preview)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        data = _stdout_json(capsys, ["project", "import", str(fake_zip), "--preview"])
+        assert data["project_name"] == "Imported"
+        assert data["description"] == "Desc"
+        assert data["paper_count"] == 3
+        assert data["note_count"] == 1
+        assert data["has_pdfs"] is False
+        assert data["format_version"] == 1
+
+    def test_preview_exception_exits_nonzero_with_error_json(self, monkeypatch, capsys, tmp_path):
+        def _raise(p):
+            raise ValueError("manifest.json missing")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import", _raise)
+        fake_zip = tmp_path / "bad.lxproj"
+        fake_zip.touch()
+        err = _exit_err(capsys, ["project", "import", str(fake_zip), "--preview"])
+        assert err["error"] == "manifest.json missing"
+
+    def test_preview_passes_zip_path_as_path(self, monkeypatch, capsys, tmp_path):
+        from service.export_import import ImportPreview
+        received = []
+        def _spy(p):
+            received.append(p)
+            return ImportPreview("N", "", 0, 0, False, 1)
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import", _spy)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        _stdout_json(capsys, ["project", "import", str(fake_zip), "--preview"])
+        assert received == [fake_zip]
+
+    def test_preview_flag_does_not_call_commit_import(self, monkeypatch, capsys, tmp_path):
+        from service.export_import import ImportPreview
+        commit_calls = []
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import",
+                            lambda p: ImportPreview("N", "", 0, 0, False, 1))
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import",
+                            lambda *a, **kw: commit_calls.append(True) or 1)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        _stdout_json(capsys, ["project", "import", str(fake_zip), "--preview"])
+        assert commit_calls == []
+
+    def test_preview_with_on_conflict_flag_is_accepted(self, monkeypatch, capsys, tmp_path):
+        from service.export_import import ImportPreview
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import",
+                            lambda p: ImportPreview("N", "", 0, 0, False, 1))
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        data = _stdout_json(capsys, ["project", "import", str(fake_zip), "--preview", "--on-conflict", "overwrite"])
+        assert data["project_name"] == "N"
+
+    def test_preview_error_has_tag_prefix_in_stderr(self, monkeypatch, capsys, tmp_path):
+        def _raise(p):
+            raise ValueError("bad archive")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import", _raise)
+        fake_zip = tmp_path / "bad.lxproj"
+        fake_zip.touch()
+        capsys.readouterr()
+        with pytest.raises(SystemExit):
+            main(["project", "import", str(fake_zip), "--preview"])
+        assert "[import]" in capsys.readouterr().err
+
+    def test_preview_error_stdout_is_empty(self, monkeypatch, capsys, tmp_path):
+        def _raise(p):
+            raise ValueError("bad archive")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import", _raise)
+        fake_zip = tmp_path / "bad.lxproj"
+        fake_zip.touch()
+        capsys.readouterr()
+        with pytest.raises(SystemExit):
+            main(["project", "import", str(fake_zip), "--preview"])
+        out, _ = capsys.readouterr()
+        assert out == ""
+
+
+# ---------------------------------------------------------------------------
+# project import — commit
+# ---------------------------------------------------------------------------
+
+class TestProjectImportCommitCommand:
+    def test_commit_outputs_project_id(self, monkeypatch, capsys, tmp_path):
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import",
+                            lambda p, on_conflict="merge": 42)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        data = _stdout_json(capsys, ["project", "import", str(fake_zip)])
+        assert data["project_id"] == 42
+
+    def test_commit_default_on_conflict_is_merge(self, monkeypatch, capsys, tmp_path):
+        calls = []
+        def _spy(p, on_conflict="merge"):
+            calls.append(on_conflict)
+            return 1
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import", _spy)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        _stdout_json(capsys, ["project", "import", str(fake_zip)])
+        assert calls == ["merge"]
+
+    def test_commit_on_conflict_overwrite_forwarded(self, monkeypatch, capsys, tmp_path):
+        calls = []
+        def _spy(p, on_conflict="merge"):
+            calls.append(on_conflict)
+            return 1
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import", _spy)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        _stdout_json(capsys, ["project", "import", str(fake_zip), "--on-conflict", "overwrite"])
+        assert calls == ["overwrite"]
+
+    def test_commit_project_import_error_exits_nonzero(self, monkeypatch, capsys, tmp_path):
+        def _raise(p, on_conflict="merge"):
+            raise linxiv_cli.ProjectImportError("rollback happened")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import", _raise)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        err = _exit_err(capsys, ["project", "import", str(fake_zip)])
+        assert err["error"] == "rollback happened"
+
+    def test_commit_generic_exception_exits_nonzero(self, monkeypatch, capsys, tmp_path):
+        def _raise(p, on_conflict="merge"):
+            raise OSError("disk full")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import", _raise)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        err = _exit_err(capsys, ["project", "import", str(fake_zip)])
+        assert err["error"] == "disk full"
+
+    def test_commit_passes_zip_path_as_path(self, monkeypatch, capsys, tmp_path):
+        received = []
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        def _spy(p, on_conflict="merge"):
+            received.append(p)
+            return 1
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import", _spy)
+        _stdout_json(capsys, ["project", "import", str(fake_zip)])
+        assert received == [fake_zip]
+
+    def test_commit_error_has_tag_prefix_in_stderr(self, monkeypatch, capsys, tmp_path):
+        def _raise(p, on_conflict="merge"):
+            raise OSError("boom")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import", _raise)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        capsys.readouterr()
+        with pytest.raises(SystemExit):
+            main(["project", "import", str(fake_zip)])
+        assert "[import]" in capsys.readouterr().err
+
+    def test_commit_error_stdout_is_empty(self, monkeypatch, capsys, tmp_path):
+        def _raise(p, on_conflict="merge"):
+            raise OSError("boom")
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import", _raise)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        capsys.readouterr()
+        with pytest.raises(SystemExit):
+            main(["project", "import", str(fake_zip)])
+        out, _ = capsys.readouterr()
+        assert out == ""
+
+    def test_commit_without_preview_does_not_call_preview_import(self, monkeypatch, capsys, tmp_path):
+        preview_calls = []
+        monkeypatch.setattr(linxiv_cli.svc_ei, "preview_import",
+                            lambda p: preview_calls.append(True))
+        monkeypatch.setattr(linxiv_cli.svc_ei, "commit_import",
+                            lambda p, on_conflict="merge": 1)
+        fake_zip = tmp_path / "archive.lxproj"
+        fake_zip.touch()
+        _stdout_json(capsys, ["project", "import", str(fake_zip)])
+        assert preview_calls == []
+
+
+# ---------------------------------------------------------------------------
+# project export / import — integration round-trip
+# ---------------------------------------------------------------------------
+
+class TestProjectExportImportRoundtrip:
+    def test_round_trip_creates_new_project_with_papers(self, capsys, tmp_path, monkeypatch):
+        import service.export_import as ei
+        pdf_dir = tmp_path / "pdfs"
+        pdf_dir.mkdir(exist_ok=True)
+        monkeypatch.setattr(ei, "pdf_dir", lambda: pdf_dir)
+
+        _seed()
+        proj_id = _stdout_json(capsys, ["project", "create", "Round Trip", "--description", "round-trip desc"])["id"]
+        main(["project", "add-paper", str(proj_id), ARXIV_ID])
+
+        export_data = _stdout_json(capsys, ["project", "export", str(proj_id), str(tmp_path / "rt_export")])
+        assert export_data["path"].endswith(".lxproj")
+
+        import_data = _stdout_json(capsys, ["project", "import", export_data["path"]])
+        new_proj_id = import_data["project_id"]
+        assert new_proj_id != proj_id
+
+        proj_data = _stdout_json(capsys, ["project", "get", str(new_proj_id)])
+        assert proj_data["name"] == "Round Trip"
+        assert proj_data["description"] == "round-trip desc"
+        assert len(proj_data["source_fks"]) == 1
+
+    def test_round_trip_preview_reflects_source_project(self, capsys, tmp_path, monkeypatch):
+        import service.export_import as ei
+        pdf_dir = tmp_path / "pdfs"
+        pdf_dir.mkdir(exist_ok=True)
+        monkeypatch.setattr(ei, "pdf_dir", lambda: pdf_dir)
+
+        _seed()
+        proj_id = _stdout_json(capsys, ["project", "create", "Preview Test"])["id"]
+        main(["project", "add-paper", str(proj_id), ARXIV_ID])
+
+        export_data = _stdout_json(capsys, ["project", "export", str(proj_id), str(tmp_path / "pv_export")])
+        preview = _stdout_json(capsys, ["project", "import", export_data["path"], "--preview"])
+
+        assert preview["project_name"] == "Preview Test"
+        assert preview["paper_count"] == 1
+        assert preview["has_pdfs"] is False
