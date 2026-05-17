@@ -55,7 +55,7 @@ def _parse_crossref_work(msg: dict, doi: str = "") -> PaperMetadata:
     url = msg.get("URL") or (f"https://doi.org/{paper_doi}" if paper_doi else None)
 
     return PaperMetadata(
-        source_id=paper_doi,
+        source_id=f"doi:{paper_doi}" if paper_doi else "",
         version=1,
         title=title,
         authors=authors,
@@ -116,7 +116,7 @@ class CrossRefSource(PaperSource):
         return results
 
     def fetch_by_id(self, doi: str) -> PaperMetadata:
-        meta = fetch_by_doi(doi)
+        meta = fetch_by_doi(doi.removeprefix("doi:"))
         if meta is None:
             raise ValueError(f"CrossRef: no record found for DOI '{doi}'")
         return meta

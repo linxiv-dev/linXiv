@@ -5,6 +5,7 @@ from __future__ import annotations
 from service.paper import get_source_id
 from storage.db import get_graph_data
 from storage.projects import Status, filter_projects
+from storage.tags import get_project_tags
 
 
 def get_augmented_graph_data() -> dict:
@@ -52,7 +53,7 @@ def project_filter_options() -> list[dict]:
                     "id": p.id,
                     "name": p.name,
                     "color": color_to_hex(p.color) if p.color else "#5b8dee",
-                    "tags": p.project_tags or [],
+                    "tags": get_project_tags(p.id),
                 }
             )
     return out

@@ -5,7 +5,6 @@ from typing import Optional
 
 import storage.db as db
 import storage.tags as _tags_storage
-from storage.projects import get_project
 from service.models.tag import TagDetails
 
 
@@ -179,28 +178,12 @@ def remove_paper_tags(source_id: str, tags: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def get_project_tags(project_id: int) -> list[str]:
-    project = get_project(project_id)
-    if project is None:
-        return []
-    return list(project.project_tags)
+    return _tags_storage.get_project_tags(project_id)
 
 
-def add_project_tags(project_id: int, tags: list[str]) -> None:
-    project = get_project(project_id)
-    if project is None:
-        return
-    existing = set(project.project_tags)
-    for tag in tags:
-        if tag not in existing:
-            project.project_tags.append(tag)
-            existing.add(tag)
-    project.save()
+def add_project_tags(project_id: int, tags: list[str]) -> list[str]:
+    return _tags_storage.add_project_tags(project_id, tags)
 
 
-def remove_project_tags(project_id: int, tags: list[str]) -> None:
-    project = get_project(project_id)
-    if project is None:
-        return
-    remove = set(tags)
-    project.project_tags = [t for t in project.project_tags if t not in remove]
-    project.save()
+def remove_project_tags(project_id: int, tags: list[str]) -> list[str]:
+    return _tags_storage.remove_project_tags(project_id, tags)
