@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from PyQt6.QtCore import QEvent, QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
 from PyQt6.QtWidgets import (
@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.library.page import LibraryPage
-from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar
+from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, TrashPanel
 from gui.qt_assets.note_card import NoteCard
 import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
@@ -639,59 +639,6 @@ class NotesDialog(QDialog):
                     self._cards[note.note_id] = card
 
 
-# ── Trash row (compact, no click-to-open) ────────────────────────────────────
-
-class _TrashRow(QFrame):
-    def __init__(self, project, on_restore, on_hard_delete, parent=None) -> None:
-        super().__init__(parent)
-        self._confirming = False
-        self._on_hard_delete = on_hard_delete
-        self.setFixedHeight(36)
-        self.setStyleSheet(
-            f"QFrame {{ background: {PANEL}; border: 1px solid {BORDER};"
-            f" border-radius: {RADIUS_SM}px; }}"
-            f" QLabel {{ border: none; background: transparent; }}"
-        )
-
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(10, 0, 8, 0)
-        lay.setSpacing(8)
-
-        name_lbl = ElidedLabel(project.name)
-        name_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED};")
-        lay.addWidget(name_lbl, stretch=1)
-
-        restore_btn = QPushButton("Restore")
-        restore_btn.setFixedHeight(24)
-        restore_btn.setStyleSheet(_BTN_MUTED_STYLE)
-        restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        restore_btn.clicked.connect(on_restore)
-        lay.addWidget(restore_btn)
-
-        self._del_btn = QPushButton("Delete forever")
-        self._del_btn.setFixedHeight(24)
-        self._del_btn.setStyleSheet(_BTN_DANGER)
-        self._del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._del_btn.clicked.connect(self._on_del_click)
-        self._del_btn.installEventFilter(self)
-        lay.addWidget(self._del_btn)
-
-    def eventFilter(self, obj, event) -> bool:
-        if obj is self._del_btn and event.type() == QEvent.Type.FocusOut:
-            self._confirming = False
-            self._del_btn.setText("Delete forever")
-        return super().eventFilter(obj, event)
-
-    def _on_del_click(self) -> None:
-        if not self._confirming:
-            self._confirming = True
-            self._del_btn.setText("⚠ Confirm?")
-        else:
-            self._confirming = False
-            self._del_btn.setText("Delete forever")
-            self._on_hard_delete()
-
-
 # ── Project detail view ───────────────────────────────────────────────────────
 
 class ProjectDetailView(QWidget):
@@ -1214,7 +1161,6 @@ class ProjectsPage(QWidget):
         self._library_page: LibraryPage | None = None
         self._project_detail_prior_shell_tab = False
         self._return_to_library_paper_id: int | None = None
-        self._trash_expanded = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1313,24 +1259,8 @@ class ProjectsPage(QWidget):
         self._list_layout.setSpacing(SPACE_MD)
         self._list_layout.addStretch()
 
-        self._trash_toggle_btn = QPushButton("Trash (0)")
-        self._trash_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._trash_toggle_btn.setStyleSheet(
-            f"QPushButton {{ background: transparent; border: none; text-align: left;"
-            f" font-size: {FONT_SECONDARY}px; color: {MUTED}; padding: {SPACE_SM}px 0px; }}"
-            f" QPushButton:hover {{ color: {TEXT}; }}"
-        )
-        self._trash_toggle_btn.setVisible(False)
-        self._trash_toggle_btn.clicked.connect(self._toggle_trash)
-        self._list_layout.addWidget(self._trash_toggle_btn)
-
-        self._trash_container = QWidget()
-        self._trash_container.setStyleSheet("background: transparent;")
-        self._trash_cl = QVBoxLayout(self._trash_container)
-        self._trash_cl.setContentsMargins(0, 0, 0, 0)
-        self._trash_cl.setSpacing(4)
-        self._trash_container.setVisible(False)
-        self._list_layout.addWidget(self._trash_container)
+        self._trash_panel = TrashPanel()
+        self._list_layout.addWidget(self._trash_panel)
 
         scroll.setWidget(self._list_widget)
         outer.addWidget(scroll, stretch=1)
@@ -1345,8 +1275,8 @@ class ProjectsPage(QWidget):
         return page
 
     def _refresh(self) -> None:
-        # Last 3 items are permanent: stretch, trash_toggle_btn, trash_container
-        while self._list_layout.count() > 3:
+        # Last 2 items are permanent: stretch, trash_panel
+        while self._list_layout.count() > 2:
             item = cast(QLayoutItem, self._list_layout.takeAt(0))
             w = item.widget()
             if w is not None:
@@ -1368,7 +1298,7 @@ class ProjectsPage(QWidget):
         for p in active_projects:
             card = ProjectCard(p)
             card.clicked.connect(self._open_project)
-            self._list_layout.insertWidget(self._list_layout.count() - 3, card)
+            self._list_layout.insertWidget(self._list_layout.count() - 2, card)
 
         if archived_projects:
             sep = QLabel("Archived")
@@ -1376,46 +1306,16 @@ class ProjectsPage(QWidget):
                 f"font-size: {FONT_SECONDARY}px; color: {MUTED}; font-weight: 600;"
                 f" padding-top: {SPACE_MD}px; background: transparent;"
             )
-            self._list_layout.insertWidget(self._list_layout.count() - 3, sep)
+            self._list_layout.insertWidget(self._list_layout.count() - 2, sep)
             for p in archived_projects:
                 card = ProjectCard(p, archived=True)
                 card.clicked.connect(self._open_project)
-                self._list_layout.insertWidget(self._list_layout.count() - 3, card)
+                self._list_layout.insertWidget(self._list_layout.count() - 2, card)
 
         self._rebuild_trash(deleted_projects)
 
     def _rebuild_trash(self, deleted_projects) -> None:
-        while self._trash_cl.count() > 0:
-            item = self._trash_cl.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.deleteLater()
-
-        count = len(deleted_projects)
-        if count == 0:
-            self._trash_toggle_btn.setVisible(False)
-            self._trash_container.setVisible(False)
-            return
-
-        self._trash_toggle_btn.setVisible(True)
-        indicator = "▲" if self._trash_expanded else "▼"
-        self._trash_toggle_btn.setText(f"Trash ({count})  {indicator}")
-        self._trash_container.setVisible(self._trash_expanded)
-
-        for p in deleted_projects:
-            row = _TrashRow(
-                p,
-                on_restore=lambda proj=p: self._on_trash_restore(proj),
-                on_hard_delete=lambda proj=p: self._on_trash_hard_delete(proj),
-            )
-            self._trash_cl.addWidget(row)
-
-    def _toggle_trash(self) -> None:
-        self._trash_expanded = not self._trash_expanded
-        self._trash_container.setVisible(self._trash_expanded)
-        count = self._trash_cl.count()
-        indicator = "▲" if self._trash_expanded else "▼"
-        self._trash_toggle_btn.setText(f"Trash ({count})  {indicator}")
+        self._trash_panel.rebuild(deleted_projects, self._on_trash_restore, self._on_trash_hard_delete)
 
     def _on_trash_restore(self, project) -> None:
         project_svc.restore(project_svc.Project(project_fk=project.id))

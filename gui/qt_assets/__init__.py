@@ -1,5 +1,6 @@
 from .paper_card import PaperCard, ElidedLabel
 from .selection_bar import SelectionBar
 from .add_paper_dialog import AddPaperManuallyDialog
+from .trash_panel import TrashPanel
 
-__all__ = ["PaperCard", "ElidedLabel", "SelectionBar", "AddPaperManuallyDialog"]
+__all__ = ["PaperCard", "ElidedLabel", "SelectionBar", "AddPaperManuallyDialog", "TrashPanel"]
