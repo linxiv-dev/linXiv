@@ -4,24 +4,34 @@
 -- The old DB must be ATTACHed as `old` before running.
 --
 -- Assumes (from your clarifications):
---   * old.papers.paper_id is a natural string id (e.g. '2401.12345')
+--   * old.papers.paper_id is a bare natural string id (e.g. '2401.12345')
 --   * (paper_id, version) is unique in old.papers
 --   * old.papers.authors / tags are JSON arrays of strings
+--   * old.papers.source identifies the backend ('arxiv', 'openalex', 'crossref',
+--     'semanticscholar', 'pdf', NULL)
 --   * old.projects.paper_ids is a JSON array of old paper_id strings
 --   * old.projects.project_tags is a JSON array of tag strings
 --   * old.notes carries no version info -> migrate as paper-level (PAPER_ID_FK NULL)
 --   * source string in old.papers (e.g. 'arxiv') becomes PAPER_META.PROVIDER
 --
--- One row per unique paper_id in old.papers becomes one PAPER_ROOTS row.
--- SOURCE_ID in new schema == old paper_id string (the natural id).
+-- SOURCE_ID in new schema is NAMESPACED: 'arxiv:2204.12985', 'openalex:W3123456789',
+-- 'doi:10.48550/...', 'local:{hash}'. Bare old paper_ids are prefixed here.
+--
+-- Namespace prefix rules (applied consistently throughout):
+--   old.source = 'arxiv'                         -> 'arxiv:'   || paper_id
+--   old.source = 'openalex'                      -> 'openalex:'|| paper_id
+--   old.source IN ('crossref','semanticscholar')  -> 'doi:'     || paper_id
+--   old.source = 'pdf'                            -> 'local:'   || paper_id
+--     (if old paper_id starts with 'pdf:' the prefix is replaced, not doubled)
+--   old.source IS NULL                            -> 'linxiv:'  || paper_id (unknown source)
+--   old.source = 'arxiv' or anything unrecognised -> source     || ':' || paper_id
 -- =============================================================================
 
 PRAGMA foreign_keys = OFF;
 BEGIN;
 
 -- ---------------------------------------------------------------------------
--- Scratch mapping tables (dropped at end). Use temp so they vanish on COMMIT
--- end-of-connection; explicit DROPs at the bottom too for safety.
+-- Scratch mapping tables (dropped at end).
 -- ---------------------------------------------------------------------------
 
 CREATE TEMP TABLE map_paper (
@@ -33,15 +43,43 @@ CREATE TEMP TABLE map_paper (
 );
 
 -- ---------------------------------------------------------------------------
--- 1. PAPER_ROOTS: one row per distinct old paper_id
---    SOURCE_ID := old paper_id (natural id like '2401.12345')
+-- Helper: one row per distinct old paper_id with its namespaced SOURCE_ID.
+-- Groups by paper_id so each distinct paper gets exactly one mapping.
+-- ---------------------------------------------------------------------------
+
+CREATE TEMP TABLE map_source_id (
+    old_paper_id TEXT NOT NULL PRIMARY KEY,
+    new_source_id TEXT NOT NULL
+);
+
+INSERT INTO map_source_id (old_paper_id, new_source_id)
+SELECT
+    paper_id,
+    CASE
+        WHEN COALESCE(source, 'arxiv') = 'openalex'
+            THEN 'openalex:' || paper_id
+        WHEN COALESCE(source, 'arxiv') IN ('crossref', 'semanticscholar', 'doi')
+            THEN 'doi:' || paper_id
+        WHEN COALESCE(source, 'arxiv') = 'pdf'
+            THEN CASE
+                     WHEN paper_id LIKE 'pdf:%'   THEN 'local:' || substr(paper_id, 5)
+                     WHEN paper_id LIKE 'local:%' THEN paper_id
+                     ELSE 'local:' || paper_id
+                 END
+        WHEN source IS NULL THEN 'linxiv:' || paper_id   -- no source recorded; use app namespace
+        ELSE COALESCE(source, 'linxiv') || ':' || paper_id  -- pass unknown sources through as-is
+    END
+FROM old.papers
+GROUP BY paper_id;
+
+-- ---------------------------------------------------------------------------
+-- 1. PAPER_ROOTS: one row per distinct old paper_id, SOURCE_ID namespaced
 -- ---------------------------------------------------------------------------
 
 INSERT INTO PAPER_ROOTS (SOURCE_ID)
-SELECT DISTINCT paper_id
-FROM old.papers
-WHERE paper_id IS NOT NULL
-ORDER BY paper_id;
+SELECT new_source_id
+FROM map_source_id
+ORDER BY new_source_id;
 
 -- ---------------------------------------------------------------------------
 -- 2. AUTHOR: one row per distinct author name across all papers.
@@ -73,7 +111,7 @@ SELECT DISTINCT TRIM(t) AS tag FROM (
 -- 4. PROJECT: copy from old.projects, preserving id as PROJECT_FK
 -- ---------------------------------------------------------------------------
 
-INSERT INTO PROJECT (PROJECT_FK, NAME, DESCRIPTION, COLOR, STATUS, PROJECT_TAGS,
+INSERT INTO PROJECT (PROJECT_FK, NAME, DESCRIPTION, COLOR, STATUS,
                      CREATED_AT, UPDATED_AT, ARCHIVED_AT)
 SELECT
     id,
@@ -81,32 +119,35 @@ SELECT
     COALESCE(description, ''),
     color,
     COALESCE(status, 'active'),
-    project_tags,
-    created_at,
-    updated_at,
+    COALESCE(created_at, datetime('now')),
+    COALESCE(updated_at, datetime('now')),
     archived_at
 FROM old.projects;
 
 -- ---------------------------------------------------------------------------
 -- 5. PAPER: one row per (paper_id, version) in old.papers
---    SOURCE_ID = old.paper_id; SOURCE_FK looked up from PAPER_ROOTS
+--    SOURCE_ID is the namespaced form; SOURCE_FK from PAPER_ROOTS
 -- ---------------------------------------------------------------------------
 
 INSERT INTO PAPER (SOURCE_ID, VERSION, TITLE, CATEGORY, HAS_PDF, SOURCE_FK)
 SELECT
-    p.paper_id,
+    ms.new_source_id,
     p.version,
     COALESCE(p.title, ''),
     p.category,
     COALESCE(p.has_pdf, 0),
     pr.SOURCE_FK
 FROM old.papers p
-JOIN PAPER_ROOTS pr ON pr.SOURCE_ID = p.paper_id;
+JOIN map_source_id ms ON ms.old_paper_id = p.paper_id
+JOIN PAPER_ROOTS pr ON pr.SOURCE_ID = ms.new_source_id;
 
--- Populate the mapping table for downstream FK lookups
+-- Populate the mapping table for downstream FK lookups.
+-- Join back through map_source_id to recover the bare OLD paper_id,
+-- which is what old.papers.paper_id uses in steps 6–8.
 INSERT INTO map_paper (old_paper_id, old_version, new_paper_id, source_fk)
-SELECT p.SOURCE_ID, p.VERSION, p.PAPER_ID, p.SOURCE_FK
-FROM PAPER p;
+SELECT ms.old_paper_id, p.VERSION, p.PAPER_ID, p.SOURCE_FK
+FROM PAPER p
+JOIN map_source_id ms ON ms.new_source_id = p.SOURCE_ID;
 
 -- ---------------------------------------------------------------------------
 -- 6. PAPER_META: one row per PAPER row
@@ -157,16 +198,17 @@ WHERE TRIM(j.value) <> '';
 
 -- ---------------------------------------------------------------------------
 -- 8. PAPER_TO_TAG: explode old.papers.tags JSON array
---    Populates both the integer PAPER_ID FK and the (SOURCE_ID, VERSION) pair
+--    SOURCE_ID stored in the namespaced form
 -- ---------------------------------------------------------------------------
 
 INSERT INTO PAPER_TO_TAG (PAPER_ID, SOURCE_ID, VERSION, TAG_FK)
 SELECT
     m.new_paper_id,
-    p.paper_id,
+    ms.new_source_id,
     p.version,
     t.TAG_FK
 FROM old.papers p
+JOIN map_source_id ms ON ms.old_paper_id = p.paper_id
 JOIN map_paper m
   ON m.old_paper_id = p.paper_id AND m.old_version = p.version
 JOIN json_each(p.tags) j
@@ -175,8 +217,7 @@ WHERE TRIM(j.value) <> '';
 
 -- ---------------------------------------------------------------------------
 -- 9. PROJECT_TO_PAPER: explode old.projects.paper_ids JSON array
---    Maps each old paper_id string -> SOURCE_FK in PAPER_ROOTS
---    PROJECT_TO_PAPER_FK has no AUTOINCREMENT in your DDL so we synthesize one.
+--    Maps each old bare paper_id -> SOURCE_FK in PAPER_ROOTS (via namespaced id)
 -- ---------------------------------------------------------------------------
 
 INSERT INTO PROJECT_TO_PAPER (PROJECT_TO_PAPER_FK, PROJECT_FK, SOURCE_FK)
@@ -186,7 +227,8 @@ SELECT
     roots.SOURCE_FK
 FROM old.projects pr
 JOIN json_each(pr.paper_ids) j
-JOIN PAPER_ROOTS roots ON roots.SOURCE_ID = TRIM(j.value)
+JOIN map_source_id ms ON ms.old_paper_id = TRIM(j.value)
+JOIN PAPER_ROOTS roots ON roots.SOURCE_ID = ms.new_source_id
 WHERE TRIM(j.value) <> '';
 
 -- ---------------------------------------------------------------------------
@@ -207,6 +249,7 @@ WHERE TRIM(j.value) <> '';
 -- 11. NOTE: copy from old.notes.
 --     Old schema has no version on notes -> SOURCE_FK only, PAPER_ID_FK NULL.
 --     NOTE_SK reuses old.notes.id.
+--     Requires joining through old.papers to resolve the namespaced SOURCE_ID.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO NOTE (NOTE_SK, SOURCE_FK, PAPER_ID_FK, PROJECT_FK,
@@ -218,23 +261,22 @@ SELECT
     n.project_id,
     n.title,
     n.content,
-    COALESCE(n.created_at, date('now')),
-    COALESCE(n.updated_at, date('now'))
+    COALESCE(n.created_at, datetime('now')),
+    COALESCE(n.updated_at, datetime('now'))
 FROM old.notes n
-JOIN PAPER_ROOTS roots ON roots.SOURCE_ID = n.paper_id;
+JOIN map_source_id ms ON ms.old_paper_id = n.paper_id
+JOIN PAPER_ROOTS roots ON roots.SOURCE_ID = ms.new_source_id;
 
 -- Notes with no paper_id (project-level notes): keep them, but they need a
--- SOURCE_FK which is NOT NULL in your schema. This is a schema/data mismatch:
--- if any old.notes rows have NULL paper_id, they cannot be migrated as-is.
--- Surface them so the operator sees the loss:
+-- SOURCE_FK which is NOT NULL in the new schema. Surface them for the wrapper.
 
--- (Just a count via a temp table for the wrapper to log)
 CREATE TEMP TABLE _orphan_notes_count AS
 SELECT COUNT(*) AS n FROM old.notes WHERE paper_id IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- 12. Rebuild papers_fts from PAPER_META.FULL_TEXT
---     rowid = new integer PAPER_ID so search results map back trivially.
+--     paper_id column holds the namespaced SOURCE_ID so that
+--     search_full_text's JOIN (p.source_id = fts.paper_id) resolves correctly.
 -- ---------------------------------------------------------------------------
 
 INSERT INTO papers_fts (rowid, paper_id, full_text)
@@ -251,6 +293,7 @@ WHERE pm.FULL_TEXT IS NOT NULL AND pm.FULL_TEXT <> '';
 -- ---------------------------------------------------------------------------
 
 DROP TABLE map_paper;
+DROP TABLE map_source_id;
 
 COMMIT;
 PRAGMA foreign_keys = ON;

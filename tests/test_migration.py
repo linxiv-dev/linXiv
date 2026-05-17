@@ -33,7 +33,7 @@ CREATE TABLE papers (
     authors           TEXT,
     tags              TEXT,
     has_pdf           INTEGER NOT NULL DEFAULT 0,
-    source            TEXT    DEFAULT 'arxiv',
+    source            TEXT,
     pdf_path          TEXT,
     full_text         TEXT,
     downloaded_source INTEGER DEFAULT 0,
@@ -64,13 +64,16 @@ CREATE TABLE notes (
 );
 """
 
+# Path to the real v0.1.0 DB shipped with the test suite
+_REAL_OLD_DB = Path(__file__).parent / "test_file" / "papers_v_0_1_0.db"
+
 
 def _build_old_db(path: str) -> None:
     """Populate a minimal old-schema DB with representative fixture data."""
     conn = sqlite3.connect(path)
     conn.executescript(_OLD_SCHEMA_SQL)
 
-    # Two versions of one paper (multi-author, tagged, has full_text)
+    # Two versions of one arxiv paper (multi-author, tagged, has full_text)
     conn.execute(
         "INSERT INTO papers (paper_id, version, title, authors, tags, source, category, full_text) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -93,26 +96,38 @@ def _build_old_db(path: str) -> None:
         ),
     )
 
-    # A second paper with a single-token author name and no tags
+    # An openalex paper with a single-token author name and no tags
     conn.execute(
         "INSERT INTO papers (paper_id, version, title, authors, tags, source, category) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
         (
-            "2401.00002", 1, "Another Paper",
+            "W3123456789", 1, "OpenAlex Paper",
             json.dumps(["Madonna"]),
             json.dumps([]),
-            "arxiv", "math.CO",
+            "openalex", "math.CO",
         ),
     )
 
-    # One project referencing both papers, with a project tag
+    # A paper with NULL source (gets 'linxiv:' prefix)
+    conn.execute(
+        "INSERT INTO papers (paper_id, version, title, authors, tags, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "manual001", 1, "Manually Added Paper",
+            json.dumps(["Some Author"]),
+            json.dumps([]),
+            None,
+        ),
+    )
+
+    # One project referencing the arxiv and openalex papers, with a project tag
     conn.execute(
         "INSERT INTO projects (id, name, description, project_tags, paper_ids, status) "
         "VALUES (?, ?, ?, ?, ?, ?)",
         (
             1, "My Project", "A test project",
             json.dumps(["ml"]),
-            json.dumps(["2401.00001", "2401.00002"]),
+            json.dumps(["2401.00001", "W3123456789"]),
             "active",
         ),
     )
@@ -168,11 +183,11 @@ def migrated_db(old_db, new_db):
 class TestMigrationRowCounts:
     def test_paper_count(self, migrated_db):
         count = migrated_db.execute("SELECT COUNT(*) FROM PAPER").fetchone()[0]
-        assert count == 3  # v1 + v2 of paper1, v1 of paper2
+        assert count == 4  # v1+v2 of arxiv paper, v1 of openalex, v1 of null-source
 
     def test_paper_roots_count(self, migrated_db):
         count = migrated_db.execute("SELECT COUNT(*) FROM PAPER_ROOTS").fetchone()[0]
-        assert count == 2  # two distinct paper_ids
+        assert count == 3  # arxiv:2401.00001, openalex:W3123456789, linxiv:manual001
 
     def test_paper_meta_count_matches_paper(self, migrated_db):
         papers = migrated_db.execute("SELECT COUNT(*) FROM PAPER").fetchone()[0]
@@ -190,7 +205,7 @@ class TestMigrationRowCounts:
 
     def test_project_to_paper_count(self, migrated_db):
         count = migrated_db.execute("SELECT COUNT(*) FROM PROJECT_TO_PAPER").fetchone()[0]
-        assert count == 2  # two papers in the project
+        assert count == 2  # arxiv:2401.00001 and openalex:W3123456789 in project
 
     def test_tags_deduplicated(self, migrated_db):
         # "ml" appears in paper tags AND project tags — should be one TAG row
@@ -202,9 +217,9 @@ class TestMigrationRowCounts:
         assert count == 1  # one project tag ("ml")
 
     def test_paper_to_author_count(self, migrated_db):
-        # paper1 v1: Alice, Bob; paper1 v2: Alice, Bob; paper2 v1: Madonna — 5 rows
+        # arxiv v1: Alice+Bob, arxiv v2: Alice+Bob, openalex v1: Madonna, null-source v1: Some Author — 6
         count = migrated_db.execute("SELECT COUNT(*) FROM PAPER_TO_AUTHOR").fetchone()[0]
-        assert count == 5
+        assert count == 6
 
     def test_fts_populated_for_full_text_papers(self, migrated_db):
         count = migrated_db.execute("SELECT COUNT(*) FROM papers_fts").fetchone()[0]
@@ -371,7 +386,7 @@ class TestSafetyGuards:
         conn = sqlite3.connect(new_db)
         count = conn.execute("SELECT COUNT(*) FROM PAPER").fetchone()[0]
         conn.close()
-        assert count == 3
+        assert count == 4  # v1+v2 arxiv, v1 openalex, v1 null-source
 
     def test_refuses_missing_old_db(self, new_db):
         from migrate_db import run_migration
@@ -452,14 +467,33 @@ class TestEdgeCases:
         assert row is not None
         assert row["STATUS"] == "active"
 
-    def test_source_id_preserved(self, migrated_db):
-        rows = migrated_db.execute("SELECT SOURCE_ID FROM PAPER_ROOTS ORDER BY SOURCE_ID").fetchall()
-        ids = [r["SOURCE_ID"] for r in rows]
-        assert ids == ["2401.00001", "2401.00002"]
+    def test_source_ids_are_namespaced(self, migrated_db):
+        """All SOURCE_IDs in PAPER_ROOTS must contain a ':' namespace prefix."""
+        rows = migrated_db.execute("SELECT SOURCE_ID FROM PAPER_ROOTS").fetchall()
+        for row in rows:
+            assert ":" in row["SOURCE_ID"], f"SOURCE_ID {row['SOURCE_ID']!r} is not namespaced"
+
+    def test_arxiv_source_id_prefix(self, migrated_db):
+        row = migrated_db.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_ID = 'arxiv:2401.00001'"
+        ).fetchone()
+        assert row is not None
+
+    def test_openalex_source_id_prefix(self, migrated_db):
+        row = migrated_db.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_ID = 'openalex:W3123456789'"
+        ).fetchone()
+        assert row is not None
+
+    def test_null_source_gets_linxiv_prefix(self, migrated_db):
+        row = migrated_db.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_ID = 'linxiv:manual001'"
+        ).fetchone()
+        assert row is not None
 
     def test_paper_version_ordering(self, migrated_db):
         rows = migrated_db.execute(
-            "SELECT VERSION FROM PAPER WHERE SOURCE_ID = '2401.00001' ORDER BY VERSION"
+            "SELECT VERSION FROM PAPER WHERE SOURCE_ID = 'arxiv:2401.00001' ORDER BY VERSION"
         ).fetchall()
         versions = [r["VERSION"] for r in rows]
         assert versions == [1, 2]
@@ -480,12 +514,12 @@ class TestEdgeCases:
             WHERE papers_fts MATCH 'transformers'
         """).fetchall()
         assert len(results) == 1
-        assert results[0]["SOURCE_ID"] == "2401.00001"
+        assert results[0]["SOURCE_ID"] == "arxiv:2401.00001"
 
     def test_author_index_preserved(self, migrated_db):
         """First author of paper1 v1 should have AUTHOR_INDEX = 0."""
         paper_row = migrated_db.execute(
-            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = '2401.00001' AND VERSION = 1"
+            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = 'arxiv:2401.00001' AND VERSION = 1"
         ).fetchone()
         pta_row = migrated_db.execute(
             "SELECT AUTHOR_INDEX FROM PAPER_TO_AUTHOR "
@@ -500,22 +534,22 @@ class TestEdgeCases:
             "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_FK = ?",
             (note["SOURCE_FK"],),
         ).fetchone()
-        assert root["SOURCE_ID"] == "2401.00001"
+        assert root["SOURCE_ID"] == "arxiv:2401.00001"
 
-    def test_project_tags_preserved_in_project_column(self, migrated_db):
-        """PROJECT.PROJECT_TAGS (denormalized) must be populated; Project.from_row() reads it."""
-        import json
-        row = migrated_db.execute(
-            "SELECT PROJECT_TAGS FROM PROJECT WHERE PROJECT_FK = 1"
+    def test_project_tags_in_junction_table(self, migrated_db):
+        """Project tags must be in PROJECT_TO_TAG (PROJECT.PROJECT_TAGS column was removed)."""
+        tag_row = migrated_db.execute(
+            "SELECT t.TAG FROM PROJECT_TO_TAG pt "
+            "JOIN TAG t ON t.TAG_FK = pt.TAG_FK "
+            "WHERE pt.PROJECT_FK = 1"
         ).fetchone()
-        assert row is not None
-        tags = json.loads(row["PROJECT_TAGS"])
-        assert "ml" in tags
+        assert tag_row is not None
+        assert tag_row["TAG"] == "ml"
 
     def test_paper_meta_fields_carried_over(self, migrated_db):
         """Key PAPER_META columns must be copied from the old papers table."""
         paper = migrated_db.execute(
-            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = '2401.00001' AND VERSION = 1"
+            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = 'arxiv:2401.00001' AND VERSION = 1"
         ).fetchone()
         meta = migrated_db.execute(
             "SELECT PROVIDER, FULL_TEXT, DOWNLOADED_SOURCE FROM PAPER_META WHERE PAPER_ID = ?",
@@ -536,6 +570,29 @@ class TestEdgeCases:
             "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,)
         ).fetchone()
         assert root is not None, f"FTS paper_id {source_id!r} not found in PAPER_ROOTS"
+
+    def test_crossref_source_gets_doi_prefix(self, tmp_path):
+        """Papers with source='crossref' get 'doi:' prefix."""
+        from migrate_db import run_migration
+        old_path = str(tmp_path / "cr_old.db")
+        conn = sqlite3.connect(old_path)
+        conn.executescript(_OLD_SCHEMA_SQL)
+        conn.execute(
+            "INSERT INTO papers (paper_id, version, title, authors, tags, source) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("10.1145/12345", 1, "CrossRef Paper", json.dumps(["A"]), json.dumps([]), "crossref"),
+        )
+        conn.commit()
+        conn.close()
+
+        new_path = str(tmp_path / "cr_new.db")
+        run_migration(old_path, new_path, force=True)
+        conn = sqlite3.connect(new_path)
+        row = conn.execute(
+            "SELECT SOURCE_ID FROM PAPER_ROOTS WHERE SOURCE_ID = 'doi:10.1145/12345'"
+        ).fetchone()
+        conn.close()
+        assert row is not None
 
     def test_note_with_nonexistent_paper_id_silently_dropped(self, tmp_path):
         """Notes whose paper_id doesn't exist in old.papers are silently skipped (not in orphan count)."""
@@ -563,3 +620,53 @@ class TestEdgeCases:
         # The dangling note is dropped (JOIN with PAPER_ROOTS fails)
         assert conn.execute("SELECT COUNT(*) FROM NOTE").fetchone()[0] == 0
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Integration test against the real v0.1.0 DB
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not _REAL_OLD_DB.exists(), reason="real old DB not present")
+class TestRealDBMigration:
+    @pytest.fixture()
+    def migrated_real_db(self, tmp_path):
+        from migrate_db import run_migration
+        new_path = str(tmp_path / "new_real.db")
+        run_migration(str(_REAL_OLD_DB), new_path, force=True)
+        conn = sqlite3.connect(new_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        yield conn
+        conn.close()
+
+    def test_all_source_ids_are_namespaced(self, migrated_real_db):
+        rows = migrated_real_db.execute("SELECT SOURCE_ID FROM PAPER_ROOTS").fetchall()
+        assert len(rows) > 0, "Expected at least one paper in old DB"
+        for row in rows:
+            assert ":" in row["SOURCE_ID"], f"Not namespaced: {row['SOURCE_ID']!r}"
+
+    def test_fk_integrity(self, migrated_real_db):
+        violations = migrated_real_db.execute("PRAGMA foreign_key_check").fetchall()
+        assert list(violations) == [], f"FK violations: {[dict(r) for r in violations]}"
+
+    def test_version_is_0_1_1(self, migrated_real_db):
+        row = migrated_real_db.execute(
+            "SELECT VERSION FROM DB_VERSION WHERE VERSION = '0.1.1'"
+        ).fetchone()
+        assert row is not None
+
+    def test_paper_roots_matches_distinct_papers(self, migrated_real_db):
+        old_conn = sqlite3.connect(str(_REAL_OLD_DB))
+        old_count = old_conn.execute(
+            "SELECT COUNT(DISTINCT paper_id) FROM papers WHERE paper_id IS NOT NULL"
+        ).fetchone()[0]
+        old_conn.close()
+        new_count = migrated_real_db.execute("SELECT COUNT(*) FROM PAPER_ROOTS").fetchone()[0]
+        assert new_count == old_count
+
+    def test_paper_rows_match(self, migrated_real_db):
+        old_conn = sqlite3.connect(str(_REAL_OLD_DB))
+        old_count = old_conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+        old_conn.close()
+        new_count = migrated_real_db.execute("SELECT COUNT(*) FROM PAPER").fetchone()[0]
+        assert new_count == old_count
