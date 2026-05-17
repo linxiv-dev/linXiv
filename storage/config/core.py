@@ -21,6 +21,7 @@ _TABLE_DDL_ORDER: tuple[str, ...] = (
     "PROJECT_TO_TAG.SQL",
     "NOTES.SQL",
     "papers_fts.sql",
+    "DB_VERSION.sql",
 )
 
 DB_PATH = str(Path(__file__).resolve().parent.parent.parent / "papers.db")
