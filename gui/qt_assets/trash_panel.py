@@ -102,7 +102,7 @@ class TrashPanel(QWidget):
             item = self._container_layout.takeAt(0)
             if item:
                 w = item.widget()
-                if w is not None:
+                if w:
                     w.deleteLater()
 
         count = len(deleted_projects)

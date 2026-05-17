@@ -49,10 +49,10 @@ def get(note: Note) -> Optional[NoteDetails]:
 
     Resolution order: note_id → source_fk + project_fk → paper_id + project_fk
     """
-    if note.note_id is not None:
+    if note.note_id:
         return get_note_details(note)
 
-    if note.source_fk is not None:
+    if note.source_fk:
         results = _get_notes(
             note.source_fk,
             project_id=note.project_fk,
@@ -60,7 +60,7 @@ def get(note: Note) -> Optional[NoteDetails]:
         )
         return results[0] if results else None
 
-    if note.paper_id is not None and note.project_fk is not None:
+    if note.paper_id and note.project_fk:
         results = _get_project_notes(note.project_fk)
         matches = [n for n in results if n.paper_id_fk == note.paper_id]
         return matches[0] if matches else None
@@ -125,14 +125,14 @@ def get_note_details(note: Note) -> Optional[NoteDetails]:
 
 
 def get_notes(notes: Notes) -> list[NoteDetails]:
-    if notes.source_fk is not None:
+    if notes.source_fk:
         return _get_notes(
             notes.source_fk,
             project_id   = notes.project_fk,
             all_projects = notes.project_fk is None,
         )
-    elif notes.paper_id is not None:
+    elif notes.paper_id:
         return _get_notes_by_paper_id(notes.paper_id)
-    elif notes.project_fk is not None:
+    elif notes.project_fk:
         return _get_project_notes(notes.project_fk)
     return _list_all_notes()

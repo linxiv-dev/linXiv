@@ -142,7 +142,7 @@ class PaperDetailView(QWidget):
         self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
         self._back_btn.setStyleSheet(_qt_styles.BTN_LINK)
         self._repair_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
-        if self._pdf_btn is not None:
+        if self._pdf_btn:
             self._pdf_btn.setStyleSheet(_qt_styles.BTN_PANEL)
 
     def load(self, row) -> None:
@@ -220,10 +220,10 @@ class PaperDetailView(QWidget):
             from service.project import filter_projects
             from service.paper import get_paper_root
             root = get_paper_root(source_id)
-            source_fk = int(root["SOURCE_FK"]) if root is not None else None
+            source_fk = int(root["SOURCE_FK"]) if root else None
             all_projects = filter_projects()
             containing = [p for p in all_projects
-                          if source_fk is not None and source_fk in p.source_fks
+                          if source_fk and source_fk in p.source_fks
                           and p.status != Status.DELETED]
         except Exception:
             containing = []
@@ -302,16 +302,16 @@ class PaperDetailView(QWidget):
             # Build project name lookup
             proj_names: dict[int, str] = {}
             for p in (containing if containing else []):
-                if p.id is not None:
+                if p.id:
                     proj_names[p.id] = p.name
             # Also fetch any projects not already in containing (e.g. archived ones holding notes)
-            note_proj_ids = {n.project_id for n in all_notes if n.project_id is not None}
+            note_proj_ids = {n.project_id for n in all_notes if n.project_id}
             missing_ids = note_proj_ids - set(proj_names)
             if missing_ids:
                 try:
                     for pid in missing_ids:
                         p = project_svc.get_project_details(pid)
-                        if p and p.id is not None:
+                        if p and p.id:
                             proj_names[p.id] = p.name
                 except Exception:
                     pass
@@ -341,7 +341,7 @@ class PaperDetailView(QWidget):
             new_source_id = paper_svc.get_source_id(source_fk)
             if new_source_id:
                 new_row = paper_svc.get_paper(new_source_id)
-                if new_row is not None:
+                if new_row:
                     self.load(new_row)
         except Exception as e:
             print(f"[repair] {e}")
@@ -383,7 +383,7 @@ class PaperDetailView(QWidget):
     def _on_pdf_action(self) -> None:
         path = self._local_pdf_path()
         if path:
-            if self._pdf_window is not None:
+            if self._pdf_window:
                 self._pdf_window.load_pdf(path)
         elif self._is_arxiv():
             self._start_download()
@@ -405,14 +405,14 @@ class PaperDetailView(QWidget):
     def _on_download_done(self, source_id: str, version: int, path: str) -> None:
         paper_svc.set_pdf_path(source_id, path)
         paper_svc.set_has_pdf(source_id, version, True)
-        if self._pdf_btn is not None:
+        if self._pdf_btn:
             self._pdf_btn.setEnabled(True)
         self._refresh_pdf_btn()
-        if self._pdf_window is not None:
+        if self._pdf_window:
             self._pdf_window.load_pdf(path)
 
     def _on_download_rate_limited(self, _pid: str, _ver: int) -> None:
-        if self._pdf_btn is not None:
+        if self._pdf_btn:
             self._pdf_btn.setText("Rate limited — retrying…")
 
     def _on_download_failed(self, _pid: str, _ver: int, err: str) -> None:
@@ -438,7 +438,7 @@ class PaperDetailView(QWidget):
     def _add_note(self, source_fk: int) -> None:
         from gui.projects import NoteEditorDialog
         dlg = NoteEditorDialog(source_fk=source_fk, parent=self)
-        if dlg.exec() and self._current_row is not None:
+        if dlg.exec() and self._current_row:
             self.load(self._current_row)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -460,7 +460,7 @@ class PaperDetailView(QWidget):
     def _delete_note(self, note) -> None:
         import service.note as note_svc
         note_svc.delete(note_svc.Note(note_id=note.note_id))
-        if self._current_row is not None:
+        if self._current_row:
             self.load(self._current_row)
 
 
@@ -763,7 +763,7 @@ class LibraryPage(QWidget):
         if source_id is None:
             return
         row = paper_svc.get_paper(source_id)
-        if row is not None:
+        if row:
             self._paper_detail_back_goes_to_prior_shell_tab = True
             self._open_detail(row)
 
@@ -771,7 +771,7 @@ class LibraryPage(QWidget):
         shell_handoff = self._paper_detail_back_goes_to_prior_shell_tab
         self._paper_detail_back_goes_to_prior_shell_tab = False
         self._stack.setCurrentIndex(0)
-        if shell_handoff and self._app_shell is not None:
+        if shell_handoff and self._app_shell:
             self._app_shell.go_back()
 
     def _on_paper_card_clicked(self, row) -> None:
@@ -998,7 +998,7 @@ class LibraryPage(QWidget):
             return
         try:
             meta = dlg.get_metadata()
-            if paper_svc.get_paper(meta.source_id) is not None:
+            if paper_svc.get_paper(meta.source_id):
                 QMessageBox.warning(
                     self, "Already in Library",
                     f"A paper with ID '{meta.source_id}' is already in the library.\n"
@@ -1023,7 +1023,7 @@ class LibraryPage(QWidget):
         added = skipped = 0
         for meta in papers:
             existing = paper_svc.get_paper(meta.source_id)
-            if existing is not None:
+            if existing:
                 skipped += 1
             else:
                 paper_svc.save_papers_metadata([meta])

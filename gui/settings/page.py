@@ -192,7 +192,7 @@ class _ColorPicker(QWidget):
         self._color = hex_color.lower()
         self._field.setText(self._color)
         self._refresh_swatch()
-        if self._on_change is not None:
+        if self._on_change:
             self._on_change(self._color)
 
 
@@ -390,7 +390,7 @@ class _ThemeCard(QWidget):
         semantic: bool = False,
     ) -> QWidget:
         label, desc = _COLOR_META[key]
-        hex_color = override if override is not None else self._current.get(
+        hex_color = override if override else self._current.get(
             key, _SEMANTIC_DEFAULTS.get(key, "#000000")
         )
 
@@ -406,9 +406,9 @@ class _ThemeCard(QWidget):
                 _user_settings.set("theme_overrides", overrides)
                 _theme.reload()
                 self._refresh_chip_styles()
-                if self._on_self_refresh is not None:
+                if self._on_self_refresh:
                     self._on_self_refresh()
-                if self._on_theme_change is not None:
+                if self._on_theme_change:
                     self._on_theme_change()
 
         picker = _ColorPicker(hex_color, on_change=_on_pick)
@@ -443,9 +443,9 @@ class _ThemeCard(QWidget):
             if key in colors:
                 picker.set_color(colors[key])
         self._refresh_chip_styles()
-        if self._on_self_refresh is not None:
+        if self._on_self_refresh:
             self._on_self_refresh()
-        if self._on_theme_change is not None:
+        if self._on_theme_change:
             self._on_theme_change()
 
     def _reset(self) -> None:

@@ -125,7 +125,7 @@ class HomePage(QWidget):
         while self._stats_row.count():
             item = cast(QLayoutItem, self._stats_row.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 w.deleteLater()
 
         for value, label in (
@@ -140,7 +140,7 @@ class HomePage(QWidget):
         while self._recent_layout.count() > 1:
             item = cast(QLayoutItem, self._recent_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 w.deleteLater()
 
         for p in papers[:_RECENT_N]:

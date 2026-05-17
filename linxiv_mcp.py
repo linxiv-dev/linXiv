@@ -88,7 +88,7 @@ def get_paper(paper_id: str) -> Optional[dict]:
         paper_id: The paper ID (e.g. "2204.12985").
     """
     paper = svc_paper.get(Paper(source_id=paper_id))
-    return paper.to_dict() if paper is not None else None
+    return paper.to_dict() if paper else None
 
 
 @mcp.tool()

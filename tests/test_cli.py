@@ -184,7 +184,7 @@ class TestFetchCommand:
     def test_arxiv_fetch_persists_paper_to_db(self, monkeypatch):
         _mock_sources(monkeypatch, fetch=_make_meta())
         main(["fetch", "2204.12985"])
-        assert svc_paper.get(svc_paper.Paper(source_id=ARXIV_ID)) is not None
+        assert svc_paper.get(svc_paper.Paper(source_id=ARXIV_ID)) 
 
     def test_non_arxiv_source_emits_json(self, monkeypatch, capsys):
         _mock_sources(monkeypatch, fetch=_make_meta(source_id="openalex:W9999", source="openalex"))
@@ -279,7 +279,7 @@ class TestTagCommands:
     def test_create_tag(self, capsys):
         data = _stdout_json(capsys, ["tag", "create", "ml"])
         assert data["label"] == "ml"
-        assert data["tag_id"] is not None
+        assert data["tag_id"] 
 
     def test_add_tags_to_paper(self, capsys):
         _seed()
@@ -363,7 +363,7 @@ class TestProjectCreateCommand:
     def test_create_returns_id_name_status(self, capsys):
         data = _stdout_json(capsys, ["project", "create", "My Proj"])
         assert data["name"] == "My Proj"
-        assert data["id"] is not None
+        assert data["id"] 
         assert data["status"] == "active"
 
     def test_create_with_description(self, capsys):
@@ -451,7 +451,7 @@ class TestNoteCommands:
     def test_create_note(self, capsys):
         _seed()
         data = _stdout_json(capsys, ["note", "create", ARXIV_ID, "body text", "--title", "My Title"])
-        assert data["id"] is not None
+        assert data["id"] 
         assert data["title"] == "My Title"
 
     def test_create_note_missing_paper_exits_nonzero(self, capsys):

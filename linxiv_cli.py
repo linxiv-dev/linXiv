@@ -247,8 +247,8 @@ def cmd_project_create(args: argparse.Namespace) -> None:
 def cmd_project_update(args: argparse.Namespace) -> None:
     details = _resolve_project_or_exit(args.project_id)
     svc_project.upsert(ProjectIn(
-        name=args.name if args.name is not None else details.name,
-        description=args.description if args.description is not None else details.description,
+        name=args.name if args.name else details.name,
+        description=args.description if args.description else details.description,
         color=details.color,
         tags=details.project_tags,
         source_fks=details.source_fks,
@@ -364,7 +364,7 @@ def cmd_note_get(args: argparse.Namespace) -> None:
 
 def cmd_note_list(args: argparse.Namespace) -> None:
     source_fk = None
-    if args.source_id is not None:
+    if args.source_id:
         sid = _as_source_id(args.source_id)
         root = svc_paper.get_paper_root(sid)
         if root is None:
@@ -390,14 +390,14 @@ def cmd_note_delete(args: argparse.Namespace) -> None:
 
 def cmd_pdf_path(args: argparse.Namespace) -> None:
     paper = _resolve_paper_or_exit(_as_source_id(args.source_id))
-    version = args.version if args.version is not None else paper.version
+    version = args.version if args.version else paper.version
     path = svc_files.pdf_path(paper.source_id, version, paper.pdf_path)
     _output({"source_id": args.source_id, "version": version, "path": path})
 
 
 def cmd_pdf_download(args: argparse.Namespace) -> None:
     paper = _resolve_paper_or_exit(_as_source_id(args.source_id))
-    version = args.version if args.version is not None else paper.version
+    version = args.version if args.version else paper.version
     try:
         path = svc_files.download_pdf(paper.source_id, version, args.url)
     except Exception as e:

@@ -94,7 +94,7 @@ def get_source_id(source_fk: int) -> str | None:
 def _ensure_paper_root_row(conn: sqlite3.Connection, source_id: str) -> int:
     conn.execute("INSERT OR IGNORE INTO PAPER_ROOTS (SOURCE_ID) VALUES (?)", (source_id,))
     row = conn.execute("SELECT SOURCE_FK FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,)).fetchone()
-    assert row is not None
+    assert row
     return int(row[0])
 
 
@@ -103,7 +103,7 @@ def _author_fk_for_name(conn: sqlite3.Connection, full_name: str) -> int | None:
         "SELECT AUTHOR_FK FROM AUTHOR WHERE AUTHOR_FULL_NAME = ? COLLATE NOCASE LIMIT 1",
         (full_name,),
     ).fetchone()
-    if row is not None:
+    if row:
         return int(row[0])
     cur = conn.execute(
         "INSERT INTO AUTHOR (AUTHOR_FULL_NAME) VALUES (?)",
@@ -117,7 +117,7 @@ def _tag_fk_for_label(conn: sqlite3.Connection, label: str) -> int|None:
         "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1",
         (label,),
     ).fetchone()
-    if row is not None:
+    if row:
         return int(row[0])
     cur = conn.execute("INSERT INTO TAG (TAG) VALUES (?)", (label,))
     if cur.lastrowid:
@@ -249,7 +249,7 @@ def parse_entry_id(entry_id: str) -> tuple[str, int]:
     """EX:Split 'http://arxiv.org/abs/2204.12985v4' into ('2204.12985', 4)."""
     raw = entry_id.split('/')[-1]
     match = re.match(r'^(.+?)(?:v(\d+))?$', raw)
-    assert match is not None
+    assert match
     source_id = match.group(1)
     version = int(match.group(2)) if match.group(2) else 1
     return source_id, version
@@ -379,7 +379,7 @@ def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
             "SELECT PAPER_ID FROM PAPER WHERE SOURCE_FK = ? ORDER BY VERSION DESC LIMIT 1",
             (source_fk,),
         ).fetchone()
-        if row is not None:
+        if row:
             pid = row["PAPER_ID"]
             conn.execute(
                 "UPDATE PAPER SET TITLE = ?, CATEGORY = ? WHERE PAPER_ID = ?",
@@ -441,7 +441,7 @@ def delete_paper(source_id: str) -> None:
 def get_paper(source_id: str, version: Optional[int] = None) -> Optional[sqlite3.Row]:
     """Fetch a specific version, or the latest if version is None."""
     with _connect() as conn:
-        if version is not None:
+        if version:
             return conn.execute(
                 "SELECT * FROM papers WHERE source_id = ? AND version = ?",
                 (source_id, version),
@@ -500,7 +500,7 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
                 "label":     row["title"],
                 "type":      "paper",
                 "category":  row["category"],
-                "tags":      row["tags"] if row["tags"] is not None else [],
+                "tags":      row["tags"] if row["tags"] else [],
                 "has_pdf":   bool(row["has_pdf"]),
                 "published": row["published"].isoformat() if row["published"] else None,
                 "url":       row["url"],
@@ -546,7 +546,7 @@ def list_papers(latest_only: bool = True, limit: int | None = None, offset: int 
         table = "latest_papers" if latest_only else "papers"
         sql = f"SELECT * FROM {table} ORDER BY published DESC"
         params: list[int] = []
-        if limit is not None:
+        if limit:
             sql += " LIMIT ? OFFSET ?"
             params = [limit, offset]
         elif offset:

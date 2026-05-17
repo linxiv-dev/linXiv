@@ -69,7 +69,7 @@ def _fetch_all(
 ) -> list[sqlite3.Row]:
     sql = f"SELECT * FROM {table}"
     params: tuple = ()
-    if q is not None:
+    if q:
         sql += f" WHERE {q.sql}"
         params = q.params
     if order_by:
@@ -114,10 +114,10 @@ def list_authors(
     paper_id: int | None = None,
     name: str | None = None,
 ) -> list[sqlite3.Row]:
-    if paper_id is not None:
+    if paper_id:
         with _connect() as conn:
             return conn.execute(_LIST_AUTHORS_FROM_PAPER_SQL, (paper_id,)).fetchall()
-    q = Q("AUTHOR_FULL_NAME LIKE ?", f"%{name}%") if name is not None else None
+    q = Q("AUTHOR_FULL_NAME LIKE ?", f"%{name}%") if name else None
     return _fetch_all("AUTHOR", q, order_by="AUTHOR_LAST, AUTHOR_FIRST")
 
 
@@ -290,11 +290,11 @@ def list_notes(
     project_fk: int | None = None,
 ) -> list[sqlite3.Row]:
     clauses: list[Q] = []
-    if source_fk is not None:
+    if source_fk:
         clauses.append(Q("SOURCE_FK = ?", source_fk))
-    if paper_id_fk is not None:
+    if paper_id_fk:
         clauses.append(Q("PAPER_ID_FK = ?", paper_id_fk))
-    if project_fk is not None:
+    if project_fk:
         clauses.append(Q("PROJECT_FK = ?", project_fk))
     if not clauses:
         return []

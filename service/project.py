@@ -47,7 +47,7 @@ def _to_details(p: _StorageProject) -> ProjectDetails:
         name         = p.name,
         description  = p.description,
         color        = p.color,
-        project_tags = _tags_storage.get_project_tags(p.id) if p.id is not None else [],
+        project_tags = _tags_storage.get_project_tags(p.id) if p.id else [],
         source_fks   = p.source_fks,
         status       = p.status,
         created_at   = p.created_at,
@@ -65,19 +65,19 @@ def get(project: Project) -> Optional[ProjectDetails]:
     if project.project_fk is None:
         return None
     p = _get_project(project.project_fk)
-    return _to_details(p) if p is not None else None
+    return _to_details(p) if p else None
 
 
 def get_many(projects: Projects) -> list[ProjectDetails]:
     """Fetch projects matching any combination of Projects filter fields."""
     condition: Q | None = None
 
-    if projects.project_fks is not None and len(projects.project_fks) > 0:
+    if projects.project_fks and len(projects.project_fks) > 0:
         placeholders = ",".join("?" * len(projects.project_fks))
         q = Q(f"id IN ({placeholders})", *projects.project_fks)
         condition = q if condition is None else condition & q
 
-    if projects.status is not None:
+    if projects.status:
         q = Q("status = ?", projects.status)
         condition = q if condition is None else condition & q
 
@@ -94,7 +94,7 @@ def upsert(project: ProjectIn, project_fk: int | None = None) -> int:
             source_fks   = project.source_fks,
         )
         p.save()
-        assert p.id is not None
+        assert p.id
         if project.tags:
             _tags_storage.add_project_tags(p.id, project.tags)
         return p.id
@@ -107,7 +107,7 @@ def upsert(project: ProjectIn, project_fk: int | None = None) -> int:
         p.color        = project.color
         p.source_fks   = project.source_fks
         p.save()
-        assert p.id is not None
+        assert p.id
         existing = _tags_storage.get_project_tags(p.id)
         _tags_storage.remove_project_tags(p.id, existing)
         if project.tags:
@@ -216,7 +216,7 @@ def get_projects(status: Status = Status.ACTIVE) -> ProjectPage:
         project_names = [p.name for p in projects],
         project_ids   = [p.id for p in projects],
         paper_counts  = [p.paper_count for p in projects],
-        note_counts   = [_count_project_notes(p.id) if p.id is not None else 0 for p in projects],
+        note_counts   = [_count_project_notes(p.id) if p.id else 0 for p in projects],
     )
 
 

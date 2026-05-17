@@ -137,7 +137,7 @@ class TestReconstructAbstract:
     def test_handles_word_at_multiple_positions(self):
         inv = {"the": [0, 3], "cat": [1], "sat": [2]}
         result = _reconstruct_abstract(inv)
-        assert result is not None
+        assert result
         words = result.split()
         assert words[0] == "the"
         assert words[1] == "cat"

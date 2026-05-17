@@ -67,7 +67,7 @@ def apply_sql_schema(conn: sqlite3.Connection) -> None:
 
 def init_db(db_path: str | None = None) -> None:
     """Standalone initializer: open ``papers.db`` (or ``db_path``) and apply SQL."""
-    path = db_path if db_path is not None else DB_PATH
+    path = db_path if db_path else DB_PATH
     conn = sqlite3.connect(path)
     try:
         apply_sql_schema(conn)

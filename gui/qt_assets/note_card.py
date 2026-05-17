@@ -31,7 +31,7 @@ def NoteCard(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFram
     col.setSpacing(SPACE_XS)
 
     hdr = QHBoxLayout()
-    if note.project_id is not None and note.project_id in proj_names:
+    if note.project_id and note.project_id in proj_names:
         chip = QLabel(f"📁 {proj_names[note.project_id]}")
         chip.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {ACCENT};")
         hdr.addWidget(chip)
@@ -52,7 +52,7 @@ def NoteCard(self, note, proj_names: dict[int, str], *, on_delete=None) -> QFram
     edit_btn.clicked.connect(lambda _, n=note: self._edit_note(n))
     hdr.addWidget(edit_btn)
 
-    if on_delete is not None:
+    if on_delete:
         del_btn = QPushButton("Delete")
         del_btn.setStyleSheet(BTN_NOTE_DELETE)
         del_btn.clicked.connect(lambda _, fn=on_delete: fn())

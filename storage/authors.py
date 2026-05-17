@@ -22,17 +22,17 @@ def _row_to_details(row) -> BasicAuthorDetails:
 
 def get_author(author_id: int) -> Optional[BasicAuthorDetails]:
     row = _get_author_row(author_id)
-    return _row_to_details(row) if row is not None else None
+    return _row_to_details(row) if row else None
 
 
 def list_authors(
     paper_id: int | None = None,
     name:     str | None = None,
 ) -> list[BasicAuthorDetails]:
-    if paper_id is not None:
+    if paper_id:
         return [_row_to_details(r) for r in _list_authors_rows(paper_id=paper_id)]
     with _connect() as conn:
-        if name is not None:
+        if name:
             rows = conn.execute(
                 "SELECT * FROM AUTHOR WHERE AUTHOR_FULL_NAME = ? COLLATE NOCASE",
                 (name,),
@@ -84,10 +84,10 @@ def update_author(
 ) -> None:
     fields: list[str] = []
     params: list      = []
-    if full_name  is not None: fields.append("AUTHOR_FULL_NAME = ?"); params.append(full_name)
-    if first_name is not None: fields.append("AUTHOR_FIRST = ?");     params.append(first_name)
-    if last_name  is not None: fields.append("AUTHOR_LAST = ?");      params.append(last_name)
-    if orcid      is not None: fields.append("AUTHOR_ORCID = ?");     params.append(orcid)
+    if full_name : fields.append("AUTHOR_FULL_NAME = ?"); params.append(full_name)
+    if first_name: fields.append("AUTHOR_FIRST = ?");     params.append(first_name)
+    if last_name : fields.append("AUTHOR_LAST = ?");      params.append(last_name)
+    if orcid     : fields.append("AUTHOR_ORCID = ?");     params.append(orcid)
     if not fields:
         return
     params.append(author_id)

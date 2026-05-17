@@ -118,12 +118,12 @@ class TestProjectSaveAndFilter:
         p = Project(name="My Project")
         assert p.id is None
         p.save()
-        assert p.id is not None
+        assert p.id
 
     def test_save_sets_created_at(self):
         p = Project(name="Timestamped")
         p.save()
-        assert p.created_at is not None
+        assert p.created_at
 
     def test_saved_project_returned_by_filter(self):
         p = Project(name="Findable")
@@ -259,7 +259,7 @@ class TestStorageProjectTags:
     def _project(self, name: str = "Tag Test Project") -> int:
         p = Project(name=name)
         p.save()
-        assert p.id is not None
+        assert p.id
         return p.id
 
     def test_get_project_tags_empty(self):
@@ -288,7 +288,7 @@ class TestStorageProjectTags:
         # Tag must now exist in TAG table
         with _tags._connect() as conn:
             row = conn.execute("SELECT TAG FROM TAG WHERE TAG = 'brand-new-label'").fetchone()
-        assert row is not None
+        assert row
 
     def test_remove_project_tags_removes_specific_label(self):
         pid = self._project()
@@ -377,7 +377,7 @@ class TestServiceProjectUpsertTags:
             _svc_project.ProjectIn(name="Readable", description="", tags=["svc-tag"])
         )
         details = _svc_project.get(_svc_project.Project(project_fk=fk))
-        assert details is not None
+        assert details
         assert "svc-tag" in details.project_tags
 
     def test_upsert_update_nonexistent_raises(self):
@@ -397,7 +397,7 @@ class TestServiceTagProjectWrappers:
     def _project_fk(self, name: str = "Wrapper Test") -> int:
         p = Project(name=name)
         p.save()
-        assert p.id is not None
+        assert p.id
         return p.id
 
     def test_get_project_tags_empty(self):
@@ -438,7 +438,7 @@ class TestProjectMembershipSourceOfTruth:
         ).fetchone()
         conn.close()
 
-        assert row is not None
+        assert row
         assert row["SOURCE_FK"] == sfk
 
 
@@ -458,7 +458,7 @@ class TestStorageProjectArchiveAndRestore:
         p = Project(name="Archive Timestamp")
         p.save()
         p.archive()
-        assert p.archived_at is not None
+        assert p.archived_at
 
     def test_archive_persists_status(self):
         p = Project(name="Persist Archive Status")
@@ -473,7 +473,7 @@ class TestStorageProjectArchiveAndRestore:
         p.save()
         p.archive()
         results = filter_projects(Q("name = ?", "Persist Archive At"))
-        assert results[0].archived_at is not None
+        assert results[0].archived_at
 
     def test_restore_from_archived_sets_status_active(self):
         p = Project(name="Restore From Archive")
@@ -519,7 +519,7 @@ class TestStorageProjectArchiveAndRestore:
     def test_archive_preserves_papers(self):
         p = Project(name="Archive Keeps Papers")
         p.save()
-        assert p.id is not None
+        assert p.id
         sfk = _sfk("archive-paper-1")
         p.add_paper(sfk)
         p.archive()
@@ -530,7 +530,7 @@ class TestStorageProjectArchiveAndRestore:
     def test_restore_preserves_papers(self):
         p = Project(name="Restore Keeps Papers")
         p.save()
-        assert p.id is not None
+        assert p.id
         sfk = _sfk("restore-paper-1")
         p.add_paper(sfk)
         p.archive()
@@ -542,7 +542,7 @@ class TestStorageProjectArchiveAndRestore:
     def test_archive_preserves_project_tags(self):
         p = Project(name="Archive Keeps Tags")
         p.save()
-        assert p.id is not None
+        assert p.id
         _tags.add_project_tags(p.id, ["persist-tag"])
         p.archive()
         assert _tags.get_project_tags(p.id) == ["persist-tag"]
@@ -550,7 +550,7 @@ class TestStorageProjectArchiveAndRestore:
     def test_restore_preserves_project_tags(self):
         p = Project(name="Restore Keeps Tags")
         p.save()
-        assert p.id is not None
+        assert p.id
         _tags.add_project_tags(p.id, ["restore-tag"])
         p.archive()
         p.restore()
@@ -564,7 +564,7 @@ class TestStorageProjectArchiveAndRestore:
         ts_before = p.updated_at
         p.archive()
         reloaded = filter_projects(Q("name = ?", "Archive Updates TS"))
-        assert reloaded[0].updated_at is not None
+        assert reloaded[0].updated_at
         assert reloaded[0].updated_at >= ts_before  # type: ignore[operator]
 
     def test_restore_updates_updated_at(self):
@@ -574,7 +574,7 @@ class TestStorageProjectArchiveAndRestore:
         ts_after_archive = p.updated_at
         p.restore()
         reloaded = filter_projects(Q("name = ?", "Restore Updates TS"))
-        assert reloaded[0].updated_at is not None
+        assert reloaded[0].updated_at
         assert reloaded[0].updated_at >= ts_after_archive  # type: ignore[operator]
 
 
@@ -593,15 +593,15 @@ class TestServiceProjectLifecycle:
         fk = self._fk("Archive Me")
         _svc_project.archive(_svc_project.Project(project_fk=fk))
         details = _svc_project.get(_svc_project.Project(project_fk=fk))
-        assert details is not None
+        assert details
         assert details.status == Status.ARCHIVED
 
     def test_service_archive_sets_archived_at(self):
         fk = self._fk("Archive Timestamp Svc")
         _svc_project.archive(_svc_project.Project(project_fk=fk))
         details = _svc_project.get(_svc_project.Project(project_fk=fk))
-        assert details is not None
-        assert details.archived_at is not None
+        assert details
+        assert details.archived_at
 
     def test_service_archive_none_fk_is_noop(self):
         _svc_project.archive(_svc_project.Project(project_fk=None))
@@ -616,7 +616,7 @@ class TestServiceProjectLifecycle:
         _svc_project.archive(_svc_project.Project(project_fk=fk))
         _svc_project.restore(_svc_project.Project(project_fk=fk))
         details = _svc_project.get(_svc_project.Project(project_fk=fk))
-        assert details is not None
+        assert details
         assert details.status == Status.ACTIVE
         assert details.archived_at is None
 
@@ -625,7 +625,7 @@ class TestServiceProjectLifecycle:
         _svc_project.delete(_svc_project.Project(project_fk=fk))
         _svc_project.restore(_svc_project.Project(project_fk=fk))
         details = _svc_project.get(_svc_project.Project(project_fk=fk))
-        assert details is not None
+        assert details
         assert details.status == Status.ACTIVE
 
     def test_service_restore_archived_at_is_none(self):
@@ -633,7 +633,7 @@ class TestServiceProjectLifecycle:
         _svc_project.archive(_svc_project.Project(project_fk=fk))
         _svc_project.restore(_svc_project.Project(project_fk=fk))
         details = _svc_project.get(_svc_project.Project(project_fk=fk))
-        assert details is not None
+        assert details
         assert details.archived_at is None
 
     def test_service_restore_none_fk_is_noop(self):
@@ -665,7 +665,7 @@ class TestServiceProjectLifecycle:
     def test_hard_delete_removes_project_to_paper_rows(self):
         p = Project(name="HD Papers")
         p.save()
-        assert p.id is not None
+        assert p.id
         p.add_paper(_sfk("hd-paper-1"))
         fk = p.id
         _svc_project.hard_delete(_svc_project.Project(project_fk=fk))
@@ -691,14 +691,14 @@ class TestServiceProjectLifecycle:
         note = _StorageNote(source_fk=sfk, project_id=fk, title="Keep Me", content="Body")
         note.save()
         note_sk = note.id
-        assert note_sk is not None
+        assert note_sk
         _svc_project.hard_delete(_svc_project.Project(project_fk=fk))
         # Row must survive (not be deleted)
         conn = sqlite3.connect(tmp_db)
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM NOTE WHERE NOTE_SK = ?", (note_sk,)).fetchone()
         conn.close()
-        assert row is not None, "Note row must not be deleted by hard_delete"
+        assert row, "Note row must not be deleted by hard_delete"
         assert row["PROJECT_FK"] is None, "PROJECT_FK must be nullified, not deleted"
 
     def test_hard_delete_none_fk_is_noop(self):
@@ -715,7 +715,7 @@ class TestServiceProjectLifecycle:
         pa.save()
         pb = Project(name="HD Iso B Papers")
         pb.save()
-        assert pa.id is not None and pb.id is not None
+        assert pa.id and pb.id
         sfk_b = _sfk("iso-paper-b")
         pb.add_paper(sfk_b)
         _svc_project.hard_delete(_svc_project.Project(project_fk=pa.id))
@@ -740,7 +740,7 @@ class TestServiceProjectLifecycle:
         fk_a = self._fk("HD Iso A Row")
         fk_b = self._fk("HD Iso B Row")
         _svc_project.hard_delete(_svc_project.Project(project_fk=fk_a))
-        assert _svc_project.get(_svc_project.Project(project_fk=fk_b)) is not None
+        assert _svc_project.get(_svc_project.Project(project_fk=fk_b))
 
     def test_hard_delete_does_not_nullify_other_project_note(self, tmp_db):
         fk_a = self._fk("HD Iso A Note")
@@ -754,7 +754,7 @@ class TestServiceProjectLifecycle:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT PROJECT_FK FROM NOTE WHERE NOTE_SK = ?", (note_sk,)).fetchone()
         conn.close()
-        assert row is not None
+        assert row
         assert row["PROJECT_FK"] == fk_b
 
     # Gap 2: underlying TAG and PAPER_ROOTS rows must not be deleted by hard_delete
@@ -765,12 +765,12 @@ class TestServiceProjectLifecycle:
         _svc_project.hard_delete(_svc_project.Project(project_fk=fk))
         with _tags._connect() as conn:
             row = conn.execute("SELECT TAG FROM TAG WHERE TAG = ?", ("keep-this-tag",)).fetchone()
-        assert row is not None
+        assert row
 
     def test_hard_delete_does_not_remove_paper_roots_records(self):
         p = Project(name="HD Keep Paper Roots")
         p.save()
-        assert p.id is not None
+        assert p.id
         sfk = _sfk("hd-keep-paper-root")
         p.add_paper(sfk)
         _svc_project.hard_delete(_svc_project.Project(project_fk=p.id))
@@ -778,4 +778,4 @@ class TestServiceProjectLifecycle:
             row = conn.execute(
                 "SELECT SOURCE_FK FROM PAPER_ROOTS WHERE SOURCE_FK = ?", (sfk,)
             ).fetchone()
-        assert row is not None
+        assert row
