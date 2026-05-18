@@ -227,6 +227,37 @@ class TestMigrationRowCounts:
 
 
 # ---------------------------------------------------------------------------
+# Soft-delete columns (STATUS / DELETED_AT on PAPER_ROOTS)
+# ---------------------------------------------------------------------------
+
+class TestSoftDeleteMigration:
+    def test_all_roots_are_active(self, migrated_db):
+        """Every migrated PAPER_ROOTS row must have STATUS = 'active'."""
+        non_active = migrated_db.execute(
+            "SELECT COUNT(*) FROM PAPER_ROOTS WHERE STATUS != 'active'"
+        ).fetchone()[0]
+        assert non_active == 0
+
+    def test_no_roots_have_deleted_at(self, migrated_db):
+        """DELETED_AT must be NULL for all migrated rows — old schema had no soft-delete."""
+        with_deleted_at = migrated_db.execute(
+            "SELECT COUNT(*) FROM PAPER_ROOTS WHERE DELETED_AT IS NOT NULL"
+        ).fetchone()[0]
+        assert with_deleted_at == 0
+
+    def test_papers_view_shows_all_migrated_papers(self, migrated_db):
+        """The 'papers' view filters by STATUS='active', so it must return all migrated rows."""
+        view_count = migrated_db.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+        table_count = migrated_db.execute("SELECT COUNT(*) FROM PAPER").fetchone()[0]
+        assert view_count == table_count
+
+    def test_deleted_papers_view_is_empty(self, migrated_db):
+        """Nothing should appear in deleted_papers after a fresh migration."""
+        count = migrated_db.execute("SELECT COUNT(*) FROM deleted_papers").fetchone()[0]
+        assert count == 0
+
+
+# ---------------------------------------------------------------------------
 # FK integrity
 # ---------------------------------------------------------------------------
 

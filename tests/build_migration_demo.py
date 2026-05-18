@@ -2,7 +2,7 @@
 Build a migration demo DB for DBeaver inspection.
 
 Usage:
-    python build_migration_demo.py [--old OLD_DB] [--new NEW_DB] [--force]
+    python tests/build_migration_demo.py [--old OLD_DB] [--new NEW_DB] [--force]
 
 Copies the real v0.1.0 test DB, injects a wide set of edge cases,
 then runs the full migration so you can open migration_demo_new.db
@@ -17,7 +17,10 @@ import sqlite3
 import sys
 from pathlib import Path
 
-_DEFAULT_SOURCE = Path(__file__).parent / "tests" / "test_file" / "papers_v_0_1_0.db"
+# Allow running as a standalone script from any directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+_DEFAULT_SOURCE = Path(__file__).parent / "test_file" / "papers_v_0_1_0.db"
 _DEFAULT_OLD    = Path(__file__).parent / "migration_demo_old.db"
 _DEFAULT_NEW    = Path(__file__).parent / "migration_demo_new.db"
 
