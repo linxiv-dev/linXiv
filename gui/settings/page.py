@@ -19,8 +19,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from pathlib import Path
+
+from PyQt6.QtWidgets import QMessageBox
+
 import user_settings as _user_settings
 import service.files as _files
+import service.paper as _paper_svc
+import service.project as _project_svc
 import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
@@ -659,20 +665,73 @@ class SettingsPage(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
 
+    def showEvent(self, a0) -> None:
+        super().showEvent(a0)
+        self._rebuild_trash()
+
     def _rebuild_trash(self) -> None:
         try:
-            deleted = filter_projects(Q("status = ?", Status.DELETED))
+            deleted_projects = filter_projects(Q("status = ?", Status.DELETED))
         except Exception as e:
-            print(f"[SettingsPage] _rebuild_trash failed: {e}")
-            deleted = []
-        self._trash_panel.rebuild(deleted, self._on_trash_restore, self._on_trash_hard_delete)
+            print(f"[SettingsPage] _rebuild_trash (projects) failed: {e}")
+            deleted_projects = []
+        try:
+            deleted_papers = _paper_svc.list_deleted()
+        except Exception as e:
+            print(f"[SettingsPage] _rebuild_trash (papers) failed: {e}")
+            deleted_papers = []
+        self._trash_panel.rebuild(
+            deleted_projects,
+            deleted_papers,
+            on_restore_project=self._on_trash_restore_project,
+            on_hard_delete_project=self._on_trash_hard_delete_project,
+            on_restore_paper=self._on_trash_restore_paper,
+            on_hard_delete_paper=self._on_trash_hard_delete_paper,
+        )
 
-    def _on_trash_restore(self, project) -> None:
+    def _on_trash_restore_project(self, project) -> None:
         _project_svc.restore(_project_svc.Project(project_fk=project.id))
         self._rebuild_trash()
 
-    def _on_trash_hard_delete(self, project) -> None:
+    def _on_trash_hard_delete_project(self, project) -> None:
         _project_svc.hard_delete(_project_svc.Project(project_fk=project.id))
+        self._rebuild_trash()
+
+    def _on_trash_restore_paper(self, deleted_paper) -> None:
+        pdf_path, project_fks = _paper_svc.restore(_paper_svc.Paper(source_fk=deleted_paper.source_fk))
+
+        if project_fks:
+            proj_details = _project_svc.get_many(_project_svc.Projects(project_fks=project_fks))
+            proj_names = ", ".join(d.name for d in proj_details) if proj_details else str(project_fks)
+            reply = QMessageBox.question(
+                self,
+                "Restore paper",
+                f'"{deleted_paper.title}" was in these projects:\n{proj_names}\n\nKeep it in those projects?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                _paper_svc.remove_from_all_projects(deleted_paper.source_fk)
+
+        if deleted_paper.had_pdf and pdf_path:
+            p = Path(pdf_path)
+            if p.is_file():
+                QMessageBox.information(
+                    self,
+                    "PDF found",
+                    f'The previous PDF was found at:\n{pdf_path}\nIt has been re-linked.',
+                )
+                _paper_svc.set_has_pdf_by_source(deleted_paper.source_id, True)
+            else:
+                QMessageBox.information(
+                    self,
+                    "PDF not found",
+                    f'The paper had a PDF at:\n{pdf_path}\nbut it no longer exists.',
+                )
+
+        self._rebuild_trash()
+
+    def _on_trash_hard_delete_paper(self, deleted_paper) -> None:
+        _paper_svc.hard_delete(_paper_svc.Paper(source_fk=deleted_paper.source_fk))
         self._rebuild_trash()
 
     def refresh_styles(self) -> None:

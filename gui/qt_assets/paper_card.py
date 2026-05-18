@@ -147,22 +147,22 @@ class ElidedLabel(QLabel):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._relayout()
 
-    def setText(self, text: str) -> None:
-        self._full_text = text
+    def setText(self, a0: str | None) -> None:
+        self._full_text = a0 or ""
         self._relayout()
 
     def hasHeightForWidth(self) -> bool:
         return True
 
-    def heightForWidth(self, width: int) -> int:
-        if not self._full_text or width <= 0:
+    def heightForWidth(self, a0: int) -> int:
+        if not self._full_text or a0 <= 0:
             return self.fontMetrics().lineSpacing()
         fm = self.fontMetrics()
-        n = min(len(self._wrap(self._full_text, fm, width)), self._MAX_LINES)
+        n = min(len(self._wrap(self._full_text, fm, a0)), self._MAX_LINES)
         return fm.lineSpacing() * n
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
+    def resizeEvent(self, a0) -> None:
+        super().resizeEvent(a0)
         self._relayout()
 
     def _relayout(self) -> None:
@@ -397,19 +397,19 @@ class PaperCard(QFrame):
         self.setStyleSheet(self._sel_style() if checked else self._base_style())
         self.selection_toggled.emit(self._row["source_fk"], checked)
 
-    def mouseDoubleClickEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and not self._card_mode:
+    def mouseDoubleClickEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton and not self._card_mode:
             self.double_clicked.emit(self._row)
-        super().mouseDoubleClickEvent(event)
+        super().mouseDoubleClickEvent(a0)
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+    def mousePressEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton:
+            if a0.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 self.set_selected(not self._selected)
                 self.selection_toggled.emit(self._row["source_fk"], self._selected)
                 return
             self.clicked.emit(self._row)
-        super().mousePressEvent(event)
+        super().mousePressEvent(a0)
 
     # ── Accessors ─────────────────────────────────────────────────────────────
 

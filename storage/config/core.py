@@ -55,6 +55,16 @@ def _apply_indices(conn: sqlite3.Connection) -> None:
         conn.executescript(script)
 
 
+def _migrate_paper_roots_soft_delete(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(PAPER_ROOTS)")}
+    if "STATUS" not in cols:
+        conn.execute(
+            "ALTER TABLE PAPER_ROOTS ADD COLUMN STATUS TEXT NOT NULL DEFAULT 'active'"
+        )
+    if "DELETED_AT" not in cols:
+        conn.execute("ALTER TABLE PAPER_ROOTS ADD COLUMN DELETED_AT TIMESTAMP")
+
+
 def apply_sql_schema(conn: sqlite3.Connection) -> None:
     """Create bundled tables (and optional views/indexes) from ``sql/tables``."""
     conn.execute("PRAGMA foreign_keys = ON")
@@ -62,6 +72,7 @@ def apply_sql_schema(conn: sqlite3.Connection) -> None:
         script = path.read_text(encoding="utf-8").strip()
         if script:
             conn.executescript(script)
+    _migrate_paper_roots_soft_delete(conn)
     _apply_views(conn)
     _apply_indices(conn)
 

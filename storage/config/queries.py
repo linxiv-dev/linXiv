@@ -267,8 +267,17 @@ def list_project_papers(project_fk: int) -> list[sqlite3.Row]:
         return conn.execute(_LIST_PROJECT_PAPERS_SQL, (project_fk,)).fetchall()
 
 
+_COUNT_ACTIVE_PROJECT_PAPERS_SQL = """
+SELECT COUNT(*) FROM PROJECT_TO_PAPER p2p
+JOIN PAPER_ROOTS r ON r.SOURCE_FK = p2p.SOURCE_FK
+WHERE p2p.PROJECT_FK = ? AND r.STATUS = 'active'
+"""
+
+
 def count_project_papers(project_fk: int) -> int:
-    return _count("PROJECT_TO_PAPER", Q("PROJECT_FK = ?", project_fk))
+    with _connect() as conn:
+        row = conn.execute(_COUNT_ACTIVE_PROJECT_PAPERS_SQL, (project_fk,)).fetchone()
+    return int(row[0]) if row else 0
 
 
 def list_projects_for_paper(source_fk: int) -> list[sqlite3.Row]:

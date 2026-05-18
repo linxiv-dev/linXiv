@@ -42,7 +42,9 @@ def _result_to_metadata(result: arxiv.Result) -> PaperMetadata:
 class ArxivSource(PaperSource):
     """Paper source backed by the arXiv API."""
 
-    source_name: str = "arxiv"  # written into PaperMetadata.source for every record this class produces
+    @property
+    def source_name(self) -> str:
+        return "arxiv"
 
     # TODO: should these be hardcoded?
     def __init__(self) -> None:

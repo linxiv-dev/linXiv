@@ -1115,7 +1115,7 @@ class LibraryPage(QWidget):
         reply = QMessageBox.question(
             self,
             "Remove from library",
-            f"Permanently delete {n} paper(s) from the library? This cannot be undone.\n\nLinked PDFs will not be deleted from disk; PDFs downloaded by linXiv will be.",
+            f"Move {n} paper(s) to trash?\n\nPapers can be restored from the Trash panel in Projects.\nLinked PDFs will not be deleted from disk; PDFs downloaded by linXiv will be.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
         )
         if reply != QMessageBox.StandardButton.Yes:
