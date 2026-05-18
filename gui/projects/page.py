@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.library.page import LibraryPage
-from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, PdfMetadataWorker
+from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, PdfMetadataWorker, ProjectExportButton, ProjectImportButton
 from gui.qt_assets.note_card import NoteCard
 import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
@@ -694,6 +694,9 @@ class ProjectDetailView(QWidget):
         )
         self._readonly_badge.setVisible(False)
         header.addWidget(self._readonly_badge, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self._export_btn = ProjectExportButton()
+        self._export_btn.setFixedHeight(BTN_H_MD)
+        header.addWidget(self._export_btn)
 
         self._archive_btn = QPushButton("Archive")
         self._archive_btn.setStyleSheet(_BTN_MUTED_STYLE)
@@ -798,11 +801,7 @@ class ProjectDetailView(QWidget):
         self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.ACCENT}; background: transparent;")
         self._papers_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;")
         self._empty_papers_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
-        self._readonly_badge.setStyleSheet(
-            f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED}; background: {_theme.PANEL};"
-            f" border: 1px solid {_theme.BORDER}; border-radius: {RADIUS_SM}px;"
-            f" padding: 2px 8px;"
-        )
+        self._export_btn.refresh_styles()
         self._archive_btn.setStyleSheet(_qt_styles.BTN_MUTED)
         self._delete_btn.setStyleSheet(_qt_styles.BTN_DANGER)
         self._add_paper_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
@@ -815,6 +814,7 @@ class ProjectDetailView(QWidget):
         self._project = project
         self._delete_confirming = False
         self._delete_btn.setText("Delete")
+        self._export_btn.set_project_fk(project.id)
 
         archived = project.status == Status.ARCHIVED
         self._readonly_badge.setVisible(archived)
@@ -1182,6 +1182,7 @@ class ProjectsPage(QWidget):
         )
         self._add_proj_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
         self._refresh_proj_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._import_proj_btn.refresh_styles()
         self._empty_lbl.setStyleSheet(
             f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
         )
@@ -1221,9 +1222,15 @@ class ProjectsPage(QWidget):
         refresh_btn.setStyleSheet(_BTN_MUTED_STYLE)
         refresh_btn.clicked.connect(self._refresh)
 
+        self._import_proj_btn = ProjectImportButton()
+        self._import_proj_btn.setFixedHeight(40)
+        self._import_proj_btn.import_done.connect(self._refresh)
+
         header.addLayout(col)
         header.addStretch()
         header.addWidget(refresh_btn, alignment=Qt.AlignmentFlag.AlignBottom)
+        header.addSpacing(SPACE_SM)
+        header.addWidget(self._import_proj_btn, alignment=Qt.AlignmentFlag.AlignBottom)
         header.addSpacing(SPACE_SM)
         header.addWidget(add_btn, alignment=Qt.AlignmentFlag.AlignBottom)
         outer.addLayout(header)
