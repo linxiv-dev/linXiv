@@ -185,13 +185,14 @@ def note_counts_by_paper_for_project(project_id: int) -> dict[int, int]:
             """
             SELECT pp.SOURCE_FK AS source_fk, COALESCE(n.cnt, 0) AS note_count
             FROM PROJECT_TO_PAPER pp
+            JOIN PAPER_ROOTS r ON r.SOURCE_FK = pp.SOURCE_FK
             LEFT JOIN (
                 SELECT SOURCE_FK, COUNT(*) AS cnt
                 FROM NOTE
                 WHERE PROJECT_FK = ?
                 GROUP BY SOURCE_FK
             ) AS n ON n.SOURCE_FK = pp.SOURCE_FK
-            WHERE pp.PROJECT_FK = ?
+            WHERE pp.PROJECT_FK = ? AND r.STATUS = 'active'
             ORDER BY pp.PROJECT_TO_PAPER_FK
             """,
             (project_id, project_id),

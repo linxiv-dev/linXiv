@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QPushButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 from gui.qt_assets.paper_card import ElidedLabel
@@ -14,9 +14,9 @@ from gui.theme import (
 
 
 class TrashRow(QFrame):
-    """One deleted-project row: [name]  [Restore]  [Delete forever]."""
+    """One trash row: [name]  [Restore]  [Delete forever]."""
 
-    def __init__(self, project, on_restore, on_hard_delete, parent=None) -> None:
+    def __init__(self, name: str, on_restore, on_hard_delete, parent=None) -> None:
         super().__init__(parent)
         self._confirming = False
         self._on_hard_delete = on_hard_delete
@@ -31,7 +31,7 @@ class TrashRow(QFrame):
         lay.setContentsMargins(14, 0, 12, 0)
         lay.setSpacing(10)
 
-        name_lbl = ElidedLabel(project.name)
+        name_lbl = ElidedLabel(name)
         name_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED};")
         lay.addWidget(name_lbl, stretch=1)
 
@@ -39,7 +39,7 @@ class TrashRow(QFrame):
         restore_btn.setFixedHeight(28)
         restore_btn.setStyleSheet(BTN_MUTED)
         restore_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        restore_btn.clicked.connect(on_restore)
+        restore_btn.clicked.connect(lambda: on_restore())
         lay.addWidget(restore_btn)
 
         self._del_btn = QPushButton("Delete forever")
@@ -50,11 +50,11 @@ class TrashRow(QFrame):
         self._del_btn.installEventFilter(self)
         lay.addWidget(self._del_btn)
 
-    def eventFilter(self, obj, event) -> bool:
-        if obj is self._del_btn and event.type() == QEvent.Type.FocusOut:
+    def eventFilter(self, a0, a1) -> bool:
+        if a0 is self._del_btn and a1 and a1.type() == QEvent.Type.FocusOut:  
             self._confirming = False
             self._del_btn.setText("Delete forever")
-        return super().eventFilter(obj, event)
+        return super().eventFilter(a0, a1)
 
     def _on_del_click(self) -> None:
         if not self._confirming:
@@ -66,13 +66,23 @@ class TrashRow(QFrame):
             self._on_hard_delete()
 
 
+def _section_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet(
+        f"font-size: {FONT_SECONDARY}px; color: {MUTED}; font-weight: 600;"
+        f" background: transparent; border: none; padding-top: 4px;"
+    )
+    return lbl
+
+
 class TrashPanel(QWidget):
-    """Collapsible trash section: compact icon toggle + expandable TrashRow list."""
+    """Collapsible trash section showing deleted projects and papers."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
         self._expanded = False
+        self._total_count = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -106,7 +116,15 @@ class TrashPanel(QWidget):
             f" QPushButton:hover {{ color: {TEXT}; }}"
         )
 
-    def rebuild(self, deleted_projects, on_restore, on_hard_delete) -> None:
+    def rebuild(
+        self,
+        deleted_projects,
+        deleted_papers,
+        on_restore_project,
+        on_hard_delete_project,
+        on_restore_paper,
+        on_hard_delete_paper,
+    ) -> None:
         while self._container_layout.count() > 0:
             item = self._container_layout.takeAt(0)
             if item:
@@ -114,28 +132,40 @@ class TrashPanel(QWidget):
                 if w:
                     w.deleteLater()
 
-        count = len(deleted_projects)
-        if count == 0:
+        self._total_count = len(deleted_projects) + len(deleted_papers)
+
+        if self._total_count == 0:
             self._toggle_btn.setVisible(False)
             self._container.setVisible(False)
             return
 
         self._toggle_btn.setVisible(True)
         arrow = "▾" if self._expanded else "▸"
-        self._toggle_btn.setText(f"{arrow}  🗑 TRASH ({count})")
+        self._toggle_btn.setText(f"{arrow}  🗑 TRASH ({self._total_count})")
         self._container.setVisible(self._expanded)
 
-        for p in deleted_projects:
-            row = TrashRow(
-                p,
-                on_restore=lambda proj=p: on_restore(proj),
-                on_hard_delete=lambda proj=p: on_hard_delete(proj),
-            )
-            self._container_layout.addWidget(row)
+        if deleted_papers:
+            self._container_layout.addWidget(_section_label("Papers"))
+            for p in deleted_papers:
+                row = TrashRow(
+                    p.title,
+                    on_restore=lambda paper=p: on_restore_paper(paper),
+                    on_hard_delete=lambda paper=p: on_hard_delete_paper(paper),
+                )
+                self._container_layout.addWidget(row)
+
+        if deleted_projects:
+            self._container_layout.addWidget(_section_label("Projects"))
+            for p in deleted_projects:
+                row = TrashRow(
+                    p.name,
+                    on_restore=lambda proj=p: on_restore_project(proj),
+                    on_hard_delete=lambda proj=p: on_hard_delete_project(proj),
+                )
+                self._container_layout.addWidget(row)
 
     def _toggle(self) -> None:
         self._expanded = not self._expanded
         self._container.setVisible(self._expanded)
-        count = self._container_layout.count()
         arrow = "▾" if self._expanded else "▸"
-        self._toggle_btn.setText(f"{arrow}  🗑 TRASH ({count})")
+        self._toggle_btn.setText(f"{arrow}  🗑 TRASH ({self._total_count})")

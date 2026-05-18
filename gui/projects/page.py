@@ -295,10 +295,10 @@ class _ClickableCard(QFrame):
         self._on_click = on_click
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+    def mousePressEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton:
             self._on_click()
-        super().mousePressEvent(event)
+        super().mousePressEvent(a0)
 
 
 class _NoBarHorizontalScrollArea(QScrollArea):
@@ -312,43 +312,44 @@ class _NoBarHorizontalScrollArea(QScrollArea):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+    def mousePressEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
-            self._drag_last_x = int(event.position().x())
+            self._drag_last_x = int(a0.position().x())
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            event.accept()
+            a0.accept()
             return
-        super().mousePressEvent(event)
+        super().mousePressEvent(a0)
 
-    def mouseMoveEvent(self, event) -> None:
-        if self._dragging:
-            x = int(event.position().x())
+    def mouseMoveEvent(self, a0) -> None:
+        if a0 and self._dragging:
+            x = int(a0.position().x())
             dx = x - self._drag_last_x
             self._drag_last_x = x
             bar = self.horizontalScrollBar()
             if bar:
                 bar.setValue(bar.value() - dx)
-            event.accept()
+            a0.accept()
             return
-        super().mouseMoveEvent(event)
+        super().mouseMoveEvent(a0)
 
-    def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
+    def mouseReleaseEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._dragging = False
             self.setCursor(Qt.CursorShape.OpenHandCursor)
-            event.accept()
+            a0.accept()
             return
-        super().mouseReleaseEvent(event)
+        super().mouseReleaseEvent(a0)
 
-    def wheelEvent(self, event) -> None:
+    def wheelEvent(self, a0) -> None:
         bar = self.horizontalScrollBar()
-        delta = event.angleDelta().x() or event.angleDelta().y()
-        if delta and bar:
-            bar.setValue(bar.value() - int(delta / 2))
-            event.accept()
-            return
-        super().wheelEvent(event)
+        if a0 and bar:
+            delta = a0.angleDelta().x() or a0.angleDelta().y()
+            if delta:
+                bar.setValue(bar.value() - int(delta / 2))
+                a0.accept()
+                return
+        super().wheelEvent(a0)
 
 
 # ── Notes preview (Projects only) ─────────────────────────────────────────────
@@ -582,7 +583,7 @@ class NotesDialog(QDialog):
         card.hide()
         self._retired_cards.append(card)
 
-    def closeEvent(self, event: QCloseEvent) -> None:
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
         # Tear down note cards while this dialog still exists (orderly widget cleanup).
         while self._notes_layout.count() > 1:
             item = cast(QLayoutItem, self._notes_layout.takeAt(0))
@@ -593,7 +594,7 @@ class NotesDialog(QDialog):
             card.deleteLater()
         self._retired_cards.clear()
         self._cards.clear()
-        super().closeEvent(event)
+        super().closeEvent(a0)
 
     def _pop_and_recreate(self, note) -> None:
         note_id = note.note_id
@@ -1144,9 +1145,9 @@ class ProjectCard(QFrame):
         except Exception:
             return 0
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, a0) -> None:
         self.clicked.emit(self._project)
-        super().mousePressEvent(event)
+        super().mousePressEvent(a0)
 
 
 # ── Projects page ─────────────────────────────────────────────────────────────

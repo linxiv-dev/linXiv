@@ -75,8 +75,8 @@ class _ClauseRow(QWidget):
 
 
 class _ResultList(QListWidget):
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
         w = cast(QWidget, self.viewport()).width()
         for i in range(self.count()):
             item = self.item(i)

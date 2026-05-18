@@ -35,7 +35,12 @@ def color_from_hex(hex_str: str) -> int:
 def _load_source_fks(project_fk: int) -> list[int]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT SOURCE_FK FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ? ORDER BY PROJECT_TO_PAPER_FK",
+            """
+            SELECT p2p.SOURCE_FK FROM PROJECT_TO_PAPER p2p
+            JOIN PAPER_ROOTS r ON r.SOURCE_FK = p2p.SOURCE_FK
+            WHERE p2p.PROJECT_FK = ? AND r.STATUS = 'active'
+            ORDER BY p2p.PROJECT_TO_PAPER_FK
+            """,
             (project_fk,),
         ).fetchall()
     return [int(row["SOURCE_FK"]) for row in rows]

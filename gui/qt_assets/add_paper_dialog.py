@@ -59,8 +59,8 @@ class _GrowingTextEdit(QTextEdit):
         if doc:
             doc.contentsChanged.connect(self.updateGeometry)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
+    def resizeEvent(self, a0) -> None:
+        super().resizeEvent(a0)
         self.updateGeometry()
 
     def sizeHint(self) -> QSize:

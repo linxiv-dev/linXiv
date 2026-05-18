@@ -206,11 +206,15 @@ def _commit_import_body(
 
         if existing_root and on_conflict == "merge":
             source_fk = int(existing_root["SOURCE_FK"])
+            if str(existing_root["STATUS"]) == "deleted":
+                _paper.restore(_paper.Paper(source_fk=source_fk))
             # Union any tags from the import that the existing paper doesn't have
             if pd.get("tags"):
                 _paper.add_paper_tags(source_id, pd["tags"])
         elif existing_root:  # on_conflict == "overwrite"
             source_fk = int(existing_root["SOURCE_FK"])
+            if str(existing_root["STATUS"]) == "deleted":
+                _paper.restore(_paper.Paper(source_fk=source_fk))
             meta = _deserialize_paper(pd)
             _paper.repair_paper(source_fk, meta)
             if pd.get("tags"):

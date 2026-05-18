@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 import storage.db as db
@@ -55,6 +56,19 @@ class PaperIn:
     url:         str | None       = None
     tags:        list[str] | None = None
     source:      str | None       = None
+
+
+@dataclass
+class DeletedPaperDetails:
+    source_fk:   int
+    source_id:   str
+    title:       str
+    authors:     list[str] | None
+    published:   date | None
+    deleted_at:  datetime | None
+    pdf_path:    str | None
+    had_pdf:     bool
+    project_fks: list[int]
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +328,110 @@ def save_papers_metadata(metas: list[PaperMetadata], tags: list[str] | None = No
 def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
     """Re-write a paper's metadata in-place, migrating SOURCE_ID if paper_id changes."""
     db.repair_paper(source_fk, meta)
+
+# ---------------------------------------------------------------------------
+# Soft / hard delete helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_source_id(paper: Paper) -> str | None:
+    if paper.source_id:
+        return paper.source_id
+    if paper.source_fk:
+        return db.get_source_id(paper.source_fk)
+    if paper.paper_id:
+        row = db.get_paper_by_id(paper.paper_id)
+        return str(row["source_id"]) if row else None
+    return None
+
+
+def _get_paper_project_fks(source_fk: int) -> list[int]:
+    """Return PROJECT_FKs of all projects that contain this paper (including deleted-paper rows)."""
+    with db._connect() as conn:
+        rows = conn.execute(
+            "SELECT PROJECT_FK FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?",
+            (source_fk,),
+        ).fetchall()
+    return [int(r["PROJECT_FK"]) for r in rows]
+
+
+def set_has_pdf_by_source(source_id: str, has: bool) -> None:
+    """Set has_pdf flag for all versions of a paper by source_id."""
+    with db._connect() as conn:
+        conn.execute("UPDATE PAPER SET HAS_PDF = ? WHERE SOURCE_ID = ?", (has, source_id))
+
+
+def remove_from_all_projects(source_fk: int) -> None:
+    """Remove a paper from every project (clears PROJECT_TO_PAPER rows for this paper)."""
+    with db._connect() as conn:
+        conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?", (source_fk,))
+
+
+def delete(paper: Paper) -> str | None:
+    """Soft-delete a paper. Returns the stored pdf_path (or None) for caller reference."""
+    source_id = _resolve_source_id(paper)
+    if source_id is None:
+        return None
+    return db.soft_delete_paper(source_id)
+
+
+def restore(paper: Paper) -> tuple[str | None, list[int]]:
+    """Restore a soft-deleted paper.
+
+    Returns (pdf_path, project_fks) where:
+      pdf_path    — the stored pdf path (may not exist on disk anymore)
+      project_fks — the projects this paper was in before deletion
+    """
+    source_id = _resolve_source_id(paper)
+    if source_id is None:
+        return None, []
+    # Get project memberships before restoring (they survive soft-delete in DB)
+    root = db.get_paper_root(source_id)
+    project_fks: list[int] = []
+    if root:
+        project_fks = _get_paper_project_fks(int(root["SOURCE_FK"]))
+    pdf_path = db.restore_paper(source_id)
+    return pdf_path, project_fks
+
+
+def hard_delete(paper: Paper) -> None:
+    """Permanently remove a paper from the database."""
+    source_id = _resolve_source_id(paper)
+    if source_id is None:
+        return
+    db.hard_delete_paper(source_id)
+
+
+def list_deleted() -> list[DeletedPaperDetails]:
+    """Return all soft-deleted papers."""
+    rows = db.list_deleted_papers()
+    result: list[DeletedPaperDetails] = []
+    for row in rows:
+        source_fk = int(row["source_fk"])
+        project_fks = _get_paper_project_fks(source_fk)
+        authors = row["authors"]
+        if isinstance(authors, str):
+            try:
+                authors = json.loads(authors)
+            except Exception:
+                authors = [authors]
+        result.append(DeletedPaperDetails(
+            source_fk=source_fk,
+            source_id=str(row["source_id"]),
+            title=str(row["title"]),
+            authors=authors,
+            published=row["published"],
+            deleted_at=row["deleted_at"],
+            pdf_path=row["pdf_path"],
+            had_pdf=bool(row["had_pdf"]),
+            project_fks=project_fks,
+        ))
+    return result
+
+
+def is_paper_deleted(source_id: str) -> bool:
+    """Return True if the paper exists in soft-deleted state."""
+    return db.is_paper_deleted(source_id)
+
 
 def delete_paper(source_id: str) -> None:
     db.delete_paper(source_id)

@@ -74,11 +74,11 @@ def get_many(projects: Projects) -> list[ProjectDetails]:
 
     if projects.project_fks and len(projects.project_fks) > 0:
         placeholders = ",".join("?" * len(projects.project_fks))
-        q = Q(f"id IN ({placeholders})", *projects.project_fks)
+        q = Q(f"PROJECT_FK IN ({placeholders})", *projects.project_fks)
         condition = q if condition is None else condition & q
 
     if projects.status:
-        q = Q("status = ?", projects.status)
+        q = Q("STATUS = ?", projects.status)
         condition = q if condition is None else condition & q
 
     return [_to_details(p) for p in _filter_projects(condition)]
@@ -188,7 +188,7 @@ class ProjectPage:
 
 @dataclass
 class ProjectClass:
-    id: int
+    id: int | None
 
 
 @dataclass
