@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.library.page import LibraryPage
-from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, TrashPanel
+from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar
 from gui.qt_assets.note_card import NoteCard
 import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
@@ -1259,9 +1259,6 @@ class ProjectsPage(QWidget):
         self._list_layout.setSpacing(SPACE_MD)
         self._list_layout.addStretch()
 
-        self._trash_panel = TrashPanel()
-        self._list_layout.addWidget(self._trash_panel)
-
         scroll.setWidget(self._list_widget)
         outer.addWidget(scroll, stretch=1)
 
@@ -1275,8 +1272,7 @@ class ProjectsPage(QWidget):
         return page
 
     def _refresh(self) -> None:
-        # Last 2 items are permanent: stretch, trash_panel
-        while self._list_layout.count() > 2:
+        while self._list_layout.count() > 1:
             item = cast(QLayoutItem, self._list_layout.takeAt(0))
             w = item.widget()
             if w:
@@ -1287,18 +1283,17 @@ class ProjectsPage(QWidget):
             ensure_notes_db()
             active_projects   = filter_projects(Q("status = ?", Status.ACTIVE))
             archived_projects = filter_projects(Q("status = ?", Status.ARCHIVED))
-            deleted_projects  = filter_projects(Q("status = ?", Status.DELETED))
-        except Exception:
-            active_projects = archived_projects = deleted_projects = []
+        except Exception as e:
+            print(f"[ProjectsPage] _refresh failed: {e}")
+            active_projects = archived_projects = []
 
         has_any = bool(active_projects or archived_projects)
         self._empty_lbl.setVisible(not has_any)
 
-        # Insert before stretch (count - 3 = position just before stretch)
         for p in active_projects:
             card = ProjectCard(p)
             card.clicked.connect(self._open_project)
-            self._list_layout.insertWidget(self._list_layout.count() - 2, card)
+            self._list_layout.insertWidget(self._list_layout.count() - 1, card)
 
         if archived_projects:
             sep = QLabel("Archived")
@@ -1306,24 +1301,11 @@ class ProjectsPage(QWidget):
                 f"font-size: {FONT_SECONDARY}px; color: {MUTED}; font-weight: 600;"
                 f" padding-top: {SPACE_MD}px; background: transparent;"
             )
-            self._list_layout.insertWidget(self._list_layout.count() - 2, sep)
+            self._list_layout.insertWidget(self._list_layout.count() - 1, sep)
             for p in archived_projects:
                 card = ProjectCard(p, archived=True)
                 card.clicked.connect(self._open_project)
-                self._list_layout.insertWidget(self._list_layout.count() - 2, card)
-
-        self._rebuild_trash(deleted_projects)
-
-    def _rebuild_trash(self, deleted_projects) -> None:
-        self._trash_panel.rebuild(deleted_projects, self._on_trash_restore, self._on_trash_hard_delete)
-
-    def _on_trash_restore(self, project) -> None:
-        project_svc.restore(project_svc.Project(project_fk=project.id))
-        self._refresh()
-
-    def _on_trash_hard_delete(self, project) -> None:
-        project_svc.hard_delete(project_svc.Project(project_fk=project.id))
-        self._refresh()
+                self._list_layout.insertWidget(self._list_layout.count() - 1, card)
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
