@@ -8,6 +8,7 @@ from .db import _connect
 from .config.queries import (
     get_note as _get_note_row,
     list_notes as _list_notes,
+    count_notes as _count_notes,
     count_project_notes as _count_project_notes,
 )
 from service.models.note import NoteDetails
@@ -116,22 +117,12 @@ def get_notes(
     *,
     all_projects: bool = False,
 ) -> list[NoteDetails]:
-    with _connect() as conn:
-        if all_projects:
-            rows = conn.execute(
-                "SELECT * FROM NOTE WHERE SOURCE_FK = ? ORDER BY CREATED_AT ASC",
-                (source_fk,),
-            ).fetchall()
-        elif project_id is None:
-            rows = conn.execute(
-                "SELECT * FROM NOTE WHERE SOURCE_FK = ? AND PROJECT_FK IS NULL ORDER BY CREATED_AT ASC",
-                (source_fk,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM NOTE WHERE SOURCE_FK = ? AND PROJECT_FK = ? ORDER BY CREATED_AT ASC",
-                (source_fk, project_id),
-            ).fetchall()
+    if all_projects:
+        rows = _list_notes(source_fk=source_fk)
+    elif project_id is None:
+        rows = _list_notes(source_fk=source_fk, project_unscoped=True)
+    else:
+        rows = _list_notes(source_fk=source_fk, project_fk=project_id)
     return [Note.from_row(row).to_details() for row in rows]
 
 
@@ -149,17 +140,7 @@ def count_project_notes(project_id: int) -> int:
 
 
 def count_paper_notes(source_fk: int, project_id: Optional[int] = None) -> int:
-    with _connect() as conn:
-        if project_id is None:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM NOTE WHERE SOURCE_FK = ?", (source_fk,)
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT COUNT(*) FROM NOTE WHERE SOURCE_FK = ? AND PROJECT_FK = ?",
-                (source_fk, project_id),
-            ).fetchone()
-    return row[0] if row else 0
+    return _count_notes(source_fk, project_fk=project_id)
 
 
 def list_all_notes() -> list[NoteDetails]:

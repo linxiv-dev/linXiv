@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.library.page import LibraryPage
-from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar
+from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, PdfMetadataWorker
 from gui.qt_assets.note_card import NoteCard
 import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
@@ -51,7 +51,6 @@ from gui.views import PdfWindow
 from service import paper as paper_svc, project as project_svc
 from service.note import count_project_notes, ensure_notes_db
 from service.project import filter_projects, Q, Status
-from sources.pdf_metadata import resolve_pdf_metadata
 from storage.projects import Project
 # Long project descriptions as a single tall QLabel can blow layout/GPU on window resize (Windows D3D11).
 _PROJECT_DESC_VIEWPORT_MAX_H = 550
@@ -73,24 +72,6 @@ _INPUT_STYLE = f"""
     }}
     QLineEdit:focus, QTextEdit:focus {{ border-color: {ACCENT}; }}
 """
-
-
-# ── PDF metadata worker ───────────────────────────────────────────────────────
-
-class _PdfMetadataWorker(QThread):
-    finished = pyqtSignal(object, str)   # PaperMetadata, pdf_path
-    failed   = pyqtSignal(str)
-
-    def __init__(self, pdf_path: str) -> None:
-        super().__init__()
-        self._path = pdf_path
-
-    def run(self) -> None:
-        try:
-            meta = resolve_pdf_metadata(self._path)
-            self.finished.emit(meta, self._path)
-        except Exception as e:
-            self.failed.emit(str(e))
 
 
 # ── New-project dialog ────────────────────────────────────────────────────────
@@ -651,7 +632,7 @@ class ProjectDetailView(QWidget):
         self.setStyleSheet(f"background: {BG}; color: {TEXT};")
         self._project = None
         self._selected_pids: set[int] = set()
-        self._pdf_worker: _PdfMetadataWorker | None = None
+        self._pdf_worker: PdfMetadataWorker | None = None
         self._pdf_window = PdfWindow(self)
         self._pdf_queue:  list[str] = []
         self._pdf_total  = 0
@@ -996,7 +977,7 @@ class ProjectDetailView(QWidget):
         idx = self._pdf_total - len(self._pdf_queue) + 1
         self._import_pdf_btn.setText(f"Resolving {idx}/{self._pdf_total}…")
         path = self._pdf_queue[0]
-        self._pdf_worker = _PdfMetadataWorker(path)
+        self._pdf_worker = PdfMetadataWorker(path)
         self._pdf_worker.finished.connect(self._on_pdf_metadata_done)
         self._pdf_worker.failed.connect(self._on_pdf_metadata_failed)
         self._pdf_worker.start()

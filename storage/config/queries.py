@@ -165,6 +165,8 @@ def get_paper_meta(paper_id: int) -> Optional[sqlite3.Row]:
 # TAG
 # ---------------------------------------------------------------------------
 
+_TAG_FK_BY_LABEL_SQL = "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1"
+
 _TAGS_BY_PAPER_BASE_SQL = """
 SELECT DISTINCT t.TAG_FK, t.TAG
 FROM TAG t
@@ -297,6 +299,7 @@ def list_notes(
     source_fk: int | None = None,
     paper_id_fk: int | None = None,
     project_fk: int | None = None,
+    project_unscoped: bool = False,
 ) -> list[sqlite3.Row]:
     clauses: list[Q] = []
     if source_fk:
@@ -305,12 +308,21 @@ def list_notes(
         clauses.append(Q("PAPER_ID_FK = ?", paper_id_fk))
     if project_fk:
         clauses.append(Q("PROJECT_FK = ?", project_fk))
+    elif project_unscoped:
+        clauses.append(Q("PROJECT_FK IS NULL"))
     if not clauses:
         return []
     q = clauses[0]
     for c in clauses[1:]:
         q = q & c
-    return _fetch_all("NOTE", q, order_by="NOTE_SK")
+    return _fetch_all("NOTE", q, order_by="CREATED_AT ASC")
+
+
+def count_notes(source_fk: int, project_fk: int | None = None) -> int:
+    q = Q("SOURCE_FK = ?", source_fk)
+    if project_fk is not None:
+        q = q & Q("PROJECT_FK = ?", project_fk)
+    return _count("NOTE", q)
 
 
 def count_project_notes(project_fk: int) -> int:

@@ -28,7 +28,7 @@ from service import paper as paper_svc
 from service import project as project_svc
 from service.project import Q, Status
 import service.files as _files
-from gui.qt_assets import PaperCard, SelectionBar, AddPaperManuallyDialog
+from gui.qt_assets import PaperCard, SelectionBar, AddPaperManuallyDialog, PdfMetadataWorker
 from gui.qt_assets.note_card import NoteCard
 from gui.qt_assets.paper_card import _DownloadWorker
 from gui.shell import AppShell
@@ -59,23 +59,6 @@ from gui.qt_assets.styles import (
     BTN_PANEL as _BTN, BTN_PRIMARY, BTN_LINK, BTN_GHOST, BTN_DANGER, BTN_FILTER_ACTIVE,
     btn_colored_outline,
 )
-
-
-class _PdfMetadataWorker(QThread):
-    finished = pyqtSignal(object, str)   # PaperMetadata, pdf_path
-    failed   = pyqtSignal(str)
-
-    def __init__(self, pdf_path: str) -> None:
-        super().__init__()
-        self._path = pdf_path
-
-    def run(self) -> None:
-        from sources.pdf_metadata import resolve_pdf_metadata
-        try:
-            meta = resolve_pdf_metadata(self._path)
-            self.finished.emit(meta, self._path)
-        except Exception as e:
-            self.failed.emit(str(e))
 
 
 # ── Paper detail view ────────────────────────────────────────────────────────
@@ -475,7 +458,7 @@ class LibraryPage(QWidget):
         self._all_rows: list = []
         self._cards:    list[PaperCard] = []
         self._selected: set[int] = set()   # source_fks
-        self._pdf_worker: _PdfMetadataWorker | None = None
+        self._pdf_worker: PdfMetadataWorker | None = None
         self._pdf_queue:  list[str] = []
         self._pdf_total  = 0
         self._pdf_added  = 0
@@ -950,7 +933,7 @@ class LibraryPage(QWidget):
         idx = self._pdf_total - len(self._pdf_queue) + 1
         self._import_btn.setText(f"Resolving {idx}/{self._pdf_total}…")
         path = self._pdf_queue[0]
-        self._pdf_worker = _PdfMetadataWorker(path)
+        self._pdf_worker = PdfMetadataWorker(path)
         self._pdf_worker.finished.connect(self._on_pdf_metadata_done)
         self._pdf_worker.failed.connect(self._on_pdf_metadata_failed)
         self._pdf_worker.start()

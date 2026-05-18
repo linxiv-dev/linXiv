@@ -10,6 +10,7 @@ from typing import Optional, TYPE_CHECKING
 import arxiv
 
 from storage.config.core import apply_sql_schema
+from storage.config.queries import _TAG_FK_BY_LABEL_SQL
 from storage.paths import old_pdf_dir, pdf_dir
 
 if TYPE_CHECKING:
@@ -123,10 +124,7 @@ def _author_fk_for_name(conn: sqlite3.Connection, full_name: str) -> int | None:
 
 
 def _tag_fk_for_label(conn: sqlite3.Connection, label: str) -> int|None:
-    row = conn.execute(
-        "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1",
-        (label,),
-    ).fetchone()
+    row = conn.execute(_TAG_FK_BY_LABEL_SQL, (label,)).fetchone()
     if row:
         return int(row[0])
     cur = conn.execute("INSERT INTO TAG (TAG) VALUES (?)", (label,))
