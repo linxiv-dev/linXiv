@@ -34,6 +34,13 @@ docs/*
 !docs/adr/
 docs/adr/*
 !docs/adr/**
+# Node / Frontend
+node_modules/
+dist/
+
+# Tauri build artifacts
+src-tauri/target/
+
 # Session state
 selected_papers.json
 user_settings.json

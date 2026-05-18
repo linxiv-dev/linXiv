@@ -19,6 +19,7 @@ load_dotenv(ENV_PATH)
 
 import arxiv
 from fastapi import FastAPI, HTTPException, Query
+from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -39,7 +40,8 @@ from storage.db import (
 )
 from sources import resolve_doi, fetch_paper_metadata, search_papers
 from service.paper import ensure_paper_root, get_paper_root, get_source_id
-from storage.notes import Note, ensure_notes_db, get_notes
+import user_settings
+from storage.notes import Note, ensure_notes_db, get_note, get_notes
 from storage.projects import (
     Project,
     Status,
@@ -154,10 +156,14 @@ def health() -> dict:
 def stats() -> dict:
     papers = list_papers(latest_only=True)
     tags = get_tags()
+    categories = get_categories()
     recent = [_paper_row_dict(r) for r in papers[:10]]
+    pdf_count = sum(1 for r in papers if r["has_pdf"])
     return {
         "paper_count": len(papers),
         "tag_count": len(tags),
+        "category_count": len(categories),
+        "pdf_count": pdf_count,
         "recent_papers": recent,
     }
 
@@ -433,6 +439,73 @@ def api_note_create(body: NoteCreate) -> dict:
     )
     n.save()
     return {"id": n.id}
+
+
+class NoteUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None
+
+
+@app.patch("/api/notes/{note_id}")
+def api_note_update(note_id: int, body: NoteUpdate) -> dict:
+    details = get_note(note_id)
+    if details is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+    n = Note(
+        id=details.note_id,
+        source_fk=details.source_fk,
+        paper_id_fk=details.paper_id_fk,
+        project_id=details.project_id,
+        title=body.title if body.title is not None else details.title,
+        content=body.content if body.content is not None else details.content,
+    )
+    n.save()
+    return {"ok": True}
+
+
+@app.delete("/api/notes/{note_id}")
+def api_note_delete(note_id: int) -> dict:
+    details = get_note(note_id)
+    if details is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+    n = Note(
+        id=details.note_id,
+        source_fk=details.source_fk,
+        paper_id_fk=details.paper_id_fk,
+        project_id=details.project_id,
+        title=details.title,
+        content=details.content,
+    )
+    n.delete()
+    return {"ok": True}
+
+
+@app.get("/api/settings")
+def api_settings_get() -> dict:
+    return user_settings.all_settings()
+
+
+class SettingsUpdate(BaseModel):
+    updates: dict
+
+
+@app.patch("/api/settings")
+def api_settings_patch(body: SettingsUpdate) -> dict:
+    for key, value in body.updates.items():
+        user_settings.set(key, value)
+    return {"ok": True}
+
+
+class EnvUpdate(BaseModel):
+    key: str
+    value: str
+
+
+@app.patch("/api/env")
+def api_env_patch(body: EnvUpdate) -> dict:
+    set_key(str(ENV_PATH), body.key, body.value)
+    os.environ[body.key] = body.value
+    return {"ok": True}
 
 
 @app.get("/api/papers/{source_id}/pdf", response_model=None)
