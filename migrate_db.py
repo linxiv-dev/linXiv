@@ -14,7 +14,7 @@ from pathlib import Path
 from storage.config.core import apply_sql_schema
 from storage.paths import db_path as _default_new_db_path
 
-_MIGRATE_SQL = Path(__file__).resolve().parent / "migrate_data.sql"
+_MIGRATE_SQL = Path(__file__).resolve().parent / "storage" / "migrations" / "migrate_data.sql"
 
 
 def _connect(path: str) -> sqlite3.Connection:
