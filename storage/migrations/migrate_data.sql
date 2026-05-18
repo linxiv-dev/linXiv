@@ -73,11 +73,12 @@ FROM old.papers
 GROUP BY paper_id;
 
 -- ---------------------------------------------------------------------------
--- 1. PAPER_ROOTS: one row per distinct old paper_id, SOURCE_ID namespaced
+-- 1. PAPER_ROOTS: one row per distinct old paper_id, SOURCE_ID namespaced.
+--    All migrated papers are active (old schema had no soft-delete).
 -- ---------------------------------------------------------------------------
 
-INSERT INTO PAPER_ROOTS (SOURCE_ID)
-SELECT new_source_id
+INSERT INTO PAPER_ROOTS (SOURCE_ID, STATUS, DELETED_AT)
+SELECT new_source_id, 'active', NULL
 FROM map_source_id
 ORDER BY new_source_id;
 
