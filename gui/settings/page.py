@@ -29,7 +29,10 @@ from gui.theme import (
     SPACE_XL, SPACE_MD, SPACE_SM, SPACE_XS,
     RADIUS_LG, RADIUS_SM, CARD_PAD_H, CARD_PAD_V, PAGE_MARGIN_H,
 )
+from gui.qt_assets import TrashPanel
 from gui.qt_assets.styles import BTN_MUTED as _BTN_MUTED
+import service.project as _project_svc
+from service.project import filter_projects, Q, Status
 
 
 def _section_label(text: str) -> QLabel:
@@ -625,6 +628,18 @@ class SettingsPage(QWidget):
 
         inner.addSpacing(SPACE_XL)
 
+        # ── Projects ──────────────────────────────────────────────────────────
+        _projects_lbl = _section_label("Projects")
+        self._section_labels.append(_projects_lbl)
+        inner.addWidget(_projects_lbl)
+        inner.addSpacing(SPACE_SM)
+
+        self._trash_panel = TrashPanel()
+        inner.addWidget(self._trash_panel)
+        self._rebuild_trash()
+
+        inner.addSpacing(SPACE_XL)
+
         # ── Appearance ────────────────────────────────────────────────────────
         _appear_lbl = _section_label("Appearance")
         self._section_labels.append(_appear_lbl)
@@ -643,6 +658,22 @@ class SettingsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def _rebuild_trash(self) -> None:
+        try:
+            deleted = filter_projects(Q("status = ?", Status.DELETED))
+        except Exception as e:
+            print(f"[SettingsPage] _rebuild_trash failed: {e}")
+            deleted = []
+        self._trash_panel.rebuild(deleted, self._on_trash_restore, self._on_trash_hard_delete)
+
+    def _on_trash_restore(self, project) -> None:
+        _project_svc.restore(_project_svc.Project(project_fk=project.id))
+        self._rebuild_trash()
+
+    def _on_trash_hard_delete(self, project) -> None:
+        _project_svc.hard_delete(_project_svc.Project(project_fk=project.id))
+        self._rebuild_trash()
 
     def refresh_styles(self) -> None:
         t = _theme
@@ -671,4 +702,5 @@ class SettingsPage(QWidget):
         self._usage_label.setStyleSheet(f"color: {t.MUTED}; font-size: {FONT_SECONDARY}px;")
         self._metadata_card.refresh_styles()
         self._storage_card.refresh_styles()
+        self._trash_panel.refresh_styles()
         self._theme_card.refresh_styles()

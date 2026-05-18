@@ -9,7 +9,7 @@ from gui.qt_assets.paper_card import ElidedLabel
 from gui.qt_assets.styles import BTN_DANGER, BTN_MUTED
 from gui.theme import (
     BORDER, MUTED, PANEL, TEXT,
-    FONT_SECONDARY, FONT_TERTIARY, RADIUS_SM, SPACE_SM, SPACE_XS,
+    FONT_SECONDARY, RADIUS_SM, SPACE_SM, SPACE_XS,
 )
 
 
@@ -78,11 +78,12 @@ class TrashPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._toggle_btn = QPushButton("🗑  Trash (0)  ▼")
+        self._toggle_btn = QPushButton("▸  🗑 TRASH (0)")
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; border: none; text-align: left;"
-            f" font-size: {FONT_TERTIARY}px; color: {MUTED}; padding: {SPACE_SM}px 0px; }}"
+            f" font-size: {FONT_SECONDARY}px; font-weight: 600; color: {MUTED};"
+            f" letter-spacing: 1px; padding: 4px 0px; }}"
             f" QPushButton:hover {{ color: {TEXT}; }}"
         )
         self._toggle_btn.setVisible(False)
@@ -96,6 +97,14 @@ class TrashPanel(QWidget):
         self._container_layout.setSpacing(8)
         self._container.setVisible(False)
         layout.addWidget(self._container)
+
+    def refresh_styles(self) -> None:
+        self._toggle_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; text-align: left;"
+            f" font-size: {FONT_SECONDARY}px; font-weight: 600; color: {MUTED};"
+            f" letter-spacing: 1px; padding: 4px 0px; }}"
+            f" QPushButton:hover {{ color: {TEXT}; }}"
+        )
 
     def rebuild(self, deleted_projects, on_restore, on_hard_delete) -> None:
         while self._container_layout.count() > 0:
@@ -112,8 +121,8 @@ class TrashPanel(QWidget):
             return
 
         self._toggle_btn.setVisible(True)
-        indicator = "▲" if self._expanded else "▼"
-        self._toggle_btn.setText(f"🗑  Trash ({count})  {indicator}")
+        arrow = "▾" if self._expanded else "▸"
+        self._toggle_btn.setText(f"{arrow}  🗑 TRASH ({count})")
         self._container.setVisible(self._expanded)
 
         for p in deleted_projects:
@@ -128,5 +137,5 @@ class TrashPanel(QWidget):
         self._expanded = not self._expanded
         self._container.setVisible(self._expanded)
         count = self._container_layout.count()
-        indicator = "▲" if self._expanded else "▼"
-        self._toggle_btn.setText(f"🗑  Trash ({count})  {indicator}")
+        arrow = "▾" if self._expanded else "▸"
+        self._toggle_btn.setText(f"{arrow}  🗑 TRASH ({count})")
