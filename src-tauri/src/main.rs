@@ -1,35 +1,16 @@
-// Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::time::Duration;
 use tauri::Manager;
 
-#[cfg(debug_assertions)]
-fn spawn_api_server() -> Option<std::process::Child> {
-    let child = std::process::Command::new("uv")
-        .args(["run", "python", "-m", "api"])
-        .env("CORS_ORIGINS", "tauri://localhost,https://tauri.localhost,http://localhost:5173")
-        .current_dir(
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                .unwrap_or_default(),
-        )
-        .spawn()
-        .ok();
-    child
-}
-
-#[cfg(not(debug_assertions))]
-fn spawn_api_server() -> Option<std::process::Child> {
-    None // production: sidecar handled by Tauri
-}
-
 fn wait_for_api(max_attempts: u32) -> bool {
-    let client = reqwest::blocking::Client::builder()
+    let client = match reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
-        .unwrap_or_default();
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
     for i in 0..max_attempts {
         if let Ok(resp) = client.get("http://127.0.0.1:8000/api/health").send() {
             if resp.status().is_success() {
@@ -44,20 +25,45 @@ fn wait_for_api(max_attempts: u32) -> bool {
 }
 
 fn main() {
-    let _server = spawn_api_server();
-
-    // Give the server time to start, then open the window
-    let api_ready = wait_for_api(20);
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .setup(move |app| {
+        .setup(|app| {
+            // Resolve OS app data dir — Python stores DB, PDFs, settings here
+            let data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&data_dir)?;
+            let data_dir_str = data_dir.to_string_lossy().to_string();
+
+            // Dev: spawn via uv (source)
+            #[cfg(debug_assertions)]
+            {
+                let project_dir = std::env::current_dir().unwrap_or_default();
+                let _ = std::process::Command::new("uv")
+                    .args(["run", "python", "-m", "api"])
+                    .current_dir(&project_dir)
+                    .env("CORS_ORIGINS", "tauri://localhost,https://tauri.localhost,http://localhost:5173")
+                    .env("LINXIV_DATA_DIR", &data_dir_str)
+                    .spawn();
+            }
+
+            // Release: spawn PyInstaller sidecar binary
+            #[cfg(not(debug_assertions))]
+            {
+                use tauri_plugin_shell::ShellExt;
+                if let Ok(cmd) = app.shell().sidecar("linxiv-api") {
+                    let _ = cmd
+                        .env("LINXIV_DATA_DIR", &data_dir_str)
+                        .env("CORS_ORIGINS", "tauri://localhost,https://tauri.localhost")
+                        .spawn();
+                }
+            }
+
+            let api_ready = wait_for_api(20);
             let window = app.get_webview_window("main").unwrap();
             if !api_ready {
-                // API didn't start — show error in title
                 let _ = window.set_title("linXiv — API failed to start");
             }
+
             Ok(())
         })
         .run(tauri::generate_context!())

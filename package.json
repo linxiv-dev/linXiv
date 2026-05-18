@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:sidecar": "pyinstaller linxiv-api.spec --noconfirm && python scripts/stage_sidecar.py",
+    "build:all": "npm run build:sidecar && npm run tauri build"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",

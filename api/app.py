@@ -14,7 +14,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from config import ENV_PATH
+from config import ENV_PATH, data_dir, resources_dir
 load_dotenv(ENV_PATH)
 
 import arxiv
@@ -52,9 +52,8 @@ from storage.projects import (
     get_project,
 )
 
-ROOT = Path(__file__).resolve().parent.parent
-PDF_DIR = ROOT / "pdfs"
-GUI_WEB = ROOT / "gui" / "graph" / "web"
+PDF_DIR = data_dir() / "pdfs"
+GUI_WEB = resources_dir() / "gui" / "graph" / "web"
 
 
 def _cors_config() -> tuple[list[str], bool]:

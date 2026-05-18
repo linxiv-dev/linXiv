@@ -3,7 +3,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-_SQL_DIR = Path(__file__).resolve().parent / "sql"
+from config import resources_dir as _resources_dir
+from storage.paths import db_path as _db_path_fn
+
+_SQL_DIR = _resources_dir() / "storage" / "config" / "sql"
 _TABLES_DIR = _SQL_DIR / "tables"
 _VIEWS_DIR = _SQL_DIR / "views"
 
@@ -24,7 +27,7 @@ _TABLE_DDL_ORDER: tuple[str, ...] = (
     "papers_fts.sql",
 )
 
-DB_PATH = str(Path(__file__).resolve().parent.parent.parent / "papers.db")
+DB_PATH = str(_db_path_fn())
 
 
 def _ordered_table_paths() -> list[Path]:

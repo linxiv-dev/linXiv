@@ -15,7 +15,8 @@ from storage.paths import old_pdf_dir, pdf_dir
 if TYPE_CHECKING:
     from sources.base import PaperMetadata
 
-DB_PATH = str(Path(__file__).parent.parent / "papers.db")
+from storage.paths import db_path as _db_path_fn
+DB_PATH = str(_db_path_fn())
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # --- adapters: Python → SQLite storage ---
