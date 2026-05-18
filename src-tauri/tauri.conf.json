@@ -34,7 +34,11 @@
       "icons/32x32.png",
       "icons/128x128.png"
     ],
-    "externalBin": ["binaries/linxiv-api"]
+    "externalBin": [
+      "binaries/linxiv-api",
+      "binaries/linxiv-cli",
+      "binaries/linxiv-mcp"
+    ]
   },
   "plugins": {
     "shell": {

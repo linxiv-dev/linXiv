@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Copy the PyInstaller --onefile output to src-tauri/binaries/ with the correct target-triple suffix."""
+"""
+Copy all PyInstaller --onefile outputs to src-tauri/binaries/ with the
+correct Tauri target-triple suffix so `npm run tauri build` can bundle them.
+
+Binaries staged:
+  dist/linxiv-api  -> src-tauri/binaries/linxiv-api-{triple}
+  dist/linxiv-cli  -> src-tauri/binaries/linxiv-cli-{triple}
+  dist/linxiv-mcp  -> src-tauri/binaries/linxiv-mcp-{triple}
+"""
 import platform
 import shutil
 from pathlib import Path
@@ -17,16 +25,18 @@ system = platform.system().lower()
 machine = platform.machine().lower()
 triple = TRIPLES.get((system, machine))
 if not triple:
-    raise SystemExit(f"Unknown platform: {system}/{machine}")
+    raise SystemExit(f"Unknown platform: {system}/{machine} -- add it to TRIPLES in this script")
 
 ext = ".exe" if system == "windows" else ""
-src = Path("dist") / f"linxiv-api{ext}"
-if not src.exists():
-    raise SystemExit(f"PyInstaller output not found at {src}. Run pyinstaller first.")
-
 dest_dir = Path("src-tauri") / "binaries"
 dest_dir.mkdir(parents=True, exist_ok=True)
-dest = dest_dir / f"linxiv-api-{triple}{ext}"
 
-shutil.copy2(src, dest)
-print(f"✓ Sidecar staged: {dest}")
+for name in ["linxiv-api", "linxiv-cli", "linxiv-mcp"]:
+    src = Path("dist") / f"{name}{ext}"
+    if not src.exists():
+        print(f"  skip   {src}  (not built yet)")
+        continue
+    dest = dest_dir / f"{name}-{triple}{ext}"
+    shutil.copy2(src, dest)
+    dest.chmod(dest.stat().st_mode | 0o111)
+    print(f"  staged {dest}")

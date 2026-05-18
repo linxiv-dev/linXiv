@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod integrations;
+
 use std::time::Duration;
 use tauri::Manager;
 
@@ -66,6 +68,15 @@ fn main() {
 
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            integrations::is_cli_installed,
+            integrations::install_cli,
+            integrations::uninstall_cli,
+            integrations::list_mcp_clients,
+            integrations::install_mcp,
+            integrations::uninstall_mcp,
+            integrations::is_mcp_installed,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
