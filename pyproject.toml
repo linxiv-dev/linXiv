@@ -14,11 +14,12 @@ dependencies = [
     "httpx",
     "markdown",
     "openai",
-    "pydantic",
+    "pydantic>=2.0,<2.13",
     "pybtex",
     "python-dotenv",
     "uvicorn[standard]",
     "pypdf>=6.10.2",
+    "starlette<1.0",
 ]
 
 [project.optional-dependencies]
@@ -47,7 +48,8 @@ include = [
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
+    "pluggy>=1.6",
+    "pytest>=8.3,<9",
 ]
 gui = [
     "PyQt6",

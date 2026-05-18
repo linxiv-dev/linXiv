@@ -5,6 +5,7 @@ from typing import Optional
 from .db import _connect
 from .config.queries import (
     Q,
+    _TAG_FK_BY_LABEL_SQL,
     get_tag as _get_tag_row,
     list_tags_by_paper,
     list_tags_by_project,
@@ -47,9 +48,7 @@ def list_tags(
 
 def create_tag(label: str) -> int | None:
     with _connect() as conn:
-        existing = conn.execute(
-            "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1", (label,)
-        ).fetchone()
+        existing = conn.execute(_TAG_FK_BY_LABEL_SQL, (label,)).fetchone()
         if existing:
             return int(existing["TAG_FK"])
         cur = conn.execute("INSERT INTO TAG (TAG) VALUES (?)", (label,))
@@ -81,9 +80,7 @@ def add_project_tags(project_id: int, tags: list[str]) -> list[str]:
 def remove_project_tags(project_id: int, tags: list[str]) -> list[str]:
     with _connect() as conn:
         for label in tags:
-            row = conn.execute(
-                "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1", (label,)
-            ).fetchone()
+            row = conn.execute(_TAG_FK_BY_LABEL_SQL, (label,)).fetchone()
             if row:
                 conn.execute(
                     "DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ? AND TAG_FK = ?",

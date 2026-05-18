@@ -262,7 +262,7 @@ class TestSearchByTitle:
 
 class TestCrossRefSourceClass:
     def test_source_name(self):
-        assert CrossRefSource.source_name == "crossref"
+        assert CrossRefSource().source_name == "crossref"
 
     def test_fetch_by_id_returns_metadata_on_success(self):
         mock_meta = PaperMetadata(
