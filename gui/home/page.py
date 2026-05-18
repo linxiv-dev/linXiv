@@ -1,24 +1,31 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from typing import cast
+
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
+    QLayoutItem,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-from storage.db import get_tags, list_papers
+from service import paper as paper_svc
+from service.tag import list_all_tags
+from gui.qt_assets import PaperCard
+import gui.qt_assets.styles as _qt_styles
+from gui.qt_assets.styles import BTN_PANEL_SM as _BTN_PANEL_SM
+import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
-from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
+from gui.theme import ACCENT as ACCENT, TEXT as TEXT, MUTED as MUTED
 from gui.theme import (
-    FONT_TITLE, FONT_SUBHEADING, FONT_BODY, FONT_SECONDARY, FONT_TERTIARY,
+    FONT_TITLE, FONT_SUBHEADING, FONT_BODY, FONT_TERTIARY,
     SPACE_XL, SPACE_SM, SPACE_XS,
-    RADIUS_SM, RADIUS_LG,
+    RADIUS_LG,
     PAGE_MARGIN_H, PAGE_MARGIN_V,
     CARD_PAD_H, CARD_PAD_V,
     DIALOG_PAD,
@@ -29,21 +36,23 @@ _RECENT_N = 10
 class HomePage(QWidget):
     """Landing page: stat cards + recent papers list."""
 
+    navigate_to_paper = pyqtSignal(int)   # source_fk
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {_BG}; color: {TEXT};")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(PAGE_MARGIN_H, PAGE_MARGIN_V, PAGE_MARGIN_H, PAGE_MARGIN_V)
         outer.setSpacing(SPACE_XL)
 
         # ── Header ────────────────────────────────────────────────────────────
-        title = QLabel("linXiv")
-        title.setStyleSheet(f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;")
-        subtitle = QLabel("Your arXiv paper collection")
-        subtitle.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
-        outer.addWidget(title)
-        outer.addWidget(subtitle)
+        self._title_lbl = QLabel("linXiv")
+        self._title_lbl.setStyleSheet(f"font-size: {FONT_TITLE}px; font-weight: bold; color: {ACCENT}; background: transparent;")
+        self._subtitle_lbl = QLabel("Your arXiv paper collection")
+        self._subtitle_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {MUTED}; background: transparent;")
+        outer.addWidget(self._title_lbl)
+        outer.addWidget(self._subtitle_lbl)
 
         # ── Stat cards ────────────────────────────────────────────────────────
         self._stats_container = QWidget()
@@ -55,51 +64,58 @@ class HomePage(QWidget):
 
         # ── Recent papers ─────────────────────────────────────────────────────
         recent_hdr = QHBoxLayout()
-        recent_lbl = QLabel("Recent papers")
-        recent_lbl.setStyleSheet(
-            f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_TEXT}; background: transparent;"
+        self._recent_lbl = QLabel("Recent papers")
+        self._recent_lbl.setStyleSheet(
+            f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {TEXT}; background: transparent;"
         )
-        refresh_btn = QPushButton("Refresh")
+        self._refresh_btn = refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedWidth(80)
-        refresh_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {_PANEL}; border: 1px solid {_BORDER};
-                border-radius: {RADIUS_SM}px; color: {_TEXT}; font-size: {FONT_SECONDARY}px; padding: {SPACE_XS}px {SPACE_SM}px;
-            }}
-            QPushButton:hover {{ background: #2a2a4a; }}
-        """)
+        refresh_btn.setStyleSheet(_BTN_PANEL_SM)
         refresh_btn.clicked.connect(self._load)
-        recent_hdr.addWidget(recent_lbl)
+        recent_hdr.addWidget(self._recent_lbl)
         recent_hdr.addStretch()
         recent_hdr.addWidget(refresh_btn)
         outer.addLayout(recent_hdr)
 
-        self._recent_list = QListWidget()
-        self._recent_list.setStyleSheet(f"""
-            QListWidget {{
-                background: {_PANEL}; border: 1px solid {_BORDER};
-                border-radius: {RADIUS_LG}px; color: {_TEXT}; font-size: {FONT_BODY}px;
-            }}
-            QListWidget::item {{
-                padding: 7px 12px;
-                border-bottom: 1px solid {_BORDER};
-            }}
-            QListWidget::item:selected {{
-                background: #2a2a4a;
-            }}
-            QListWidget::item:last-child {{
-                border-bottom: none;
-            }}
-        """)
-        outer.addWidget(self._recent_list, stretch=1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+
+        self._recent_widget = QWidget()
+        self._recent_widget.setStyleSheet("background: transparent;")
+        self._recent_layout = QVBoxLayout(self._recent_widget)
+        self._recent_layout.setContentsMargins(0, 0, 0, 0)
+        self._recent_layout.setSpacing(SPACE_SM)
+        self._recent_layout.addStretch()
+
+        scroll.setWidget(self._recent_widget)
+        outer.addWidget(scroll, stretch=1)
 
         self._load()
 
     # ── Data ──────────────────────────────────────────────────────────────────
 
+    def refresh(self) -> None:
+        self._load()
+
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.ACCENT}; background: transparent;"
+        )
+        self._subtitle_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._recent_lbl.setStyleSheet(
+            f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;"
+        )
+        self._refresh_btn.setStyleSheet(_qt_styles.BTN_PANEL_SM)
+        self._load()
+
     def _load(self) -> None:
-        papers   = list_papers(latest_only=True)
-        tags     = get_tags()
+        papers   = paper_svc.list_papers(latest_only=True)
+        tags     = list_all_tags()
         total    = len(papers)
         with_pdf = sum(1 for p in papers if p["has_pdf"])
         cats     = len({p["category"] for p in papers if p["category"]})
@@ -107,9 +123,10 @@ class HomePage(QWidget):
 
         # Rebuild stat cards
         while self._stats_row.count():
-            item = self._stats_row.takeAt(0)
-            if item.widget():  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
-                item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._stats_row.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
 
         for value, label in (
             (str(total),    "Papers saved"),
@@ -119,26 +136,19 @@ class HomePage(QWidget):
         ):
             self._stats_row.addWidget(self._make_card(value, label))
 
-        # Rebuild recent list
-        self._recent_list.clear()
+        # Rebuild recent papers
+        while self._recent_layout.count() > 1:
+            item = cast(QLayoutItem, self._recent_layout.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
         for p in papers[:_RECENT_N]:
-            date = p["published"].isoformat() if p["published"] else ""
-            cat  = p["category"] or ""
-            txt  = p["title"] or "(untitled)"
-            linked = p["pdf_path"] if "pdf_path" in p.keys() else None
-            if linked:
-                txt = f"[PDF] {txt}"
-            meta = "  ·  ".join(filter(None, [cat, date]))
-            item = QListWidgetItem(txt)
-            item.setToolTip(f"Linked: {linked}\n{meta}" if linked else meta)
-            # Show metadata as a second line via the display role trick
-            item.setData(Qt.ItemDataRole.UserRole, meta)
-            self._recent_list.addItem(item)
-            # Append a dim meta label via a second item indented
-            meta_item = QListWidgetItem(f"    {meta}")
-            meta_item.setForeground(self._muted_color())
-            meta_item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._recent_list.addItem(meta_item)
+            card = PaperCard(p, parent=self._recent_widget)
+            card.double_clicked.connect(
+                lambda _row, pid=p["source_fk"]: self.navigate_to_paper.emit(pid)
+            )
+            self._recent_layout.insertWidget(self._recent_layout.count() - 1, card)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -146,8 +156,8 @@ class HomePage(QWidget):
         card = QFrame()
         card.setStyleSheet(f"""
             QFrame {{
-                background: {_PANEL};
-                border: 1px solid {_BORDER};
+                background: {_theme.PANEL};
+                border: 1px solid {_theme.BORDER};
                 border-radius: {RADIUS_LG}px;
             }}
             QLabel {{ border: none; background: transparent; }}
@@ -157,17 +167,13 @@ class HomePage(QWidget):
         lay.setSpacing(SPACE_XS)
 
         num = QLabel(value)
-        num.setStyleSheet(f"font-size: 30px; font-weight: bold; color: {_ACCENT};")  # TODO: Make more customizable
+        num.setStyleSheet(f"font-size: 30px; font-weight: bold; color: {_theme.ACCENT};")
         num.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lbl = QLabel(label)
-        lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED}; letter-spacing: 0.05em;")
+        lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED}; letter-spacing: 0.05em;")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         lay.addWidget(num)
         lay.addWidget(lbl)
         return card
-
-    def _muted_color(self):
-        from PyQt6.QtGui import QColor
-        return QColor(_MUTED)

@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QStackedWidget,
     QTextEdit,
     QVBoxLayout,
@@ -25,7 +24,13 @@ from formats.bibtex import BibTeXFormat
 from formats.csv_fmt import CSVFormat
 from formats.json_fmt import JSONFormat
 from formats.markdown import MarkdownFormat, ObsidianFormat
-from storage.db import list_papers, save_papers_metadata, set_has_pdf, set_pdf_path
+from service import paper as paper_svc
+from service import project as project_svc
+from service.project import Q, Status
+import service.files as _files
+from gui.qt_assets import PaperCard, SelectionBar, AddPaperManuallyDialog
+from gui.qt_assets.note_card import NoteCard
+from gui.qt_assets.paper_card import _DownloadWorker
 from gui.shell import AppShell
 
 _bibtex_fmt   = BibTeXFormat()
@@ -33,7 +38,8 @@ _csv_fmt      = CSVFormat()
 _json_fmt     = JSONFormat()
 _markdown_fmt = MarkdownFormat()
 _obsidian_fmt = ObsidianFormat()
-from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
+import gui.theme as _theme
+from gui.theme import BG as _BG, PANEL as PANEL, BORDER as BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
     FONT_TITLE, FONT_SUBHEADING, FONT_BODY, FONT_SECONDARY, FONT_TERTIARY,
@@ -44,22 +50,16 @@ from gui.theme import (
     NOTE_HEIGHT, ABSTRACT_HEIGHT,
 )
 
-_GREEN = "#4caf7d"
 _BLUE  = "#5b8dee"
+_GREEN = "#4caf7d"
 _RED   = "#e05c5c"
 
-_PDF_DIR = Path(__file__).parent.parent / "pdfs"
+import gui.qt_assets.styles as _qt_styles
+from gui.qt_assets.styles import (
+    BTN_PANEL as _BTN, BTN_PRIMARY, BTN_LINK, BTN_GHOST, BTN_DANGER, BTN_FILTER_ACTIVE,
+    btn_colored_outline,
+)
 
-_BTN = f"""
-    QPushButton {{
-        background: {_PANEL}; border: 1px solid {_BORDER};
-        border-radius: {RADIUS_MD}px; color: {_TEXT}; font-size: {FONT_SECONDARY}px; padding: 4px 14px;
-    }}
-    QPushButton:hover {{ background: #2a2a4a; }}
-"""
-
-
-# ── PDF download worker ───────────────────────────────────────────────────────
 
 class _PdfMetadataWorker(QThread):
     finished = pyqtSignal(object, str)   # PaperMetadata, pdf_path
@@ -78,319 +78,18 @@ class _PdfMetadataWorker(QThread):
             self.failed.emit(str(e))
 
 
-class _DownloadWorker(QThread):
-    finished = pyqtSignal(str, int, str)   # paper_id, version, local_path
-    failed   = pyqtSignal(str, int, str)   # paper_id, version, error
-
-    def __init__(self, paper_id: str, version: int) -> None:
-        super().__init__()
-        self.paper_id = paper_id
-        self.version  = version
-
-    def run(self) -> None:
-        import urllib.request
-        _PDF_DIR.mkdir(parents=True, exist_ok=True)
-        dest = _PDF_DIR / f"{self.paper_id}v{self.version}.pdf"
-        url  = f"https://arxiv.org/pdf/{self.paper_id}v{self.version}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "linXiv/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                dest.write_bytes(resp.read())
-            self.finished.emit(self.paper_id, self.version, str(dest))
-        except Exception as e:
-            self.failed.emit(self.paper_id, self.version, str(e))
-
-
-# ── Paper card ────────────────────────────────────────────────────────────────
-
-class _PaperCard(QFrame):
-    selection_toggled = pyqtSignal(str, bool)   # paper_id, selected
-    clicked           = pyqtSignal(object)       # emits the DB row
-
-    _CAT_COLORS: dict[str, str] = {
-        "cs.LG": "#5b8dee", "cs.AI": "#7b6dee", "cs.CV": "#4db8c0",
-        "cs.CL": "#ee8d5b", "cs.NE": "#5bbf8a", "physics": "#bf8a5b",
-        "math":  "#bf5b8a", "stat":  "#8abf5b",
-    }
-
-    def __init__(self, row, pdf_window, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._row        = row
-        self._pdf_window = pdf_window
-        self._worker: _DownloadWorker | None = None
-        self._selected   = False
-
-        self._base_style = f"""
-            QFrame#paperCard {{
-                background: {_PANEL}; border: 1px solid {_BORDER}; border-radius: {RADIUS_LG}px;
-            }}
-            QLabel {{ border: none; background: transparent; }}
-        """
-        self._sel_style = f"""
-            QFrame#paperCard {{
-                background: {_PANEL}; border: 1px solid {_ACCENT}; border-radius: {RADIUS_LG}px;
-            }}
-            QLabel {{ border: none; background: transparent; }}
-        """
-        self.setObjectName("paperCard")
-        self.setStyleSheet(self._base_style)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(10, 0, CARD_PAD_H-10, 0)
-        outer.setSpacing(0)
-
-        # Checkbox
-        outer.addSpacing(CARD_PAD_H)
-        self._chk = QCheckBox()
-        self._chk.setFixedSize(44, 44)
-        self._chk.setStyleSheet("QCheckBox { background: transparent; } QCheckBox::indicator { width: 14px; height: 14px; }")
-        self._chk.stateChanged.connect(self._on_checkbox)
-        outer.addWidget(self._chk)
-
-        # Category colour stripe
-        cat   = (row["category"] or "").split(".")[0] if row["category"] else ""
-        color = self._CAT_COLORS.get(row["category"] or "", self._CAT_COLORS.get(cat, _ACCENT))
-        stripe = QWidget()
-        stripe.setFixedWidth(4)
-        stripe.setStyleSheet(f"background: {color}; border-radius: 0;")
-        outer.addWidget(stripe)
-
-        # Body
-        body = QVBoxLayout()
-        body.setContentsMargins(CARD_PAD_H, CARD_PAD_V, 0, CARD_PAD_V)
-        body.setSpacing(SPACE_XS)
-
-        title_lbl = QLabel(row["title"] or "(untitled)")
-        title_lbl.setWordWrap(True)
-        title_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; font-weight: 600; color: {_TEXT};")
-        body.addWidget(title_lbl)
-
-        authors: list[str] = row["authors"] or []
-        if authors:
-            shown = ", ".join(authors[:3])
-            if len(authors) > 3:
-                shown += f" +{len(authors) - 3} more"
-            body.addWidget(QLabel(shown))
-            body.itemAt(body.count() - 1).widget().setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")  # type: ignore[union-attr]
-
-        date_str = row["published"].isoformat() if row["published"] else ""
-        cat_str  = row["category"] or ""
-        meta     = "  ·  ".join(filter(None, [date_str, cat_str]))
-        if meta:
-            ml = QLabel(meta)
-            ml.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
-            body.addWidget(ml)
-
-        tags: list[str] = row["tags"] or []
-        if tags:
-            tl = QLabel("  ".join(f"#{t}" for t in tags[:6]))
-            tl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_ACCENT};")
-            body.addWidget(tl)
-
-        outer.addLayout(body, stretch=1)
-
-        # PDF action button
-        self._pdf_btn = QPushButton()
-        self._pdf_btn.setFixedSize(116, BTN_H_SM)  # TODO: Make more customizable
-        self._pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._refresh_pdf_btn()
-        self._pdf_btn.clicked.connect(self._on_pdf_action)
-        outer.addWidget(self._pdf_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-    # ── Selection ─────────────────────────────────────────────────────────────
-
-    def set_selected(self, selected: bool) -> None:
-        if self._selected == selected:
-            return
-        self._selected = selected
-        self._chk.blockSignals(True)
-        self._chk.setChecked(selected)
-        self._chk.blockSignals(False)
-        self.setStyleSheet(self._sel_style if selected else self._base_style)
-
-    def is_selected(self) -> bool:
-        return self._selected
-
-    def _on_checkbox(self, state: int) -> None:
-        checked = state == Qt.CheckState.Checked.value
-        self._selected = checked
-        self.setStyleSheet(self._sel_style if checked else self._base_style)
-        self.selection_toggled.emit(self._row["paper_id"], checked)
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                self.set_selected(not self._selected)
-                self.selection_toggled.emit(self._row["paper_id"], self._selected)
-                return
-            # Plain click on card body → open detail view
-            self.clicked.emit(self._row)
-        super().mousePressEvent(event)
-
-    # ── PDF helpers ───────────────────────────────────────────────────────────
-
-    def paper_id(self) -> str:
-        return self._row["paper_id"]
-
-    def is_arxiv(self) -> bool:
-        src = self._row["source"] if "source" in self._row.keys() else "arxiv"
-        return (src or "arxiv") == "arxiv"
-
-    def local_pdf_path(self) -> str | None:
-        p = self._row["pdf_path"] if "pdf_path" in self._row.keys() else None
-        if p and os.path.isfile(p):
-            return p
-        std = _PDF_DIR / f"{self._row['paper_id']}v{self._row['version']}.pdf"
-        return str(std) if std.is_file() else None
-
-    def _refresh_pdf_btn(self) -> None:
-        path = self.local_pdf_path()
-        if path:
-            self._pdf_btn.setText("Open PDF")
-            self._pdf_btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; border: 1px solid {_GREEN};
-                    border-radius: {RADIUS_SM}px; color: {_GREEN}; font-size: {FONT_TERTIARY}px; }}
-                QPushButton:hover {{ background: #1a2e1f; }}
-            """)
-        elif self.is_arxiv():
-            self._pdf_btn.setText("Download PDF")
-            self._pdf_btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; border: 1px solid {_BLUE};
-                    border-radius: {RADIUS_SM}px; color: {_BLUE}; font-size: {FONT_TERTIARY}px; }}
-                QPushButton:hover {{ background: #1a1f2e; }}
-            """)
-        else:
-            self._pdf_btn.setText("Link PDF")
-            self._pdf_btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; border: 1px solid {_BORDER};
-                    border-radius: {RADIUS_SM}px; color: {_MUTED}; font-size: {FONT_TERTIARY}px; }}
-                QPushButton:hover {{ background: #1a1a2a; }}
-            """)
-
-    def _on_pdf_action(self) -> None:
-        path = self.local_pdf_path()
-        if path:
-            self._pdf_window.load_pdf(path)
-        elif self.is_arxiv():
-            self._start_download()
-        else:
-            self._link_pdf()
-
-    def start_download_if_needed(self) -> None:
-        """Called by bulk download. No-op if already has a PDF or not arXiv."""
-        if self.local_pdf_path() or not self.is_arxiv():
-            return
-        self._start_download()
-
-    def _start_download(self) -> None:
-        self._pdf_btn.setText("Downloading…")
-        self._pdf_btn.setEnabled(False)
-        pid, ver = self._row["paper_id"], self._row["version"]
-        self._worker = _DownloadWorker(pid, ver)
-        self._worker.finished.connect(self._on_download_done)
-        self._worker.failed.connect(self._on_download_failed)
-        self._worker.start()
-
-    def _on_download_done(self, paper_id: str, version: int, path: str) -> None:
-        set_pdf_path(paper_id, path)
-        set_has_pdf(paper_id, version, True)
-        self._pdf_btn.setEnabled(True)
-        self._refresh_pdf_btn()
-        self._pdf_window.load_pdf(path)
-
-    def _on_download_failed(self, _pid: str, _ver: int, _err: str) -> None:
-        self._pdf_btn.setEnabled(True)
-        self._pdf_btn.setText("Failed — retry?")
-        self._pdf_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: 1px solid {_RED};
-                border-radius: 5px; color: {_RED}; font-size: {FONT_TERTIARY}px; }}
-        """)
-
-    def _link_pdf(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Link PDF", "", "PDF Files (*.pdf)")
-        if not path:
-            return
-        pid, ver = self._row["paper_id"], self._row["version"]
-        set_pdf_path(pid, path)
-        set_has_pdf(pid, ver, True)
-        self._refresh_pdf_btn()
-
-
-# ── Action bar (shown when papers are selected) ───────────────────────────────
-
-class _ActionBar(QFrame):
-    download_requested     = pyqtSignal()
-    add_to_project_requested = pyqtSignal()
-    clear_requested        = pyqtSignal()
-    select_all_requested   = pyqtSignal()
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setStyleSheet(f"""
-            QFrame {{ background: #1e1e36; border-top: 1px solid {_BORDER}; }}
-            QLabel {{ background: transparent; border: none; }}
-        """)
-        self.setFixedHeight(52)  # TODO: Make more customizable
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(24, 0, 24, 0)
-        row.setSpacing(SPACE_MD)
-
-        self._count_lbl = QLabel()
-        self._count_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; font-weight: 600; color: {_TEXT};")
-        row.addWidget(self._count_lbl)
-        row.addSpacing(SPACE_SM)
-
-        self._dl_btn = self._btn("Download PDFs", _BLUE)
-        self._dl_btn.clicked.connect(self.download_requested)
-        row.addWidget(self._dl_btn)
-
-        self._proj_btn = self._btn("Add to Project", _ACCENT)
-        self._proj_btn.clicked.connect(self.add_to_project_requested)
-        row.addWidget(self._proj_btn)
-
-        row.addStretch()
-
-        sel_all = QPushButton("Select All")
-        sel_all.setFixedHeight(BTN_H_MD)
-        sel_all.setCursor(Qt.CursorShape.PointingHandCursor)
-        sel_all.setStyleSheet(_BTN)
-        sel_all.clicked.connect(self.select_all_requested)
-        row.addWidget(sel_all)
-
-        clr = QPushButton("Clear")
-        clr.setFixedHeight(BTN_H_MD)
-        clr.setCursor(Qt.CursorShape.PointingHandCursor)
-        clr.setStyleSheet(_BTN)
-        clr.clicked.connect(self.clear_requested)
-        row.addWidget(clr)
-
-    def set_count(self, n: int) -> None:
-        self._count_lbl.setText(f"{n} selected")
-
-    @staticmethod
-    def _btn(label: str, color: str) -> QPushButton:
-        b = QPushButton(label)
-        b.setFixedHeight(BTN_H_MD)
-        b.setCursor(Qt.CursorShape.PointingHandCursor)
-        b.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: 1px solid {color};
-                border-radius: {RADIUS_MD}px; color: {color}; font-size: {FONT_SECONDARY}px; padding: 4px 14px; }}
-            QPushButton:hover {{ background: rgba(91,141,238,0.08); }}
-        """)
-        return b
-
-
 # ── Paper detail view ────────────────────────────────────────────────────────
 
 class PaperDetailView(QWidget):
     back_requested       = pyqtSignal()
     navigate_to_project  = pyqtSignal(object)   # emits Project
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, pdf_window=None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._current_row = None
+        self._pdf_window  = pdf_window
+        self._pdf_btn:    QPushButton | None = None
+        self._pdf_worker: _DownloadWorker | None = None
         self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
 
         outer = QVBoxLayout(self)
@@ -398,18 +97,32 @@ class PaperDetailView(QWidget):
         outer.setSpacing(0)
 
         # Back button
-        back_btn = QPushButton("← Back")
+        self._back_btn = back_btn = QPushButton("← Back")
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        back_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: none;
-                color: {_ACCENT}; font-size: {FONT_BODY}px; padding: 0; }}
-            QPushButton:hover {{ color: #7aa3f5; }}
-        """)
+        back_btn.setStyleSheet(BTN_LINK)
         back_btn.setFixedHeight(BTN_H_SM)
         back_btn.clicked.connect(self.back_requested)
-        outer.addWidget(back_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-        outer.addSpacing(SPACE_LG)
+        self._repair_btn = repair = QPushButton("Edit")
+        repair.setCursor(Qt.CursorShape.PointingHandCursor)
+        repair.setStyleSheet(BTN_PRIMARY)
+        repair.setFixedHeight(BTN_H_SM)
+        repair.clicked.connect(self._on_repair)
 
+        self._pdf_btn = QPushButton("PDF")
+        self._pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._pdf_btn.setStyleSheet(_BTN)
+        self._pdf_btn.setFixedHeight(BTN_H_SM)
+        self._pdf_btn.clicked.connect(self._on_pdf_action)
+
+        nav_row = QHBoxLayout()
+        nav_row.setContentsMargins(0, 0, 0, 0)
+        nav_row.setSpacing(SPACE_SM)
+        nav_row.addWidget(back_btn)
+        nav_row.addStretch()
+        nav_row.addWidget(self._pdf_btn)
+        nav_row.addWidget(repair)
+        outer.addLayout(nav_row)
+        outer.addSpacing(SPACE_LG)
         # Scroll area holds everything below the back button
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -425,6 +138,13 @@ class PaperDetailView(QWidget):
         scroll.setWidget(self._body)
         outer.addWidget(scroll, stretch=1)
 
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._back_btn.setStyleSheet(_qt_styles.BTN_LINK)
+        self._repair_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        if self._pdf_btn is not None:
+            self._pdf_btn.setStyleSheet(_qt_styles.BTN_PANEL)
+
     def load(self, row) -> None:
         self._current_row = row
         # Clear previous content
@@ -435,7 +155,8 @@ class PaperDetailView(QWidget):
                 if widget:
                     widget.deleteLater()
 
-        paper_id = row["paper_id"]
+        source_id  = row["source_id"]
+        source_fk = row["source_fk"]
 
         # ── Title ─────────────────────────────────────────────────────────────
         title_lbl = QLabel(row["title"] or "(untitled)")
@@ -496,10 +217,13 @@ class PaperDetailView(QWidget):
         self._body_layout.addSpacing(SPACE_SM)
 
         try:
-            from storage.projects import filter_projects, Status
+            from service.project import filter_projects
+            from service.paper import get_paper_root
+            root = get_paper_root(source_id)
+            source_fk = int(root["SOURCE_FK"]) if root is not None else None
             all_projects = filter_projects()
             containing = [p for p in all_projects
-                          if paper_id in (p.paper_ids or [])
+                          if source_fk is not None and source_fk in p.source_fks
                           and p.status != Status.DELETED]
         except Exception:
             containing = []
@@ -545,12 +269,28 @@ class PaperDetailView(QWidget):
         self._body_layout.addSpacing(SPACE_XL)
 
         # ── Notes ─────────────────────────────────────────────────────────────
-        self._body_layout.addWidget(self._section_label("Notes"))
+        add_note_btn = QPushButton("+ Add Note")
+        add_note_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_note_btn.setStyleSheet(_BTN)
+        add_note_btn.setFixedHeight(BTN_H_SM)
+        if source_fk:
+            add_note_btn.clicked.connect(lambda: self._add_note(source_fk))
+        else:
+            add_note_btn.setEnabled(False)
+        notes_hdr = QHBoxLayout()
+        notes_hdr.setContentsMargins(0, 0, 0, 0)
+        notes_hdr.addWidget(self._section_label("Notes"))
+        notes_hdr.addStretch()
+        notes_hdr.addWidget(add_note_btn)
+        notes_hdr_w = QWidget()
+        notes_hdr_w.setStyleSheet("background: transparent;")
+        notes_hdr_w.setLayout(notes_hdr)
+        self._body_layout.addWidget(notes_hdr_w)
         self._body_layout.addSpacing(SPACE_SM)
 
         try:
-            from storage.notes import get_notes
-            all_notes = get_notes(paper_id, all_projects=True)
+            import service.note as note_svc
+            all_notes = note_svc.get_notes(note_svc.Notes(source_fk=source_fk))
         except Exception:
             all_notes = []
 
@@ -569,24 +309,137 @@ class PaperDetailView(QWidget):
             missing_ids = note_proj_ids - set(proj_names)
             if missing_ids:
                 try:
-                    from storage.projects import get_project
                     for pid in missing_ids:
-                        p = get_project(pid)
+                        p = project_svc.get_project_details(pid)
                         if p and p.id is not None:
                             proj_names[p.id] = p.name
                 except Exception:
                     pass
 
             for note in all_notes:
-                self._body_layout.addWidget(self._note_card(note, proj_names))
+                self._body_layout.addWidget(
+                    NoteCard(self, note, proj_names, on_delete=lambda n=note: self._delete_note(n))
+                )
                 self._body_layout.addSpacing(SPACE_SM)
 
         self._body_layout.addStretch()
+        self._refresh_pdf_btn()
 
-    def get_current_paper_id(self) -> str | None:
+    def _on_repair(self) -> None:
+        if self._current_row is None:
+            return
+        dlg = AddPaperManuallyDialog(self)
+        dlg.setWindowTitle("Repair Paper")
+        dlg.load_from_row(self._current_row)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        source_fk    = self._current_row["source_fk"]
+        old_source_id = self._current_row["source_id"]
+        try:
+            meta = dlg.get_metadata(old_source_id)
+            paper_svc.repair_paper(source_fk, meta)
+            new_source_id = paper_svc.get_source_id(source_fk)
+            if new_source_id:
+                new_row = paper_svc.get_paper(new_source_id)
+                if new_row is not None:
+                    self.load(new_row)
+        except Exception as e:
+            print(f"[repair] {e}")
+            QMessageBox.critical(self, "Repair Failed", str(e))
+
+    def get_current_source_fk(self) -> int | None:
         if self._current_row is None:
             return None
-        return self._current_row["paper_id"]
+        return self._current_row["source_fk"]
+
+    # ── PDF ───────────────────────────────────────────────────────────────────
+
+    def _local_pdf_path(self) -> str | None:
+        if self._current_row is None:
+            return None
+        custom = self._current_row["pdf_path"] if "pdf_path" in self._current_row.keys() else None
+        return _files.pdf_path(self._current_row["source_id"], self._current_row["version"], custom)
+
+    def _is_arxiv(self) -> bool:
+        if self._current_row is None:
+            return False
+        src = self._current_row["source"] if "source" in self._current_row.keys() else None
+        return (src or "arxiv") == "arxiv"
+
+    def _refresh_pdf_btn(self) -> None:
+        if self._pdf_btn is None:
+            return
+        path = self._local_pdf_path()
+        if path:
+            self._pdf_btn.setText("Open PDF")
+            self._pdf_btn.setStyleSheet(btn_colored_outline("#4caf7d", hover_bg="#1a2e1f"))
+        elif self._is_arxiv():
+            self._pdf_btn.setText("Download PDF")
+            self._pdf_btn.setStyleSheet(_BTN)
+        else:
+            self._pdf_btn.setText("Link PDF")
+            self._pdf_btn.setStyleSheet(_BTN)
+
+    def _on_pdf_action(self) -> None:
+        path = self._local_pdf_path()
+        if path:
+            if self._pdf_window is not None:
+                self._pdf_window.load_pdf(path)
+        elif self._is_arxiv():
+            self._start_download()
+        else:
+            self._link_pdf()
+
+    def _start_download(self) -> None:
+        if self._pdf_btn is None or self._current_row is None:
+            return
+        self._pdf_btn.setText("Downloading…")
+        self._pdf_btn.setEnabled(False)
+        pid, sid, ver = self._current_row["source_id"], self._current_row["source_id"], self._current_row["version"]
+        self._pdf_worker = _DownloadWorker(pid, sid, ver)
+        self._pdf_worker.finished.connect(self._on_download_done)
+        self._pdf_worker.failed.connect(self._on_download_failed)
+        self._pdf_worker.rate_limited.connect(self._on_download_rate_limited)
+        self._pdf_worker.start()
+
+    def _on_download_done(self, source_id: str, version: int, path: str) -> None:
+        paper_svc.set_pdf_path(source_id, path)
+        paper_svc.set_has_pdf(source_id, version, True)
+        if self._pdf_btn is not None:
+            self._pdf_btn.setEnabled(True)
+        self._refresh_pdf_btn()
+        if self._pdf_window is not None:
+            self._pdf_window.load_pdf(path)
+
+    def _on_download_rate_limited(self, _pid: str, _ver: int) -> None:
+        if self._pdf_btn is not None:
+            self._pdf_btn.setText("Rate limited — retrying…")
+
+    def _on_download_failed(self, _pid: str, _ver: int, err: str) -> None:
+        if self._pdf_btn is None:
+            return
+        self._pdf_btn.setEnabled(True)
+        self._pdf_btn.setText("Rate limited — retry?" if err == "rate limited" else "Failed — retry?")
+        self._pdf_btn.setStyleSheet(BTN_DANGER)
+
+    def _link_pdf(self) -> None:
+        if self._current_row is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Link PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+        pid, ver = self._current_row["source_id"], self._current_row["version"]
+        paper_svc.set_pdf_path(pid, path)
+        paper_svc.set_has_pdf(pid, ver, True)
+        self._refresh_pdf_btn()
+
+    # ── Notes ─────────────────────────────────────────────────────────────────
+
+    def _add_note(self, source_fk: int) -> None:
+        from gui.projects import NoteEditorDialog
+        dlg = NoteEditorDialog(source_fk=source_fk, parent=self)
+        if dlg.exec() and self._current_row is not None:
+            self.load(self._current_row)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -598,54 +451,16 @@ class PaperDetailView(QWidget):
         )
         return lbl
 
-    def _note_card(self, note, proj_names: dict[int, str]) -> QFrame:
-        card = QFrame()
-        card.setStyleSheet(f"""
-            QFrame {{ background: {_PANEL}; border: 1px solid {_BORDER}; border-radius: {RADIUS_LG}px; }}
-            QLabel {{ border: none; background: transparent; }}
-        """)
-        col = QVBoxLayout(card)
-        col.setContentsMargins(CARD_PAD_H, CARD_PAD_V, CARD_PAD_H, CARD_PAD_V)
-        col.setSpacing(SPACE_XS)
-
-        # Note header: project chip + date + edit button
-        hdr = QHBoxLayout()
-        if note.project_id is not None:
-            proj_name = proj_names.get(note.project_id, f"Project {note.project_id}")
-            chip = QLabel(f"📁 {proj_name}")
-            chip.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_ACCENT};")
-            hdr.addWidget(chip)
-        else:
-            standalone = QLabel("Standalone note")
-            standalone.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
-            hdr.addWidget(standalone)
-
-        hdr.addStretch()
-        if note.created_at:
-            date_lbl = QLabel(note.created_at.strftime("%Y-%m-%d"))
-            date_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
-            hdr.addWidget(date_lbl)
-
-        _ghost = f"QPushButton {{ background: transparent; border: none; font-size: {FONT_TERTIARY}px; padding: 0 {SPACE_XS}px; }}"
-        edit_btn = QPushButton("Edit")
-        edit_btn.setStyleSheet(_ghost + f" QPushButton {{ color: {_MUTED}; }} QPushButton:hover {{ color: {_TEXT}; }}")
-        edit_btn.clicked.connect(lambda _, n=note: self._edit_note(n))
-        hdr.addWidget(edit_btn)
-        col.addLayout(hdr)
-
-        from gui.views import MarkdownView
-        md = MarkdownView()
-        md.set_title(note.title or "Untitled")
-        md.set_content(note.content or "")
-        md.setFixedHeight(NOTE_HEIGHT)
-        col.addWidget(md)
-
-        return card
-
     def _edit_note(self, note) -> None:
         from gui.projects import NoteEditorDialog
         dlg = NoteEditorDialog(note=note, parent=self)
         if dlg.exec():
+            self.load(self._current_row)
+
+    def _delete_note(self, note) -> None:
+        import service.note as note_svc
+        note_svc.delete(note_svc.Note(note_id=note.note_id))
+        if self._current_row is not None:
             self.load(self._current_row)
 
 
@@ -658,8 +473,8 @@ class LibraryPage(QWidget):
         super().__init__(parent)
         self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
         self._all_rows: list = []
-        self._cards:    list[_PaperCard] = []
-        self._selected: set[str] = set()   # paper_ids
+        self._cards:    list[PaperCard] = []
+        self._selected: set[int] = set()   # source_fks
         self._pdf_worker: _PdfMetadataWorker | None = None
         self._pdf_queue:  list[str] = []
         self._pdf_total  = 0
@@ -678,7 +493,7 @@ class LibraryPage(QWidget):
         root.addWidget(self._stack)
 
         # ── Page 0: list ──────────────────────────────────────────────────────
-        list_page = QWidget()
+        self._list_page = list_page = QWidget()
         list_page.setStyleSheet(f"background: {_BG};")
         outer = QVBoxLayout(list_page)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -686,16 +501,16 @@ class LibraryPage(QWidget):
         self._stack.addWidget(list_page)
 
         # ── Page 1: detail ────────────────────────────────────────────────────
-        self._detail_view = PaperDetailView()
+        self._detail_view = PaperDetailView(pdf_window=self._pdf_window)
         self._app_shell: AppShell | None = None
         self._paper_detail_back_goes_to_prior_shell_tab = False
-        self._paper_id_for_project_return: str | None = None
+        self._source_fk_for_project_return: int | None = None
         self._detail_view.back_requested.connect(self._on_back_requested)
         self._detail_view.navigate_to_project.connect(self._on_detail_navigate_to_project)
         self._stack.addWidget(self._detail_view)
 
         # ── Inner (scrollable area + header + filter) ─────────────────────────
-        inner_widget = QWidget()
+        self._inner_widget = inner_widget = QWidget()
         inner_widget.setStyleSheet(f"background: {_BG};")
         inner = QVBoxLayout(inner_widget)
         inner.setContentsMargins(PAGE_MARGIN_H, PAGE_MARGIN_V, PAGE_MARGIN_H, 16)
@@ -703,7 +518,7 @@ class LibraryPage(QWidget):
 
         # Header row
         hdr = QHBoxLayout()
-        title_lbl = QLabel("Library")
+        self._title_lbl = title_lbl = QLabel("Library")
         title_lbl.setStyleSheet(
             f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;"
         )
@@ -716,7 +531,7 @@ class LibraryPage(QWidget):
         hdr.addWidget(self._count_lbl, alignment=Qt.AlignmentFlag.AlignBottom)
         hdr.addStretch()
 
-        refresh_btn = QPushButton("Refresh")
+        self._refresh_hdr_btn = refresh_btn = QPushButton("Refresh")
         refresh_btn.setFixedHeight(BTN_H_MD)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.setStyleSheet(_BTN)
@@ -741,7 +556,7 @@ class LibraryPage(QWidget):
         self._search.setPlaceholderText("Search title or author…")
         self._search.setStyleSheet(f"""
             QLineEdit {{
-                background: {_PANEL}; border: 1px solid {_BORDER};
+                background: {PANEL}; border: 1px solid {BORDER};
                 border-radius: {RADIUS_MD}px; color: {_TEXT}; font-size: {FONT_BODY}px; padding: 6px 12px;
             }}
             QLineEdit:focus {{ border-color: {_ACCENT}; }}
@@ -771,7 +586,7 @@ class LibraryPage(QWidget):
         self._cards_widget.setStyleSheet("background: transparent;")
         self._cards_layout = QVBoxLayout(self._cards_widget)
         self._cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._cards_layout.setSpacing(SPACE_SM)
+        self._cards_layout.setSpacing(SPACE_MD)
         self._cards_layout.addStretch()
 
         scroll.setWidget(self._cards_widget)
@@ -788,10 +603,16 @@ class LibraryPage(QWidget):
         outer.addWidget(inner_widget, stretch=1)
 
         # ── Action bar (pinned to bottom, hidden when nothing selected) ───────
-        self._action_bar = _ActionBar(self)
-        self._action_bar.setVisible(False)
+        self._action_bar = SelectionBar(
+            show_select_all=True,
+            show_remove_pdfs=True,
+            show_remove_from_library=True,
+            parent=self,
+        )
         self._action_bar.download_requested.connect(self._on_bulk_download)
+        self._action_bar.remove_pdfs_requested.connect(self._on_remove_pdfs)
         self._action_bar.add_to_project_requested.connect(self._on_add_to_project)
+        self._action_bar.remove_from_library_requested.connect(self._on_remove_from_library)
         self._action_bar.clear_requested.connect(self._clear_selection)
         self._action_bar.select_all_requested.connect(self._select_all)
         outer.addWidget(self._action_bar)
@@ -819,17 +640,40 @@ class LibraryPage(QWidget):
             (self._btn_nopdf,  "no_pdf"),
         ]:
             if mode == self._filter_mode:
-                btn.setStyleSheet(f"""
-                    QPushButton {{ background: {_ACCENT}; border: none;
-                        border-radius: {RADIUS_MD}px; color: #fff; font-size: {FONT_SECONDARY}px; padding: 4px 14px; }}
-                """)
+                btn.setStyleSheet(_qt_styles.BTN_FILTER_ACTIVE)
             else:
-                btn.setStyleSheet(_BTN)
+                btn.setStyleSheet(_qt_styles.BTN_PANEL)
 
     # ── Data ──────────────────────────────────────────────────────────────────
 
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._list_page.setStyleSheet(f"background: {_theme.BG};")
+        self._inner_widget.setStyleSheet(f"background: {_theme.BG};")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.ACCENT}; background: transparent;"
+        )
+        self._count_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._search.setStyleSheet(f"""
+            QLineEdit {{
+                background: {_theme.PANEL}; border: 1px solid {_theme.BORDER};
+                border-radius: {RADIUS_MD}px; color: {_theme.TEXT}; font-size: {FONT_BODY}px; padding: 6px 12px;
+            }}
+            QLineEdit:focus {{ border-color: {_theme.ACCENT}; }}
+        """)
+        self._empty_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._refresh_hdr_btn.setStyleSheet(_qt_styles.BTN_PANEL)
+        self._import_btn.setStyleSheet(_qt_styles.BTN_PANEL)
+        self._sync_filter_btns()
+        self._detail_view.refresh_styles()
+        self.refresh()
+
     def refresh(self) -> None:
-        self._all_rows = list_papers(latest_only=True)
+        self._all_rows = paper_svc.list_papers(latest_only=True)
         self._apply_filter()
 
     def _apply_filter(self) -> None:
@@ -866,8 +710,8 @@ class LibraryPage(QWidget):
 
         self._empty_lbl.setVisible(not rows)
         for row in rows:
-            card = _PaperCard(row, self._pdf_window, self._cards_widget)
-            if row["paper_id"] in self._selected:
+            card = PaperCard(row, pdf_window=self._pdf_window, parent=self._cards_widget)
+            if row["source_id"] in self._selected:
                 card.set_selected(True)
             card.selection_toggled.connect(self._on_card_toggle)
             card.clicked.connect(self._on_paper_card_clicked)
@@ -880,24 +724,26 @@ class LibraryPage(QWidget):
         """Shell reference for cross-tab Back after open_paper() from another page."""
         self._app_shell = shell
 
-    def take_paper_id_for_project_return(self) -> str | None:
+    def take_source_fk_for_project_return(self) -> int | None:
         """Consume paper id saved when jumping Library detail → Projects (for restoring detail)."""
-        pid = self._paper_id_for_project_return
-        self._paper_id_for_project_return = None
+        pid = self._source_fk_for_project_return
+        self._source_fk_for_project_return = None
         return pid
 
     def _on_detail_navigate_to_project(self, project) -> None:
-        self._paper_id_for_project_return = self._detail_view.get_current_paper_id()
+        self._source_fk_for_project_return = self._detail_view.get_current_source_fk()
         self.navigate_to_project.emit(project)
 
-    def show_paper_detail_by_id(self, paper_id: str) -> None:
+    def show_paper_detail_by_id(self, source_fk: int) -> None:
         """Re-open paper detail (e.g. after Back from Projects).
 
         Does not change cross-tab Back: if the user opened this paper via ``open_paper``
         from another tab (e.g. Graph), that return path stays active.
         """
-        from storage.db import get_paper
-        row = get_paper(paper_id)
+        source_id = paper_svc.get_source_id(source_fk)
+        if source_id is None:
+            return
+        row = paper_svc.get_paper(source_id)
         if row is None:
             return
         self._open_detail(row)
@@ -911,10 +757,12 @@ class LibraryPage(QWidget):
         """
         self._stack.setCurrentIndex(0)
 
-    def open_paper(self, paper_id: str) -> None:
+    def open_paper(self, source_fk: int) -> None:
         """Open the detail view for a paper (e.g. from Graph). Back returns to prior shell tab."""
-        from storage.db import get_paper
-        row = get_paper(paper_id)
+        source_id = paper_svc.get_source_id(source_fk)
+        if source_id is None:
+            return
+        row = paper_svc.get_paper(source_id)
         if row is not None:
             self._paper_detail_back_goes_to_prior_shell_tab = True
             self._open_detail(row)
@@ -934,11 +782,11 @@ class LibraryPage(QWidget):
         self._detail_view.load(row)
         self._stack.setCurrentIndex(1)
 
-    def _on_card_toggle(self, paper_id: str, selected: bool) -> None:
+    def _on_card_toggle(self, source_fk: int, selected: bool) -> None:
         if selected:
-            self._selected.add(paper_id)
+            self._selected.add(source_fk)
         else:
-            self._selected.discard(paper_id)
+            self._selected.discard(source_fk)
         self._sync_action_bar()
 
     def _clear_selection(self) -> None:
@@ -954,9 +802,7 @@ class LibraryPage(QWidget):
         self._sync_action_bar()
 
     def _sync_action_bar(self) -> None:
-        n = len(self._selected)
-        self._action_bar.setVisible(n > 0)
-        self._action_bar.set_count(n)
+        self._action_bar.set_count(len(self._selected))
 
     # ── Bulk actions ──────────────────────────────────────────────────────────
 
@@ -976,8 +822,9 @@ class LibraryPage(QWidget):
         menu.addAction("Markdown file…",         self._import_markdown_file)
         menu.addAction("Obsidian file…",         self._import_obsidian_file)
         menu.addSeparator()
-        menu.addAction("PDF…",    self._import_pdf)
-        menu.addAction("Folder…", self._import_not_implemented)
+        menu.addAction("PDF…",              self._import_pdf)
+        menu.addAction("Folder…",           self._import_not_implemented)
+        menu.addAction("Manual entry…",     self._import_manual)
         menu.exec(self._import_btn.mapToGlobal(self._import_btn.rect().bottomLeft()))
 
     def _import_bibtex_file(self) -> None:
@@ -1011,7 +858,7 @@ class LibraryPage(QWidget):
         editor.setPlaceholderText("@article{...}")
         editor.setStyleSheet(f"""
             QTextEdit {{
-                background: {_PANEL}; border: 1px solid {_BORDER};
+                background: {PANEL}; border: 1px solid {BORDER};
                 border-radius: {RADIUS_MD}px; color: {_TEXT};
                 font-family: monospace; font-size: {FONT_SECONDARY}px; padding: 8px;
             }}
@@ -1110,15 +957,14 @@ class LibraryPage(QWidget):
 
     def _on_pdf_metadata_done(self, meta, path: str) -> None:
         self._pdf_queue.pop(0)
-        from storage.db import get_paper
-        existing = get_paper(meta.paper_id)
+        existing = paper_svc.get_paper(meta.source_id)
         if existing is None:
-            save_papers_metadata([meta])
+            paper_svc.save_papers_metadata([meta])
             self._pdf_added += 1
         else:
             self._pdf_skipped += 1
-        set_pdf_path(meta.paper_id, path)
-        set_has_pdf(meta.paper_id, meta.version, True)
+        paper_svc.set_pdf_path(meta.source_id, path)
+        paper_svc.set_has_pdf(meta.source_id, meta.version, True)
         if self._pdf_queue:
             self._start_next_pdf()
         else:
@@ -1146,6 +992,25 @@ class LibraryPage(QWidget):
             parts.append(f"{self._pdf_failed} failed to resolve.")
         QMessageBox.information(self, "Import Complete", "  ".join(parts) or "Nothing imported.")
 
+    def _import_manual(self) -> None:
+        dlg = AddPaperManuallyDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            meta = dlg.get_metadata()
+            if paper_svc.get_paper(meta.source_id) is not None:
+                QMessageBox.warning(
+                    self, "Already in Library",
+                    f"A paper with ID '{meta.source_id}' is already in the library.\n"
+                    "Edit it using the Repair button on its detail page.",
+                )
+                return
+            paper_svc.save_paper_metadata(meta)
+            self.refresh()
+        except Exception as e:
+            print(f"[import_manual] {e}")
+            QMessageBox.critical(self, "Import Failed", str(e))
+
     def _import_not_implemented(self) -> None:
         from PyQt6.QtGui import QAction
         from PyQt6.QtWidgets import QMessageBox
@@ -1155,14 +1020,13 @@ class LibraryPage(QWidget):
 
     def _finish_import(self, papers) -> None:
         from PyQt6.QtWidgets import QMessageBox
-        from storage.db import get_paper
         added = skipped = 0
         for meta in papers:
-            existing = get_paper(meta.paper_id)
+            existing = paper_svc.get_paper(meta.source_id)
             if existing is not None:
                 skipped += 1
             else:
-                save_papers_metadata([meta])
+                paper_svc.save_papers_metadata([meta])
                 added += 1
         self.refresh()
         QMessageBox.information(
@@ -1174,7 +1038,7 @@ class LibraryPage(QWidget):
         if not self._selected:
             return
         from PyQt6.QtWidgets import QDialog, QComboBox, QDialogButtonBox, QMessageBox
-        from storage.projects import filter_projects, Q
+        from service.project import filter_projects
 
         projects = filter_projects(Q("status = 'active'"))
         if not projects:
@@ -1191,7 +1055,7 @@ class LibraryPage(QWidget):
         lay.addWidget(QLabel(f"Add {len(self._selected)} paper(s) to:"))
         combo = QComboBox()
         combo.setStyleSheet(f"""
-            QComboBox {{ background: {_PANEL}; border: 1px solid {_BORDER};
+            QComboBox {{ background: {PANEL}; border: 1px solid {BORDER};
                 border-radius: {RADIUS_SM}px; color: {_TEXT}; padding: 4px 8px; font-size: {FONT_BODY}px; }}
         """)
         for p in projects:
@@ -1214,3 +1078,52 @@ class LibraryPage(QWidget):
                 project.add_paper(pid)
             except Exception:
                 pass
+
+    def _on_remove_pdfs(self) -> None:
+        if not self._selected:
+            return
+        affected = [c for c in self._cards if c.paper_id() in self._selected and c.local_pdf_path()]
+        if not affected:
+            return
+        n = len(affected)
+        reply = QMessageBox.question(
+            self,
+            "Remove PDFs",
+            f"Remove local PDFs for {n} paper(s)?\n\nPDFs downloaded by linXiv will be deleted from disk. Externally linked PDFs will be unlinked only.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        for card in affected:
+            path = card.local_pdf_path()
+            if path:
+                try:
+                    _files.delete_pdf(path)
+                except OSError as e:
+                    print(f"[remove_pdfs] Error removing PDF: {path}")
+                    print(f"[remove_pdfs] {e}")
+            sid = paper_svc.get_source_id(card.paper_id())
+            if sid:
+                paper_svc.set_pdf_path(sid, "")
+                paper_svc.set_has_pdf(sid, card._row["version"], False)
+        self.refresh()
+
+    def _on_remove_from_library(self) -> None:
+        if not self._selected:
+            return
+        n = len(self._selected)
+        reply = QMessageBox.question(
+            self,
+            "Remove from library",
+            f"Permanently delete {n} paper(s) from the library? This cannot be undone.\n\nLinked PDFs will not be deleted from disk; PDFs downloaded by linXiv will be.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        for sfk in list(self._selected):
+            sid = paper_svc.get_source_id(sfk)
+            if sid:
+                paper_svc.delete_paper(sid)
+        self._selected.clear()
+        self.refresh()

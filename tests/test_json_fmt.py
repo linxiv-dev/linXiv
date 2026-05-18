@@ -63,7 +63,7 @@ class TestParseList:
 
 def _make_paper(**overrides) -> dict:
     base = {
-        "paper_id":   "2301.00001",
+        "source_id":   "2301.00001",
         "version":    1,
         "title":      "Test Paper",
         "authors":    ["Alice Author", "Bob Builder"],
@@ -89,7 +89,7 @@ class TestExportPapers:
     def test_single_paper_fields(self):
         out = _fmt.export_papers([_make_paper()])
         p = json.loads(out)["papers"][0]
-        assert p["paper_id"] == "2301.00001"
+        assert p["source_id"] == "2301.00001"
         assert p["title"] == "Test Paper"
         assert p["authors"] == ["Alice Author", "Bob Builder"]
         assert p["published"] == "2023-01-01"
@@ -100,7 +100,7 @@ class TestExportPapers:
         assert p["published"] == "2022-05-10"
 
     def test_multiple_papers(self):
-        papers = [_make_paper(paper_id="a"), _make_paper(paper_id="b")]
+        papers = [_make_paper(source_id="a"), _make_paper(source_id="b")]
         out = _fmt.export_papers(papers)
         assert len(json.loads(out)["papers"]) == 2
 
@@ -123,7 +123,7 @@ def _write_temp_json(data: dict | list) -> str:
 class TestImportFile:
     def test_basic_fields(self):
         path = _write_temp_json({"papers": [{
-            "paper_id": "2301.00001",
+            "source_id": "2301.00001",
             "title": "Hello World",
             "authors": ["A. Author"],
             "published": "2023-01-01",
@@ -135,7 +135,7 @@ class TestImportFile:
             papers = _fmt.import_file(path)
             assert len(papers) == 1
             p = papers[0]
-            assert p.paper_id == "2301.00001"
+            assert p.source_id == "2301.00001"
             assert p.title == "Hello World"
             assert p.authors == ["A. Author"]
             assert p.published == datetime.date(2023, 1, 1)
@@ -145,17 +145,17 @@ class TestImportFile:
             os.unlink(path)
 
     def test_flat_list_without_papers_key(self):
-        path = _write_temp_json([{"paper_id": "x", "title": "T", "authors": []}])
+        path = _write_temp_json([{"source_id": "x", "title": "T", "authors": []}])
         try:
             papers = _fmt.import_file(path)
             assert len(papers) == 1
-            assert papers[0].paper_id == "x"
+            assert papers[0].source_id == "x"
         finally:
             os.unlink(path)
 
     def test_tags_parsed(self):
         path = _write_temp_json({"papers": [{
-            "paper_id": "1", "title": "T", "authors": [], "tags": ["a", "b"],
+            "source_id": "1", "title": "T", "authors": [], "tags": ["a", "b"],
         }]})
         try:
             papers = _fmt.import_file(path)
@@ -164,7 +164,7 @@ class TestImportFile:
             os.unlink(path)
 
     def test_missing_optional_fields_are_none(self):
-        path = _write_temp_json({"papers": [{"paper_id": "1", "title": "T", "authors": []}]})
+        path = _write_temp_json({"papers": [{"source_id": "1", "title": "T", "authors": []}]})
         try:
             papers = _fmt.import_file(path)
             p = papers[0]
@@ -176,8 +176,8 @@ class TestImportFile:
 
     def test_multiple_entries(self):
         path = _write_temp_json({"papers": [
-            {"paper_id": "1", "title": "A", "authors": []},
-            {"paper_id": "2", "title": "B", "authors": []},
+            {"source_id": "1", "title": "A", "authors": []},
+            {"source_id": "2", "title": "B", "authors": []},
         ]})
         try:
             papers = _fmt.import_file(path)
@@ -201,8 +201,8 @@ class TestRoundTrip:
         finally:
             os.unlink(path.name)
 
-    def test_preserves_paper_id(self):
-        assert self._round_trip(_make_paper())[0].paper_id == "2301.00001"
+    def test_preserves_source_id(self):
+        assert self._round_trip(_make_paper())[0].source_id == "2301.00001"
 
     def test_preserves_title(self):
         assert self._round_trip(_make_paper())[0].title == "Test Paper"
@@ -223,7 +223,7 @@ class TestRoundTrip:
         assert self._round_trip(_make_paper())[0].category == "cs.LG"
 
     def test_two_papers_round_trip(self):
-        papers = [_make_paper(paper_id="a", title="A"), _make_paper(paper_id="b", title="B")]
+        papers = [_make_paper(source_id="a", title="A"), _make_paper(source_id="b", title="B")]
         exported = _fmt.export_papers(papers)
         path = tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False, encoding="utf-8")
         path.write(exported)
@@ -232,4 +232,4 @@ class TestRoundTrip:
             rt = _fmt.import_file(path.name)
         finally:
             os.unlink(path.name)
-        assert {p.paper_id for p in rt} == {"a", "b"}
+        assert {p.source_id for p in rt} == {"a", "b"}

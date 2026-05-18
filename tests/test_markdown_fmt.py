@@ -7,9 +7,10 @@ import os
 import sys
 import tempfile
 
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from formats.markdown import MarkdownFormat, ObsidianFormat, _paper_id_from_url
+from formats.markdown import MarkdownFormat, ObsidianFormat, _source_id_from_url
 
 _md  = MarkdownFormat()
 _obs = ObsidianFormat()
@@ -21,7 +22,7 @@ _obs = ObsidianFormat()
 
 def _make_paper(**overrides) -> dict:
     base = {
-        "paper_id": "2301.00001",
+        "source_id": "2301.00001",
         "title":    "Test Paper",
         "authors":  ["Alice Author", "Bob Builder"],
         "category": "cs.LG",
@@ -33,21 +34,21 @@ def _make_paper(**overrides) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# _paper_id_from_url
+# _source_id_from_url
 # ---------------------------------------------------------------------------
 
 class TestPaperIdFromUrl:
     def test_arxiv_url(self):
-        assert _paper_id_from_url("https://arxiv.org/abs/2301.00001") == "2301.00001"
+        assert _source_id_from_url("https://arxiv.org/abs/2301.00001") == "2301.00001"
 
     def test_http_arxiv_url(self):
-        assert _paper_id_from_url("http://arxiv.org/abs/1234.56789") == "1234.56789"
+        assert _source_id_from_url("http://arxiv.org/abs/1234.56789") == "1234.56789"
 
     def test_non_arxiv_url_returns_full(self):
-        assert _paper_id_from_url("https://example.com/paper") == "https://example.com/paper"
+        assert _source_id_from_url("https://example.com/paper") == "https://example.com/paper"
 
     def test_bare_id_returned_as_is(self):
-        assert _paper_id_from_url("2301.00001") == "2301.00001"
+        assert _source_id_from_url("2301.00001") == "2301.00001"
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +91,7 @@ class TestMarkdownExport:
         assert "Tags:" not in out
 
     def test_multiple_papers(self):
-        papers = [_make_paper(paper_id="a", title="A"), _make_paper(paper_id="b", title="B")]
+        papers = [_make_paper(source_id="a", title="A"), _make_paper(source_id="b", title="B")]
         out = _md.export_papers(papers)
         assert "A" in out and "B" in out
 
@@ -109,10 +110,10 @@ class TestMarkdownImport:
         papers = _md.import_string(out)
         assert len(papers) == 1
 
-    def test_paper_id_extracted_from_url(self):
+    def test_source_id_extracted_from_url(self):
         out = _md.export_papers([_make_paper()])
         p = _md.import_string(out)[0]
-        assert p.paper_id == "2301.00001"
+        assert p.source_id == "2301.00001"
 
     def test_title_preserved(self):
         out = _md.export_papers([_make_paper()])
@@ -133,12 +134,12 @@ class TestMarkdownImport:
         assert _md.import_string(out)[0].tags == ["ml", "nlp"]
 
     def test_multiple_papers(self):
-        papers = [_make_paper(paper_id="2301.00001", title="A"),
-                  _make_paper(paper_id="2301.00002", title="B")]
+        papers = [_make_paper(source_id="2301.00001", title="A"),
+                  _make_paper(source_id="2301.00002", title="B")]
         out = _md.export_papers(papers)
         rt = _md.import_string(out)
         assert len(rt) == 2
-        assert {p.paper_id for p in rt} == {"2301.00001", "2301.00002"}
+        assert {p.source_id for p in rt} == {"2301.00001", "2301.00002"}
 
     def test_empty_export_returns_empty(self):
         out = _md.export_papers([])
@@ -162,7 +163,7 @@ class TestMarkdownImportFile:
         try:
             papers = _md.import_file(path)
             assert len(papers) == 1
-            assert papers[0].paper_id == "2301.00001"
+            assert papers[0].source_id == "2301.00001"
         finally:
             os.unlink(path)
 
@@ -175,8 +176,8 @@ class TestMarkdownRoundTrip:
     def _rt(self, paper: dict):
         return _md.import_string(_md.export_papers([paper]))
 
-    def test_paper_id(self):
-        assert self._rt(_make_paper())[0].paper_id == "2301.00001"
+    def test_source_id(self):
+        assert self._rt(_make_paper())[0].source_id == "2301.00001"
 
     def test_title(self):
         assert self._rt(_make_paper())[0].title == "Test Paper"
@@ -216,7 +217,7 @@ class TestObsidianExport:
         assert "  - nlp" in out
 
     def test_frontmatter_tags_are_deduplicated(self):
-        papers = [_make_paper(tags=["ml"]), _make_paper(paper_id="x", tags=["ml"])]
+        papers = [_make_paper(tags=["ml"]), _make_paper(source_id="x", tags=["ml"])]
         out = _obs.export_papers(papers)
         assert out.count("  - ml") == 1
 
@@ -231,7 +232,7 @@ class TestObsidianExport:
         assert "tags:" not in out
 
     def test_contains_h2_section_per_paper(self):
-        papers = [_make_paper(paper_id="a", title="A"), _make_paper(paper_id="b", title="B")]
+        papers = [_make_paper(source_id="a", title="A"), _make_paper(source_id="b", title="B")]
         out = _obs.export_papers(papers)
         assert out.count("## [") == 2
 
@@ -259,9 +260,9 @@ class TestObsidianImport:
         papers = _obs.import_string(out)
         assert len(papers) == 1
 
-    def test_paper_id_from_url(self):
+    def test_source_id_from_url(self):
         out = _obs.export_papers([_make_paper()])
-        assert _obs.import_string(out)[0].paper_id == "2301.00001"
+        assert _obs.import_string(out)[0].source_id == "2301.00001"
 
     def test_title_preserved(self):
         out = _obs.export_papers([_make_paper()])
@@ -282,11 +283,11 @@ class TestObsidianImport:
         assert _obs.import_string(out)[0].tags == ["ml", "nlp"]
 
     def test_multiple_papers(self):
-        papers = [_make_paper(paper_id="2301.00001", title="A"),
-                  _make_paper(paper_id="2301.00002", title="B")]
+        papers = [_make_paper(source_id="2301.00001", title="A"),
+                  _make_paper(source_id="2301.00002", title="B")]
         rt = _obs.import_string(_obs.export_papers(papers))
         assert len(rt) == 2
-        assert {p.paper_id for p in rt} == {"2301.00001", "2301.00002"}
+        assert {p.source_id for p in rt} == {"2301.00001", "2301.00002"}
 
     def test_empty_export_returns_empty(self):
         assert _obs.import_string(_obs.export_papers([])) == []
@@ -309,7 +310,7 @@ class TestObsidianImportFile:
         try:
             papers = _obs.import_file(path)
             assert len(papers) == 1
-            assert papers[0].paper_id == "2301.00001"
+            assert papers[0].source_id == "2301.00001"
         finally:
             os.unlink(path)
 
@@ -322,8 +323,8 @@ class TestObsidianRoundTrip:
     def _rt(self, paper: dict):
         return _obs.import_string(_obs.export_papers([paper]))
 
-    def test_paper_id(self):
-        assert self._rt(_make_paper())[0].paper_id == "2301.00001"
+    def test_source_id(self):
+        assert self._rt(_make_paper())[0].source_id == "2301.00001"
 
     def test_title(self):
         assert self._rt(_make_paper())[0].title == "Test Paper"
@@ -347,6 +348,6 @@ class TestObsidianRoundTrip:
         assert rt[0].title == "Attention Is All You Need"
 
     def test_two_papers_ids(self):
-        papers = [_make_paper(paper_id="2301.00001"), _make_paper(paper_id="2301.00002")]
+        papers = [_make_paper(source_id="2301.00001"), _make_paper(source_id="2301.00002")]
         rt = _obs.import_string(_obs.export_papers(papers))
-        assert {p.paper_id for p in rt} == {"2301.00001", "2301.00002"}
+        assert {p.source_id for p in rt} == {"2301.00001", "2301.00002"}

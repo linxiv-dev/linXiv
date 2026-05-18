@@ -13,11 +13,11 @@ from gui.setup import SetupPage
 from gui.settings import SettingsPage
 from gui.doi import DoiPage
 from gui.search import SearchPage
-from storage.db import init_db
+from service import paper as paper_svc
 
 
 def run_shell() -> None:
-    init_db()
+    paper_svc.init_db()
     app = QApplication(sys.argv)
     app.setApplicationName("Linxiv")
     app.setStyle(QStyleFactory.create("Fusion"))
@@ -26,8 +26,9 @@ def run_shell() -> None:
 
     shell = AppShell()
     shell.setWindowIcon(_icon)
-    shell.add_page("Home", HomePage())
+    home_page     = HomePage()
     library_page  = LibraryPage()
+    shell.add_page("Home", home_page)
     projects_page = ProjectsPage()
     graph_page    = GraphPage()
     shell.add_page("Library", library_page)
@@ -37,10 +38,13 @@ def run_shell() -> None:
     shell.add_page("Search", search_page)
     shell.add_page("Add by DOI", DoiPage())
     shell.add_page("Setup", SetupPage())
-    shell.add_page("Settings", SettingsPage())
+    shell.add_page("Settings", SettingsPage(
+        on_theme_change=shell.mark_all_dirty,
+        on_apply_all=shell.apply_all,
+    ))
 
     def _on_navigate_to_project(project) -> None:
-        paper_id = library_page.take_paper_id_for_project_return()
+        paper_id = library_page.take_source_fk_for_project_return()
         shell.go_to_widget(projects_page)
         projects_page.open_project(
             project,
@@ -50,17 +54,22 @@ def run_shell() -> None:
 
     library_page.navigate_to_project.connect(_on_navigate_to_project)
 
-    def _on_paper_right_clicked(paper_id: str) -> None:
+    def _on_navigate_to_paper(source_fk: int) -> None:
         shell.go_to_widget(library_page)
-        library_page.open_paper(paper_id)
+        library_page.open_paper(source_fk)
 
-    graph_page.paper_right_clicked.connect(_on_paper_right_clicked)
+    # Home double-click, Projects double-click, Graph right-click all open Library detail.
+    home_page.navigate_to_paper.connect(_on_navigate_to_paper)
+    projects_page.navigate_to_paper.connect(_on_navigate_to_paper)
+    graph_page.paper_right_clicked.connect(_on_navigate_to_paper)
 
     library_page.attach_app_shell(shell)
     projects_page.attach_app_shell(shell)
     projects_page.attach_library_page(library_page)
 
     def _on_shell_page_changed(idx: int) -> None:
+        if idx == shell._stack.indexOf(home_page):
+            home_page.refresh()
         if idx == shell._stack.indexOf(library_page):
             library_page.show_library_list()
         if idx == shell._stack.indexOf(projects_page):
@@ -71,5 +80,5 @@ def run_shell() -> None:
     shell.register_on_close(search_page.cleanup_pdfs)
     app.aboutToQuit.connect(search_page.cleanup_pdfs)
 
-    shell.show()
+    shell.showMaximized()
     sys.exit(app.exec())

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from typing import cast
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction
@@ -17,7 +18,8 @@ from PyQt6.QtWidgets import (
 
 from gui.graph import GraphView
 from gui.theme import TABLE_BG, TABLE_TEXT, TABLE_GRID
-from storage.db import get_categories, get_graph_data, get_tags, list_papers
+from service import paper as paper_svc
+from service.tag import list_all_tags
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,17 +58,17 @@ class PaperListPanel(QWidget):
         self._table.setHorizontalHeaderLabels(_COLUMNS)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self._table.verticalHeader().setVisible(False)  # pyright: ignore[reportOptionalMemberAccess]
+        cast(QHeaderView, self._table.verticalHeader()).setVisible(False)
         self._table.setSortingEnabled(True)
         # TODO: Fix coloring of edges
         self._table.setStyleSheet(
             f"background: {TABLE_BG}; color: {TABLE_TEXT}; gridline-color: {TABLE_GRID};"
         )
 
-        hdr = self._table.horizontalHeader()
+        hdr = cast(QHeaderView, self._table.horizontalHeader())
         for i, w in enumerate(_COL_WIDTHS):
             self._table.setColumnWidth(i, w)
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # pyright: ignore[reportOptionalMemberAccess]
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
         layout.addWidget(self._table)
 
@@ -74,7 +76,7 @@ class PaperListPanel(QWidget):
     def table(self) -> QTableWidget:
         return self._table
 
-    def paper_id_for_row(self, row: int) -> str | None:
+    def source_id_for_row(self, row: int) -> int | None:
         item = self._table.item(row, 0)
         if item is None:
             return None
@@ -89,7 +91,7 @@ class PaperListPanel(QWidget):
             self._table.insertRow(r)
 
             title_item = QTableWidgetItem(row["title"] or "")
-            title_item.setData(Qt.ItemDataRole.UserRole, row["paper_id"])
+            title_item.setData(Qt.ItemDataRole.UserRole, row["source_fk"])
             self._table.setItem(r, 0, title_item)
             self._table.setItem(r, 1, QTableWidgetItem(row["category"] or ""))
             self._table.setItem(r, 2, QTableWidgetItem(_fmt_date(row["published"])))
@@ -162,16 +164,16 @@ class MainWindow(QMainWindow):
         self._load_dropdowns()
 
     def _load_graph(self) -> None:
-        nodes, edges = get_graph_data()
+        nodes, edges = paper_svc.get_graph_data()
         self._graph_view.set_graph_data(nodes, edges)
 
     def _load_paper_list(self) -> None:
-        papers = list_papers(latest_only=True)
+        papers = paper_svc.list_papers(latest_only=True)
         self._paper_list.load_papers(papers)
 
     def _load_dropdowns(self) -> None:
-        categories = get_categories()
-        tags = get_tags()
+        categories = paper_svc.get_categories()
+        tags = list_all_tags()
         self._graph_view.set_filter_options(categories, tags)
 
     # ── Toolbar actions ───────────────────────────────────────────────────────
@@ -198,14 +200,14 @@ class MainWindow(QMainWindow):
                            _prev_row: int, _prev_col: int) -> None:
         if current_row < 0:
             return
-        paper_id = self._paper_list.paper_id_for_row(current_row)
-        if paper_id:
-            self._graph_view.highlight_node(paper_id)
+        source_id = self._paper_list.source_id_for_row(current_row)
+        if source_id:
+            self._graph_view.highlight_node(source_id)
 
-    def _on_graph_node_clicked(self, paper_id: str) -> None:
+    def _on_graph_node_clicked(self, source_id: str) -> None:
         """Select the matching row in the paper list when a graph node is clicked."""
         table = self._paper_list.table
         for row in range(table.rowCount()):
-            if self._paper_list.paper_id_for_row(row) == paper_id:
+            if self._paper_list.source_id_for_row(row) == source_id:
                 table.setCurrentCell(row, 0)
                 break

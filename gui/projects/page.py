@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from collections import OrderedDict
-import traceback
+from typing import cast
 
-
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QFontMetrics
-
+from PyQt6.QtCore import QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtWidgets import QComboBox, QDialogButtonBox, QMessageBox
 from PyQt6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayoutItem,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -28,22 +27,32 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from storage.projects import color_to_hex
-
 from gui.library.page import LibraryPage
-from gui.shell import AppShell
-from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
-from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
-from gui.theme import (
-    FONT_TITLE, FONT_HEADING, FONT_SUBHEADING, FONT_BODY, FONT_SECONDARY, FONT_TERTIARY,
-    SPACE_XL, SPACE_LG, SPACE_MD, SPACE_SM, SPACE_XS,
-    RADIUS_LG, RADIUS_MD, RADIUS_SM,
-    BTN_H_LG, BTN_H_MD,
-    PAGE_MARGIN_H, CARD_PAD_H, CARD_PAD_V, DIALOG_PAD,
-    NOTE_HEIGHT,
+from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, ProjectExportButton, ProjectImportButton
+from gui.qt_assets.note_card import NoteCard
+import gui.qt_assets.styles as _qt_styles
+from gui.qt_assets.styles import (
+    BTN_DANGER as _BTN_DANGER,
+    BTN_MUTED as _BTN_MUTED_STYLE,
+    BTN_PRIMARY as _BTN_STYLE,
 )
-
-_CARD_CACHE_MAX = 30
+from gui.shell import AppShell
+import gui.theme as _theme
+from gui.theme import BG, BORDER, PANEL, ACCENT, MUTED, TEXT 
+from gui.theme import (
+    BTN_H_LG, BTN_H_MD,  CARD_PAD_H,  CARD_PAD_V,  DIALOG_PAD,  
+    FONT_BODY,  FONT_HEADING,  FONT_SECONDARY,  FONT_SUBHEADING,
+    FONT_TERTIARY,  FONT_TITLE,
+    #NOTE_HEIGHT,
+    PAGE_MARGIN_H,  RADIUS_LG,  RADIUS_MD,  RADIUS_SM,
+    SPACE_LG,  SPACE_MD,  SPACE_SM,  SPACE_XL,  SPACE_XS,
+)
+from gui.views import PdfWindow
+from service import paper as paper_svc, project as project_svc
+from service.note import count_project_notes, ensure_notes_db
+from service.project import filter_projects, Q, Status
+from sources.pdf_metadata import resolve_pdf_metadata
+from storage.projects import Project
 # Long project descriptions as a single tall QLabel can blow layout/GPU on window resize (Windows D3D11).
 _PROJECT_DESC_VIEWPORT_MAX_H = 550
 
@@ -56,35 +65,13 @@ _PRESET_COLORS: list[int] = [
     0x1abc9c,  # teal
 ]
 
-_BTN_STYLE = f"""
-    QPushButton {{
-        background: {_ACCENT}; border: none; border-radius: {RADIUS_MD}px;
-        color: #fff; font-size: {FONT_BODY}px; font-weight: 600; padding: {SPACE_SM}px 20px;
-    }}
-    QPushButton:hover   {{ background: #7aa3f5; }}
-    QPushButton:pressed {{ background: #4a7add; }}
-    QPushButton:disabled {{ background: #2a2a4a; color: {_MUTED}; }}
-"""
-_BTN_MUTED_STYLE = f"""
-    QPushButton {{
-        background: transparent; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px;
-        color: {_MUTED}; font-size: {FONT_BODY}px; padding: {SPACE_SM}px 20px;
-    }}
-    QPushButton:hover {{ border-color: {_TEXT}; color: {_TEXT}; }}
-"""
-_BTN_SMALL_STYLE = f"""
-    QPushButton {{
-        background: transparent; border: 1px solid {_BORDER}; border-radius: {RADIUS_SM}px;
-        color: {_MUTED}; font-size: {FONT_TERTIARY}px; padding: 3px 10px;
-    }}
-    QPushButton:hover {{ border-color: {_ACCENT}; color: {_ACCENT}; }}
-"""
+
 _INPUT_STYLE = f"""
     QLineEdit, QTextEdit {{
-        background: {_BG}; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px;
-        color: {_TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_SM}px 10px;
+        background: {BG}; border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+        color: {TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_SM}px 10px;
     }}
-    QLineEdit:focus, QTextEdit:focus {{ border-color: {_ACCENT}; }}
+    QLineEdit:focus, QTextEdit:focus {{ border-color: {ACCENT}; }}
 """
 
 
@@ -99,7 +86,6 @@ class _PdfMetadataWorker(QThread):
         self._path = pdf_path
 
     def run(self) -> None:
-        from sources.pdf_metadata import resolve_pdf_metadata
         try:
             meta = resolve_pdf_metadata(self._path)
             self.finished.emit(meta, self._path)
@@ -108,13 +94,12 @@ class _PdfMetadataWorker(QThread):
 
 
 # ── New-project dialog ────────────────────────────────────────────────────────
-#  NOTE: GOD FILE, semi-necessary?
 class NewProjectDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("New Project")
         self.setFixedWidth(440)
-        self.setStyleSheet(f"background: {_PANEL}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {PANEL}; color: {TEXT};")
         self._color: int = _PRESET_COLORS[0]
 
         lay = QVBoxLayout(self)
@@ -122,7 +107,7 @@ class NewProjectDialog(QDialog):
         lay.setSpacing(14)
 
         title = QLabel("New Project")
-        title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {_ACCENT};")
+        title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {ACCENT};")
         lay.addWidget(title)
 
         lay.addWidget(self._field_label("Name"))
@@ -166,7 +151,7 @@ class NewProjectDialog(QDialog):
 
     def _field_label(self, text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_MUTED}; font-weight: 600;")
+        lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED}; font-weight: 600;")
         return lbl
 
     def _build_swatches(self) -> QHBoxLayout:
@@ -187,7 +172,7 @@ class NewProjectDialog(QDialog):
         return row
 
     def _swatch_css(self, color: int, checked: bool) -> str:
-        hex_color = color_to_hex(color)
+        hex_color = project_svc.color_to_hex(color)
         border = "#ffffff" if checked else hex_color
         return (
             f"QPushButton {{ background: {hex_color}; border-radius: 14px;"
@@ -209,9 +194,7 @@ class NewProjectDialog(QDialog):
         raw = self._project_tags.text().strip()
         project_tags = [t.strip() for t in raw.split(",") if t.strip()] if raw else []
 
-        from storage.projects import Project, ensure_projects_db
-        from storage.notes import ensure_notes_db
-        ensure_projects_db()
+        project_svc.ensure_projects_db()
         ensure_notes_db()
 
         p = Project(name=name, description=desc, color=self._color, project_tags=project_tags)
@@ -227,14 +210,14 @@ class AddPaperDialog(QDialog):
         self._project = project
         self.setWindowTitle("Add Paper to Project")
         self.setFixedSize(560, 440)
-        self.setStyleSheet(f"background: {_PANEL}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {PANEL}; color: {TEXT};")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, DIALOG_PAD, 24, DIALOG_PAD)
         lay.setSpacing(SPACE_MD)
 
         title = QLabel("Add Paper")
-        title.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {_ACCENT};")
+        title.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {ACCENT};")
         lay.addWidget(title)
 
         self._filter = QLineEdit()
@@ -246,10 +229,10 @@ class AddPaperDialog(QDialog):
         self._list = QListWidget()
         self._list.setStyleSheet(f"""
             QListWidget {{
-                background: {_BG}; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px;
-                color: {_TEXT}; font-size: {FONT_SECONDARY}px;
+                background: {BG}; border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                color: {TEXT}; font-size: {FONT_SECONDARY}px;
             }}
-            QListWidget::item:selected {{ background: {_ACCENT}; color: #fff; }}
+            QListWidget::item:selected {{ background: {ACCENT}; color: #fff; }}
             QListWidget::item:hover    {{ background: #2a2a4a; }}
         """)
         self._list.itemDoubleClicked.connect(self._on_add)
@@ -270,24 +253,23 @@ class AddPaperDialog(QDialog):
         self._load_papers()
 
     def _load_papers(self) -> None:
-        from storage.db import list_papers
-        self._all_papers = list_papers()
-        already = set(self._project.paper_ids)
-        self._papers = [r for r in self._all_papers if r["paper_id"] not in already]
+        self._all_papers = paper_svc.list_papers()
+        already = set(self._project.source_fks)
+        self._papers = [r for r in self._all_papers if r["source_fk"] not in already]
         self._populate(self._papers)
 
     def _populate(self, papers) -> None:
         self._list.clear()
         for row in papers:
-            item = QListWidgetItem(f"{row['title']}  [{row['paper_id']}]")
-            item.setData(Qt.ItemDataRole.UserRole, row["paper_id"])
+            item = QListWidgetItem(f"{row['title']}  [{row['source_id']}]")
+            item.setData(Qt.ItemDataRole.UserRole, row["source_fk"])
             self._list.addItem(item)
 
     def _apply_filter(self, text: str) -> None:
         q = text.lower()
         filtered = [
             r for r in self._papers
-            if q in r["title"].lower() or q in r["paper_id"].lower()
+            if q in r["title"].lower() or q in r["source_id"].lower()
         ] if q else self._papers
         self._populate(filtered)
 
@@ -366,67 +348,6 @@ class _NoBarHorizontalScrollArea(QScrollArea):
         super().wheelEvent(event)
 
 
-# ── Word-wrapped label capped at N lines with trailing ellipsis ───────────────
-
-class _ElidedLabel(QLabel):
-    _MAX_LINES = 3
-
-    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._full_text = text
-        self.setWordWrap(False)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._relayout()
-
-    def setText(self, text: str) -> None:
-        self._full_text = text
-        self._relayout()
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._relayout()
-
-    def _relayout(self) -> None:
-        if not self._full_text:
-            super().setText("")
-            return
-        w = self.width()
-        fm = self.fontMetrics()
-        if w <= 0:
-            super().setText(self._full_text)
-            return
-        fm = self.fontMetrics()
-        lines = self._wrap(self._full_text, fm, w)
-        if len(lines) > self._MAX_LINES:
-            kept = lines[: self._MAX_LINES - 1]
-            remaining = " ".join(lines[self._MAX_LINES - 1 :])
-            kept.append(fm.elidedText(remaining, Qt.TextElideMode.ElideRight, w))
-            lines = kept
-        # Elide any line that still overflows (e.g. single long word with no spaces)
-        lines = [
-            fm.elidedText(ln, Qt.TextElideMode.ElideRight, w)
-            if fm.horizontalAdvance(ln) > w else ln
-            for ln in lines
-        ]
-        super().setText("\n".join(lines))
-
-    @staticmethod
-    def _wrap(text: str, fm: QFontMetrics, width: int) -> list[str]:
-        words = text.split()
-        if not words:
-            return []
-        lines, current = [], words[0]
-        for word in words[1:]:
-            candidate = current + " " + word
-            if fm.horizontalAdvance(candidate) <= width:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
-        lines.append(current)
-        return lines
-
-
 # ── Notes preview (Projects only) ─────────────────────────────────────────────
 # Project notes used to embed MarkdownView (QWebEngineView). QWebEngine teardown while
 # other WebEngine widgets (Graph, Search) stay alive reliably crashed on Linux and
@@ -444,7 +365,7 @@ def _make_notes_qtext_preview(parent: QWidget | None) -> QTextBrowser:
     br.setOpenExternalLinks(True)
     br.setStyleSheet(f"""
         QTextBrowser {{
-            background: {_BG}; border: none; color: {_TEXT};
+            background: {BG}; border: none; color: {TEXT};
             font-size: {FONT_BODY}px; padding: 0;
         }}
     """)
@@ -456,7 +377,7 @@ def _make_notes_qtext_preview(parent: QWidget | None) -> QTextBrowser:
 class NoteEditorDialog(QDialog):
     """Split-pane note editor: raw Markdown editor + QTextBrowser preview (no WebEngine).
 
-    Add mode:  NoteEditorDialog(paper_id=..., project_id=..., parent=...)
+    Add mode:  NoteEditorDialog(source_fk=..., project_id=..., parent=...)
     Edit mode: NoteEditorDialog(note=..., parent=...)
     """
 
@@ -464,26 +385,26 @@ class NoteEditorDialog(QDialog):
         self,
         *,
         note=None,
-        paper_id: str | None = None,
+        source_fk: int | None = None,
         project_id: int | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._note       = note
-        self._paper_id   = note.paper_id   if note else paper_id
+        self._source_fk  = note.source_fk  if note else source_fk
         self._project_id = note.project_id if note else project_id
 
         mode = "Edit Note" if note else "Add Note"
         self.setWindowTitle(mode)
         self.setMinimumSize(920, 540)
-        self.setStyleSheet(f"background: {_PANEL}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {PANEL}; color: {TEXT};")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(DIALOG_PAD, DIALOG_PAD, DIALOG_PAD, DIALOG_PAD)
         lay.setSpacing(SPACE_MD)
 
         heading = QLabel(mode)
-        heading.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {_ACCENT};")
+        heading.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {ACCENT};")
         lay.addWidget(heading)
 
         self._note_title = QLineEdit()
@@ -501,11 +422,11 @@ class NoteEditorDialog(QDialog):
         self._editor.setPlaceholderText("Markdown supported (preview uses Qt rich text, not KaTeX)…")
         self._editor.setStyleSheet(f"""
             QPlainTextEdit {{
-                background: {_BG}; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px;
-                color: {_TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_SM}px 10px;
+                background: {BG}; border: 1px solid {BORDER}; border-radius: {RADIUS_MD}px;
+                color: {TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_SM}px 10px;
                 font-family: 'Cascadia Code', 'Courier New', monospace;
             }}
-            QPlainTextEdit:focus {{ border-color: {_ACCENT}; }}
+            QPlainTextEdit:focus {{ border-color: {ACCENT}; }}
         """)
         if note:
             self._editor.setPlainText(note.content or "")
@@ -541,21 +462,25 @@ class NoteEditorDialog(QDialog):
         )
 
     def _on_save(self) -> None:
-        from storage.notes import Note, ensure_notes_db
-        ensure_notes_db()
+        import service.note as note_svc
         if self._note is not None:
-            self._note.title   = self._note_title.text().strip()
-            self._note.content = self._editor.toPlainText().strip()
-            self._note.save()
-        else:
-            if self._paper_id is None:
-                return
-            Note(
-                paper_id   = self._paper_id,
-                project_id = self._project_id,
+            note_svc.upsert(note_svc.NoteIn(
+                note_id    = self._note.note_id,
+                source_fk  = self._note.source_fk,
+                paper_id   = self._note.paper_id_fk,
+                project_fk = self._note.project_id,
                 title      = self._note_title.text().strip(),
                 content    = self._editor.toPlainText().strip(),
-            ).save()
+            ))
+        else:
+            if self._source_fk is None:
+                return
+            note_svc.upsert(note_svc.NoteIn(
+                source_fk  = self._source_fk,
+                project_fk = self._project_id,
+                title      = self._note_title.text().strip(),
+                content    = self._editor.toPlainText().strip(),
+            ))
         self.accept()
 
 
@@ -565,17 +490,16 @@ class NoteEditorDialog(QDialog):
 class NotesDialog(QDialog):
     """Shows all notes for a paper in a project, with add and delete actions."""
 
-    def __init__(self, paper_id: str, project_id: int, paper_title: str,
+    def __init__(self, source_fk: int, project_id: int, paper_title: str,
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._paper_id   = paper_id
+        self._source_fk  = source_fk
         self._project_id = project_id
         self._cards: dict[int, QFrame] = {}
-        self._md_cache: OrderedDict = OrderedDict()
         self._retired_cards: list[QWidget] = []
         self.setWindowTitle("Notes")
         self.setFixedSize(560, 520)
-        self.setStyleSheet(f"background: {_PANEL}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {PANEL}; color: {TEXT};")
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(24, DIALOG_PAD, 24, DIALOG_PAD)
@@ -583,9 +507,9 @@ class NotesDialog(QDialog):
 
         header_row = QHBoxLayout()
         title_lbl = QLabel("Notes")
-        title_lbl.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {_ACCENT};")
+        title_lbl.setStyleSheet(f"font-size: {FONT_HEADING}px; font-weight: bold; color: {ACCENT};")
         paper_lbl = QLabel(paper_title)
-        paper_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
+        paper_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
         paper_lbl.setWordWrap(True)
         header_col = QVBoxLayout()
         header_col.setSpacing(2)
@@ -617,7 +541,7 @@ class NotesDialog(QDialog):
 
         self._empty_lbl = QLabel("No notes yet.")
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._empty_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED};")
+        self._empty_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {MUTED};")
         lay.addWidget(self._empty_lbl)
 
         close_btn = QPushButton("Close")
@@ -629,25 +553,22 @@ class NotesDialog(QDialog):
 
     def _rebuild(self) -> None:
         while self._notes_layout.count() > 1:
-            item = self._notes_layout.takeAt(0)
-            w = item.widget()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._notes_layout.takeAt(0))
+            w = item.widget()
             if w is not None:
                 self._retire_card(w)
         self._cards.clear()
-        self._md_cache.clear()
 
-        from storage.notes import get_notes, ensure_notes_db
-        ensure_notes_db()
-        notes = get_notes(self._paper_id, project_id=self._project_id)
+        import service.note as note_svc
+        notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
 
         if notes:
             self._empty_lbl.setVisible(False)
             for note in notes:
-                card, md_view = self._make_note_card(note)
+                card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.id is not None:
-                    self._cards[note.id] = card
-                    self._md_cache_put(note.id, md_view)
+                if note.note_id is not None:
+                    self._cards[note.note_id] = card
         else:
             self._empty_lbl.setVisible(True)
 
@@ -661,120 +582,39 @@ class NotesDialog(QDialog):
     def closeEvent(self, event: QCloseEvent) -> None:
         # Tear down note cards while this dialog still exists (orderly widget cleanup).
         while self._notes_layout.count() > 1:
-            item = self._notes_layout.takeAt(0)
-            w = item.widget()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._notes_layout.takeAt(0))
+            w = item.widget()
             if w is not None:
                 self._retire_card(w)
         for card in self._retired_cards:
             card.deleteLater()
         self._retired_cards.clear()
         self._cards.clear()
-        self._md_cache.clear()
         super().closeEvent(event)
 
-    def _md_cache_put(self, note_id: int, md_view) -> None:
-        if note_id in self._md_cache:
-            self._md_cache.move_to_end(note_id)
-            self._md_cache[note_id] = md_view
-            return
-        if len(self._md_cache) >= _CARD_CACHE_MAX:
-            self._md_cache.popitem(last=False)  # evict LRU; Qt still holds it via card layout
-        self._md_cache[note_id] = md_view
-
-    def _get_md_view(self, note_id: int):
-        """Return the QTextBrowser preview for note_id, recovering it from the card on cache miss."""
-        if note_id in self._md_cache:
-            self._md_cache.move_to_end(note_id)
-            return self._md_cache[note_id]
-        card = self._cards.get(note_id)
-        if card is None:
-            return None
-        pv = card.findChild(QTextBrowser)
-        if pv is not None:
-            self._md_cache_put(note_id, pv)
-        return pv
-
     def _pop_and_recreate(self, note) -> None:
-        """Remove and recreate a single card in-place (last resort for a corrupt/missing card)."""
-        note_id = note.id
+        note_id = note.note_id
         old_card = self._cards.pop(note_id, None) if note_id is not None else None
-        if note_id is not None:
-            self._md_cache.pop(note_id, None)
         if old_card is not None:
             idx = self._notes_layout.indexOf(old_card)
             self._retire_card(old_card)
         else:
             idx = self._notes_layout.count() - 1
-        card, md_view = self._make_note_card(note)
+        card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
         self._notes_layout.insertWidget(idx, card)
         if note_id is not None:
             self._cards[note_id] = card
-            self._md_cache_put(note_id, md_view)
-
-    def _make_note_card(self, note) -> tuple[QFrame, object]:
-        card = _ClickableCard(lambda n=note: self._edit_note(n))
-        card.setStyleSheet(f"""
-            QFrame {{ background: {_BG}; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px; }}
-            QFrame:hover {{ border: 2px solid {_ACCENT}; background: #1a1a2e; }}
-            QLabel {{ border: none; background: transparent; }}
-        """)
-        col = QVBoxLayout(card)
-        col.setContentsMargins(14, 10, 14, 10)
-        col.setSpacing(SPACE_XS)
-
-        top_row = QHBoxLayout()
-
-        if note.created_at:
-            date_lbl = QLabel(note.created_at.strftime("%Y-%m-%d"))
-            date_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
-            top_row.addWidget(date_lbl)
-
-        top_row.addStretch()
-
-        _btn_base = f"""
-            QPushButton {{
-                background: transparent; border: 1px solid;
-                border-radius: {RADIUS_SM}px;
-                font-size: {FONT_TERTIARY}px; padding: 2px 8px;
-            }}
-        """
-        edit_btn = QPushButton("Edit")
-        edit_btn.setStyleSheet(_btn_base + f"QPushButton {{ border-color: {_BORDER}; color: {_MUTED}; }} QPushButton:hover {{ border-color: {_ACCENT}; color: {_ACCENT}; }}")
-        edit_btn.clicked.connect(lambda _, n=note: self._edit_note(n))
-        top_row.addWidget(edit_btn)
-
-        del_btn = QPushButton("Delete")
-        del_btn.setStyleSheet(_btn_base + "QPushButton { border-color: #e05c5c; color: #e05c5c; } QPushButton:hover { border-color: #ff7070; color: #ff7070; }")
-        del_btn.clicked.connect(lambda _, n=note: self._delete_note(n))
-        top_row.addWidget(del_btn)
-        col.addLayout(top_row)
-
-        md_view = _make_notes_qtext_preview(card)
-        md_view.setMarkdown(_note_card_markdown(note.title or "", note.content or ""))
-        md_view.setFixedHeight(NOTE_HEIGHT)
-        col.addWidget(md_view)
-
-        return card, md_view
 
     def _edit_note(self, note) -> None:
         dlg = NoteEditorDialog(note=note, parent=self.window() or self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            note_id = note.id
-            if note_id is not None:
-                pv = self._get_md_view(note_id)
-                if pv is not None:
-                    pv.setMarkdown(
-                        _note_card_markdown(note.title or "", note.content or "")
-                    )
-                    return
             self._pop_and_recreate(note)
 
     def _delete_note(self, note) -> None:
-        note_id = note.id
-        note.delete()
+        import service.note as note_svc
+        note_id = note.note_id
+        note_svc.delete(note_svc.Note(note_id=note_id))
         card = self._cards.pop(note_id, None) if note_id is not None else None
-        if note_id is not None:
-            self._md_cache.pop(note_id, None)
         if card is not None:
             self._retire_card(card)
             if self._notes_layout.count() <= 1:
@@ -782,93 +622,33 @@ class NotesDialog(QDialog):
 
     def _on_add(self) -> None:
         dlg = NoteEditorDialog(
-            paper_id=self._paper_id, project_id=self._project_id, parent=self.window() or self
+            source_fk=self._source_fk, project_id=self._project_id, parent=self.window() or self
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            from storage.notes import get_notes, ensure_notes_db
-            ensure_notes_db()
-            notes = get_notes(self._paper_id, project_id=self._project_id)
-            new_notes = [n for n in notes if n.id not in self._cards]
+            import service.note as note_svc
+            notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
+            new_notes = [n for n in notes if n.note_id not in self._cards]
             self._empty_lbl.setVisible(False)
             for note in new_notes:
-                card, md_view = self._make_note_card(note)
+                card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.id is not None:
-                    self._cards[note.id] = card
-                    self._md_cache_put(note.id, md_view)
-
-
-# ── Paper row (inside detail view) ────────────────────────────────────────────
-
-class _PaperRow(QFrame):
-    def __init__(self, paper_id: str, project_id: int, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._paper_id   = paper_id
-        self._project_id = project_id
-        self.setStyleSheet(f"""
-            QFrame {{ background: {_BG}; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px; }}
-            QLabel {{ border: none; background: transparent; }}
-        """)
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(12, SPACE_SM, 12, SPACE_SM)
-        row.setSpacing(SPACE_MD)
-
-        title_str = self._fetch_title()
-        title_lbl = _ElidedLabel(title_str)
-        title_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_TEXT};")
-        row.addWidget(title_lbl, stretch=1)
-
-        self._note_btn = QPushButton(self._note_label())
-        self._note_btn.setStyleSheet(_BTN_SMALL_STYLE)
-        self._note_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._note_btn.clicked.connect(self._on_open_notes)
-        row.addWidget(self._note_btn)
-
-    def _fetch_title(self) -> str:
-        try:
-            from storage.db import get_paper
-            row = get_paper(self._paper_id)
-            return row["title"] if row else self._paper_id
-        except Exception:
-            print(f"error: {traceback.format_exc()}")
-            return self._paper_id
-
-    def _note_count(self) -> int:
-        try:
-            from storage.notes import count_paper_notes
-            return count_paper_notes(self._paper_id, self._project_id)
-        except Exception:
-            print(f"error: {traceback.format_exc()}")
-            return 0
-
-    def _note_label(self) -> str:
-        n = self._note_count()
-        return f"📝 {n} {'note' if n == 1 else 'notes'}"
-
-    def _on_open_notes(self) -> None:
-        # Parent must be a top-level window, not this embedded QFrame. With a nested parent,
-        # Qt can mishandle activation after exec() on Linux and Windows (shell looks minimized
-        # or only reachable from the taskbar; the next activation can race WebEngine teardown).
-        host = self.window()
-        dlg = NotesDialog(self._paper_id, self._project_id, self._fetch_title(), host)
-        dlg.exec()
-        if host is not None:
-            host.raise_()
-            host.activateWindow()
-        self._note_btn.setText(self._note_label())
+                if note.note_id is not None:
+                    self._cards[note.note_id] = card
 
 
 # ── Project detail view ───────────────────────────────────────────────────────
 
 class ProjectDetailView(QWidget):
-    back_requested = pyqtSignal()
+    back_requested    = pyqtSignal()
+    navigate_to_paper = pyqtSignal(int)   # source_fk
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {BG}; color: {TEXT};")
         self._project = None
+        self._selected_pids: set[int] = set()
         self._pdf_worker: _PdfMetadataWorker | None = None
+        self._pdf_window = PdfWindow(self)
         self._pdf_queue:  list[str] = []
         self._pdf_total  = 0
         self._pdf_added  = 0
@@ -876,8 +656,15 @@ class ProjectDetailView(QWidget):
         self._pdf_failed  = 0
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(PAGE_MARGIN_H, 32, PAGE_MARGIN_H, 32)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
+        content = QWidget()
+        content.setStyleSheet(f"background: {BG};")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(PAGE_MARGIN_H, 32, PAGE_MARGIN_H, 32)
+        content_layout.setSpacing(0)
+        outer.addWidget(content, stretch=1)
 
         # Header
         header = QHBoxLayout()
@@ -892,12 +679,12 @@ class ProjectDetailView(QWidget):
 
         self._color_stripe = QWidget()
         self._color_stripe.setFixedSize(6, 36)
-        self._color_stripe.setStyleSheet(f"background: {_ACCENT}; border-radius: 3px;")
+        self._color_stripe.setStyleSheet(f"background: {ACCENT}; border-radius: 3px;")
         header.addWidget(self._color_stripe, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self._title_lbl = QLabel()
         self._title_lbl.setStyleSheet(
-            f"font-size: 28px; font-weight: bold; color: {_TEXT}; background: transparent;"
+            f"font-size: 28px; font-weight: bold; color: {TEXT}; background: transparent;"
         )
         self._title_lbl.setWordWrap(False)
         self._title_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
@@ -914,6 +701,10 @@ class ProjectDetailView(QWidget):
         self._title_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         header.addWidget(self._title_scroll, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
 
+        self._export_btn = ProjectExportButton()
+        self._export_btn.setFixedHeight(BTN_H_MD)
+        header.addWidget(self._export_btn)
+
         self._archive_btn = QPushButton("Archive")
         self._archive_btn.setStyleSheet(_BTN_MUTED_STYLE)
         self._archive_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -922,25 +713,15 @@ class ProjectDetailView(QWidget):
         header.addWidget(self._archive_btn)
 
         self._delete_btn = QPushButton("Delete")
-        self._delete_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1px solid #e05c5c;
-                border-radius: {RADIUS_MD}px;
-                color: #e05c5c;
-                font-size: {FONT_SECONDARY}px;
-                padding: 4px 14px;
-            }}
-            QPushButton:hover {{ background: #2a1a1a; }}
-        """)
+        self._delete_btn.setStyleSheet(_BTN_DANGER)
         self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._delete_btn.setFixedHeight(BTN_H_MD)
         self._delete_btn.clicked.connect(self._on_delete)
         self._delete_confirming = False
         header.addWidget(self._delete_btn)
 
-        outer.addLayout(header)
-        outer.addSpacing(16)
+        content_layout.addLayout(header)
+        content_layout.addSpacing(16)
 
         # Meta (description + tags): bounded height so huge text cannot stress layout on resize.
         self._desc_scroll = QScrollArea()
@@ -953,21 +734,21 @@ class ProjectDetailView(QWidget):
         self._desc_lbl = QLabel()
         self._desc_lbl.setWordWrap(True)
         self._desc_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._desc_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
-        outer.addWidget(self._desc_lbl)
+        self._desc_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {MUTED}; background: transparent;")
+        content_layout.addWidget(self._desc_lbl)
         self._desc_scroll.setWidget(self._desc_lbl)
-        outer.addWidget(self._desc_scroll)
+        content_layout.addWidget(self._desc_scroll)
 
         self._tags_lbl = QLabel()
-        self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_ACCENT}; background: transparent;")
-        outer.addWidget(self._tags_lbl)
-        outer.addSpacing(SPACE_LG)
+        self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {ACCENT}; background: transparent;")
+        content_layout.addWidget(self._tags_lbl)
+        content_layout.addSpacing(SPACE_LG)
 
         # Papers section header
         papers_header = QHBoxLayout()
         self._papers_lbl = QLabel("Papers")
         self._papers_lbl.setStyleSheet(
-            f"font-size: 16px; font-weight: 600; color: {_TEXT}; background: transparent;"
+            f"font-size: 16px; font-weight: 600; color: {TEXT}; background: transparent;"
         )
         self._add_paper_btn = QPushButton("＋  Add Paper")
         self._add_paper_btn.setStyleSheet(_BTN_STYLE)
@@ -985,8 +766,8 @@ class ProjectDetailView(QWidget):
         papers_header.addStretch()
         papers_header.addWidget(self._import_pdf_btn)
         papers_header.addWidget(self._add_paper_btn)
-        outer.addLayout(papers_header)
-        outer.addSpacing(10)
+        content_layout.addLayout(papers_header)
+        content_layout.addSpacing(10)
 
         # Scrollable papers list
         scroll = QScrollArea()
@@ -1002,21 +783,44 @@ class ProjectDetailView(QWidget):
         self._papers_layout.addStretch()
 
         scroll.setWidget(self._papers_widget)
-        outer.addWidget(scroll, stretch=1)
+        content_layout.addWidget(scroll, stretch=1)
 
         self._empty_papers_lbl = QLabel("No papers yet — add one to get started.")
         self._empty_papers_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_papers_lbl.setStyleSheet(
-            f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;"
+            f"font-size: {FONT_BODY}px; color: {MUTED}; background: transparent;"
         )
-        outer.addWidget(self._empty_papers_lbl)
+        content_layout.addWidget(self._empty_papers_lbl)
+
+        self._paper_action_bar = SelectionBar(show_remove=True, parent=self)
+        self._paper_action_bar.download_requested.connect(self._on_bulk_download)
+        self._paper_action_bar.add_to_project_requested.connect(self._on_add_to_project)
+        self._paper_action_bar.remove_from_project_requested.connect(self._remove_selected_papers)
+        self._paper_action_bar.clear_requested.connect(self._clear_paper_selection)
+        outer.addWidget(self._paper_action_bar)
+
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.TEXT}; background: transparent;"
+        )
+        self._desc_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._tags_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.ACCENT}; background: transparent;")
+        self._papers_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_theme.TEXT}; background: transparent;")
+        self._empty_papers_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;")
+        self._export_btn.refresh_styles()
+        self._archive_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._delete_btn.setStyleSheet(_qt_styles.BTN_DANGER)
+        self._add_paper_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._import_pdf_btn.setStyleSheet(_qt_styles.BTN_MUTED)
 
     def load(self, project) -> None:
         self._project = project
         self._delete_confirming = False
         self._delete_btn.setText("Delete")
+        self._export_btn.set_project_fk(project.id)
 
-        hex_color = color_to_hex(project.color) if project.color is not None else _ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
         self._color_stripe.setStyleSheet(f"background: {hex_color}; border-radius: 3px;")
         self._title_lbl.setText(project.name)
         self._title_lbl.adjustSize()
@@ -1031,23 +835,116 @@ class ProjectDetailView(QWidget):
         self._rebuild_papers()
 
     def _rebuild_papers(self) -> None:
-        while self._papers_layout.count() > 1:
-            item = self._papers_layout.takeAt(0)
-            if item.widget():  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
-                item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
+        self._selected_pids.clear()
+        self._paper_action_bar.set_count(0)
 
-        paper_ids = self._project.paper_ids if self._project else []
-        count = len(paper_ids)
-        self._papers_lbl.setText(f"Papers  ({count})")
+        while self._papers_layout.count() > 1:
+            item = cast(QLayoutItem, self._papers_layout.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        paper_ids = self._project.source_fks if self._project and self._project.source_fks else []
+        self._papers_lbl.setText(f"Papers  ({len(paper_ids)})")
 
         if paper_ids:
             assert self._project is not None  # paper_ids is non-empty only when _project is set
             self._empty_papers_lbl.setVisible(False)
+            rendered_count = 0
             for pid in paper_ids:
-                row_widget = _PaperRow(pid, self._project.id)
-                self._papers_layout.insertWidget(self._papers_layout.count() - 1, row_widget)
+                source_id = paper_svc.get_source_id(pid)
+                if source_id is None:
+                    continue
+                row = paper_svc.get_paper(source_id)
+                if row is None:
+                    continue
+                rendered_count += 1
+                card = PaperCard(row, pdf_window=self._pdf_window, project_id=self._project.id)
+                card.double_clicked.connect(
+                    lambda r: self.navigate_to_paper.emit(r["source_fk"])
+                )
+                card.selection_toggled.connect(self._on_card_selection_toggled)
+                self._papers_layout.insertWidget(self._papers_layout.count() - 1, card)
+            self._papers_lbl.setText(f"Papers  ({rendered_count})")
         else:
             self._empty_papers_lbl.setVisible(True)
+
+    def _on_card_selection_toggled(self, source_fk: int, selected: bool) -> None:
+        if selected:
+            self._selected_pids.add(source_fk)
+        else:
+            self._selected_pids.discard(source_fk)
+        self._paper_action_bar.set_count(len(self._selected_pids))
+
+    def _clear_paper_selection(self) -> None:
+        self._selected_pids.clear()
+        for i in range(self._papers_layout.count() - 1):
+            item = self._papers_layout.itemAt(i)
+            if item is None:
+                continue
+            w = item.widget()
+            if isinstance(w, PaperCard):
+                w.set_selected(False)
+        self._paper_action_bar.set_count(0)
+
+    def _remove_selected_papers(self) -> None:
+        if self._project is None or not self._selected_pids:
+            return
+        for source_fk in list(self._selected_pids):
+            self._project.remove_paper(source_fk)
+        self._rebuild_papers()
+
+    def _on_bulk_download(self) -> None:
+        for i in range(self._papers_layout.count() - 1):
+            item = self._papers_layout.itemAt(i)
+            if item is None:
+                continue
+            w = item.widget()
+            if isinstance(w, PaperCard) and w.paper_id() in self._selected_pids:
+                w.start_download_if_needed()
+    #TODO: move to QT assets, too many imports for this spot
+    def _on_add_to_project(self) -> None:
+        if not self._selected_pids:
+            return
+        
+        projects = filter_projects(Q("status = 'active'"))
+        if not projects:
+            QMessageBox.information(self, "No Projects", "Create a project first.")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Add to Project")
+        dlg.setStyleSheet(f"background: {BG}; color: {TEXT};")
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(DIALOG_PAD, CARD_PAD_V, DIALOG_PAD, CARD_PAD_V)
+        lay.setSpacing(SPACE_MD)
+
+        lay.addWidget(QLabel(f"Add {len(self._selected_pids)} paper(s) to:"))
+        combo = QComboBox()
+        combo.setStyleSheet(f"""
+            QComboBox {{ background: {PANEL}; border: 1px solid {BORDER};
+                border-radius: {RADIUS_SM}px; color: {TEXT}; padding: 4px 8px; font-size: {FONT_BODY}px; }}
+        """)
+        for p in projects:
+            combo.addItem(p.name, userData=p)
+        lay.addWidget(combo)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        lay.addWidget(btns)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        project = combo.currentData()
+        for pid in self._selected_pids:
+            try:
+                project.add_paper(pid)
+            except Exception:
+                pass
 
     def _on_add_paper(self) -> None:
         if self._project is None:
@@ -1087,19 +984,20 @@ class ProjectDetailView(QWidget):
             else:
                 self._start_next_pdf()
             return
-        from storage.db import get_paper, save_papers_metadata, set_has_pdf, set_pdf_path
-        existing = get_paper(meta.paper_id)
+        existing = paper_svc.get_paper(meta.source_id)
         if existing is None:
-            save_papers_metadata([meta])
+            paper_svc.save_papers_metadata([meta])
             self._pdf_added += 1
         else:
             self._pdf_skipped += 1
-        set_pdf_path(meta.paper_id, path)
-        set_has_pdf(meta.paper_id, meta.version, True)
-        try:
-            self._project.add_paper(meta.paper_id)
-        except Exception:
-            pass
+        paper_svc.set_pdf_path(meta.source_id, path)
+        paper_svc.set_has_pdf(meta.source_id, meta.version, True)
+        root = paper_svc.get_paper_root(meta.source_id)
+        if root is not None:
+            try:
+                self._project.add_paper(int(root["SOURCE_FK"]))
+            except Exception:
+                pass
         if self._pdf_queue:
             self._start_next_pdf()
         else:
@@ -1117,7 +1015,6 @@ class ProjectDetailView(QWidget):
     def _finish_pdf_import(self) -> None:
         self._import_pdf_btn.setEnabled(True)
         self._import_pdf_btn.setText("Import PDF")
-        from PyQt6.QtWidgets import QMessageBox
         parts = []
         if self._pdf_added:
             parts.append(f"Added {self._pdf_added} paper(s).")
@@ -1130,7 +1027,6 @@ class ProjectDetailView(QWidget):
     def _on_archive(self) -> None:
         if self._project is None:
             return
-        from PyQt6.QtWidgets import QMessageBox
         reply = QMessageBox.question(
             self,
             "Archive Project",
@@ -1166,7 +1062,7 @@ class ProjectCard(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(f"""
             QFrame {{
-                background: {_PANEL}; border: 1px solid {_BORDER}; border-radius: {RADIUS_LG}px;
+                background: {PANEL}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px;
             }}
             QLabel {{ border: none; background: transparent; }}
         """)
@@ -1178,7 +1074,7 @@ class ProjectCard(QFrame):
 
         stripe = QWidget()
         stripe.setFixedWidth(6)
-        hex_color = color_to_hex(project.color) if project.color is not None else _ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
         stripe.setStyleSheet(f"background: {hex_color}; border-radius: 10px 0 0 10px;")
         outer.addWidget(stripe)
 
@@ -1187,12 +1083,12 @@ class ProjectCard(QFrame):
         inner.setSpacing(SPACE_XS)
 
         name_lbl = QLabel(project.name)
-        name_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {_TEXT};")
+        name_lbl.setStyleSheet(f"font-size: {FONT_SUBHEADING}px; font-weight: 600; color: {TEXT};")
         inner.addWidget(name_lbl)
 
         if project.description:
-            desc_lbl = _ElidedLabel(project.description)
-            desc_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_MUTED};")
+            desc_lbl = ElidedLabel(project.description)
+            desc_lbl.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {MUTED};")
             inner.addWidget(desc_lbl)
 
         stats_row = QHBoxLayout()
@@ -1207,12 +1103,12 @@ class ProjectCard(QFrame):
             ("📝", note_count,  "note"  if note_count  == 1 else "notes"),
         ]:
             lbl = QLabel(f"{icon} {value} {label}")
-            lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_MUTED};")
+            lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
             stats_row.addWidget(lbl)
 
         if project.project_tags:
             tags_lbl = QLabel("  ".join(f"#{t}" for t in project.project_tags))
-            tags_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_ACCENT};")
+            tags_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {ACCENT};")
             stats_row.addWidget(tags_lbl)
 
         stats_row.addStretch()
@@ -1223,7 +1119,6 @@ class ProjectCard(QFrame):
         if project.id is None:
             return 0
         try:
-            from storage.notes import count_project_notes
             return count_project_notes(project.id)
         except Exception:
             return 0
@@ -1236,22 +1131,26 @@ class ProjectCard(QFrame):
 # ── Projects page ─────────────────────────────────────────────────────────────
 
 class ProjectsPage(QWidget):
+    navigate_to_paper = pyqtSignal(int)   # source_fk — bubbled from ProjectDetailView
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
+        self.setStyleSheet(f"background: {BG}; color: {TEXT};")
         self._app_shell: AppShell | None = None
         self._library_page: LibraryPage | None = None
         self._project_detail_prior_shell_tab = False
-        self._return_to_library_paper_id: str | None = None
+        self._return_to_library_paper_id: int | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
         self._inner = QStackedWidget()
-        self._inner.addWidget(self._build_list_page())   # index 0
+        self._list_page_widget = self._build_list_page()
+        self._inner.addWidget(self._list_page_widget)   # index 0
 
         self._detail_view = ProjectDetailView()
         self._detail_view.back_requested.connect(self._on_back)
+        self._detail_view.navigate_to_paper.connect(self.navigate_to_paper)
         self._inner.addWidget(self._detail_view)          # index 1
 
         outer.addWidget(self._inner)
@@ -1269,11 +1168,29 @@ class ProjectsPage(QWidget):
         self._return_to_library_paper_id = None
         self._inner.setCurrentIndex(0)
 
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._list_page_widget.setStyleSheet(f"background: {_theme.BG};")
+        self._proj_title_lbl.setStyleSheet(
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_theme.ACCENT}; background: transparent;"
+        )
+        self._proj_subtitle_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._add_proj_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._refresh_proj_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._import_proj_btn.refresh_styles()
+        self._empty_lbl.setStyleSheet(
+            f"font-size: {FONT_BODY}px; color: {_theme.MUTED}; background: transparent;"
+        )
+        self._detail_view.refresh_styles()
+        self._refresh()
+
     # ── List page ─────────────────────────────────────────────────────────────
 
     def _build_list_page(self) -> QWidget:
         page = QWidget()
-        page.setStyleSheet(f"background: {_BG};")
+        page.setStyleSheet(f"background: {BG};")
         outer = QVBoxLayout(page)
         outer.setContentsMargins(PAGE_MARGIN_H, 40, PAGE_MARGIN_H, 40)
         outer.setSpacing(0)
@@ -1281,23 +1198,37 @@ class ProjectsPage(QWidget):
         header = QHBoxLayout()
         col = QVBoxLayout()
         col.setSpacing(SPACE_XS)
-        title = QLabel("Projects")
+        self._proj_title_lbl = title = QLabel("Projects")
         title.setStyleSheet(
-            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {_ACCENT}; background: transparent;"
+            f"font-size: {FONT_TITLE}px; font-weight: bold; color: {ACCENT}; background: transparent;"
         )
-        subtitle = QLabel("Organise papers into focused reading projects")
-        subtitle.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_MUTED}; background: transparent;")
+        self._proj_subtitle_lbl = subtitle = QLabel("Organise papers into focused reading projects")
+        subtitle.setStyleSheet(f"font-size: {FONT_BODY}px; color: {MUTED}; background: transparent;")
         col.addWidget(title)
         col.addWidget(subtitle)
 
-        add_btn = QPushButton("＋  New Project")
+        self._add_proj_btn = add_btn = QPushButton("＋  New Project")
         add_btn.setFixedSize(160, 40)
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.setStyleSheet(_BTN_STYLE)
         add_btn.clicked.connect(self._on_add)
 
+        self._refresh_proj_btn = refresh_btn = QPushButton("Refresh")
+        refresh_btn.setFixedHeight(40)
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.setStyleSheet(_BTN_MUTED_STYLE)
+        refresh_btn.clicked.connect(self._refresh)
+
+        self._import_proj_btn = ProjectImportButton()
+        self._import_proj_btn.setFixedHeight(40)
+        self._import_proj_btn.import_done.connect(self._refresh)
+
         header.addLayout(col)
         header.addStretch()
+        header.addWidget(refresh_btn, alignment=Qt.AlignmentFlag.AlignBottom)
+        header.addSpacing(SPACE_SM)
+        header.addWidget(self._import_proj_btn, alignment=Qt.AlignmentFlag.AlignBottom)
+        header.addSpacing(SPACE_SM)
         header.addWidget(add_btn, alignment=Qt.AlignmentFlag.AlignBottom)
         outer.addLayout(header)
         outer.addSpacing(SPACE_XL)
@@ -1320,7 +1251,7 @@ class ProjectsPage(QWidget):
         self._empty_lbl = QLabel("No projects yet — create one to get started.")
         self._empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_lbl.setStyleSheet(
-            f"font-size: 14px; color: {_MUTED}; background: transparent;"
+            f"font-size: 14px; color: {MUTED}; background: transparent;"
         )
         outer.addWidget(self._empty_lbl)
 
@@ -1328,13 +1259,14 @@ class ProjectsPage(QWidget):
 
     def _refresh(self) -> None:
         while self._list_layout.count() > 1:
-            item = self._list_layout.takeAt(0)
-            if item.widget():  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
-                item.widget().deleteLater()  # pyright: ignore[reportOptionalMemberAccess]
+            item = cast(QLayoutItem, self._list_layout.takeAt(0))
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
 
         try:
-            from storage.projects import filter_projects, ensure_projects_db, Q, Status
-            ensure_projects_db()
+            project_svc.ensure_projects_db()
+            ensure_notes_db()
             projects = filter_projects(Q("status = ?", Status.ACTIVE))
         except Exception:
             projects = []
@@ -1355,7 +1287,7 @@ class ProjectsPage(QWidget):
         project,
         *,
         opened_from_other_shell_tab: bool = False,
-        return_to_library_paper_id: str | None = None,
+        return_to_library_paper_id: int | None = None,
     ) -> None:
         """Navigate directly to a project's detail view (callable from other pages).
 

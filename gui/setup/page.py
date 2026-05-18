@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import gui.theme as _theme
+import gui.qt_assets.styles as _qt_styles
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
 from gui.theme import (
@@ -53,22 +55,7 @@ _COMBO_STYLE = f"""
         background: {_PANEL}; color: {_TEXT}; selection-background-color: {_ACCENT};
     }}
 """
-_BTN_STYLE = f"""
-    QPushButton {{
-        background: {_ACCENT}; border: none; border-radius: {RADIUS_MD}px;
-        color: #fff; font-size: {FONT_BODY}px; font-weight: 600; padding: {SPACE_SM}px 20px;
-    }}
-    QPushButton:hover   {{ background: #7aa3f5; }}
-    QPushButton:pressed {{ background: #4a7add; }}
-    QPushButton:disabled {{ background: #2a2a4a; color: {_MUTED}; }}
-"""
-_BTN_MUTED_STYLE = f"""
-    QPushButton {{
-        background: transparent; border: 1px solid {_BORDER}; border-radius: {RADIUS_MD}px;
-        color: {_MUTED}; font-size: {FONT_BODY}px; padding: {SPACE_SM}px 20px;
-    }}
-    QPushButton:hover {{ border-color: {_TEXT}; color: {_TEXT}; }}
-"""
+from gui.qt_assets.styles import BTN_PRIMARY as _BTN_STYLE, BTN_MUTED as _BTN_MUTED_STYLE
 
 
 def _env_present() -> bool:
@@ -85,11 +72,11 @@ class SetupPage(QWidget):
         super().__init__(parent)
         self.setStyleSheet(f"background: {_BG}; color: {_TEXT};")
 
-        scroll = QScrollArea()
+        self._scroll = scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {_BG}; }}")
 
-        content = QWidget()
+        self._scroll_content = content = QWidget()
         content.setStyleSheet(f"background: {_BG};")
         inner = QVBoxLayout(content)
         inner.setContentsMargins(PAGE_MARGIN_H, 40, PAGE_MARGIN_H, PAGE_MARGIN_H)
@@ -167,6 +154,32 @@ class SetupPage(QWidget):
         outer.addWidget(scroll)
 
     # ── Provider config ────────────────────────────────────────────────────
+
+    def refresh_styles(self) -> None:
+        self.setStyleSheet(f"background: {_theme.BG}; color: {_theme.TEXT};")
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {_theme.BG}; }}")
+        self._scroll_content.setStyleSheet(f"background: {_theme.BG};")
+        self._provider_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {_theme.BG}; border: 1px solid {_theme.BORDER}; border-radius: {RADIUS_MD}px;
+                color: {_theme.TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_XS}px 10px;
+            }}
+            QComboBox:focus {{ border-color: {_theme.ACCENT}; }}
+            QComboBox::drop-down {{ border: none; }}
+            QComboBox QAbstractItemView {{
+                background: {_theme.PANEL}; color: {_theme.TEXT}; selection-background-color: {_theme.ACCENT};
+            }}
+        """)
+        self._key_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {_theme.BG}; border: 1px solid {_theme.BORDER}; border-radius: {RADIUS_MD}px;
+                color: {_theme.TEXT}; font-size: {FONT_BODY}px; padding: {SPACE_SM}px 10px;
+            }}
+            QLineEdit:focus {{ border-color: {_theme.ACCENT}; }}
+        """)
+        self._test_btn.setStyleSheet(_qt_styles.BTN_MUTED)
+        self._save_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
+        self._provider_status.setStyleSheet(f"font-size: {FONT_SECONDARY}px; color: {_theme.MUTED};")
 
     def _build_provider_config(self) -> QFrame:
         frame = QFrame()

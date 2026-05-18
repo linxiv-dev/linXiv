@@ -49,7 +49,7 @@ def client(tmp_path, monkeypatch):
 
 def _meta(**kwargs) -> PaperMetadata:
     return PaperMetadata(
-        paper_id=kwargs.get("paper_id", "2204.12985"),
+        source_id=kwargs.get("source_id", "2204.12985"),
         version=kwargs.get("version", 1),
         title=kwargs.get("title", "Test Paper"),
         authors=kwargs.get("authors", ["Author One"]),
@@ -62,9 +62,9 @@ def _meta(**kwargs) -> PaperMetadata:
     )
 
 
-def _arxiv_result(paper_id="2204.12985", version=1) -> MagicMock:
+def _arxiv_result(source_id="2204.12985", version=1) -> MagicMock:
     r = MagicMock()
-    r.entry_id = f"http://arxiv.org/abs/{paper_id}v{version}"
+    r.entry_id = f"http://arxiv.org/abs/{source_id}v{version}"
     r.title = "Mock Paper"
     r.summary = "Mock abstract."
     author = MagicMock()
@@ -72,7 +72,7 @@ def _arxiv_result(paper_id="2204.12985", version=1) -> MagicMock:
     r.authors = [author]
     r.published = MagicMock()
     r.published.date.return_value = datetime.date(2022, 4, 1)
-    r.pdf_url = f"https://arxiv.org/pdf/{paper_id}v{version}"
+    r.pdf_url = f"https://arxiv.org/pdf/{source_id}v{version}"
     r.primary_category = "cs.AI"
     return r
 
@@ -138,13 +138,13 @@ class TestPapers:
 
     def test_list_and_get_saved_paper(self, client):
         import storage.db as db
-        db.save_paper_metadata(_meta(paper_id="2204.12985"))
+        db.save_paper_metadata(_meta(source_id="2204.12985"))
 
         r = client.get("/api/papers")
         assert r.status_code == 200
         papers = r.json()["papers"]
         assert len(papers) == 1
-        assert papers[0]["paper_id"] == "2204.12985"
+        assert papers[0]["source_id"] == "2204.12985"
 
         r = client.get("/api/papers/2204.12985")
         assert r.status_code == 200
@@ -152,7 +152,7 @@ class TestPapers:
 
     def test_delete_removes_paper(self, client):
         import storage.db as db
-        db.save_paper_metadata(_meta(paper_id="2204.12985"))
+        db.save_paper_metadata(_meta(source_id="2204.12985"))
 
         r = client.delete("/api/papers/2204.12985")
         assert r.status_code == 200
@@ -163,7 +163,7 @@ class TestPapers:
     def test_list_pagination(self, client):
         import storage.db as db
         for i in range(5):
-            db.save_paper_metadata(_meta(paper_id=f"2204.{10000 + i}"))
+            db.save_paper_metadata(_meta(source_id=f"2204.{10000 + i}"))
         r = client.get("/api/papers?limit=2&offset=0")
         assert r.status_code == 200
         assert len(r.json()["papers"]) == 2
@@ -171,7 +171,7 @@ class TestPapers:
     def test_list_offset(self, client):
         import storage.db as db
         for i in range(3):
-            db.save_paper_metadata(_meta(paper_id=f"2204.{10000 + i}"))
+            db.save_paper_metadata(_meta(source_id=f"2204.{10000 + i}"))
         r = client.get("/api/papers?limit=10&offset=2")
         assert r.status_code == 200
         assert len(r.json()["papers"]) == 1
@@ -294,26 +294,26 @@ class TestProjects:
 class TestProjectPapers:
     def _setup(self, client):
         import storage.db as db
-        db.save_paper_metadata(_meta(paper_id="2204.12985"))
+        db.save_paper_metadata(_meta(source_id="2204.12985"))
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
         return pid
 
     def test_add_paper_to_project(self, client):
         pid = self._setup(client)
-        r = client.post(f"/api/projects/{pid}/papers", json={"paper_id": "2204.12985"})
+        r = client.post(f"/api/projects/{pid}/papers", json={"source_id": "2204.12985"})
         assert r.status_code == 200
         assert r.json() == {"ok": True}
-        assert "2204.12985" in client.get(f"/api/projects/{pid}").json()["paper_ids"]
+        assert "2204.12985" in client.get(f"/api/projects/{pid}").json()["source_ids"]
 
     def test_remove_paper_from_project(self, client):
         pid = self._setup(client)
-        client.post(f"/api/projects/{pid}/papers", json={"paper_id": "2204.12985"})
+        client.post(f"/api/projects/{pid}/papers", json={"source_id": "2204.12985"})
         r = client.delete(f"/api/projects/{pid}/papers/2204.12985")
         assert r.status_code == 200
-        assert "2204.12985" not in client.get(f"/api/projects/{pid}").json()["paper_ids"]
+        assert "2204.12985" not in client.get(f"/api/projects/{pid}").json()["source_ids"]
 
     def test_add_to_nonexistent_project_returns_404(self, client):
-        r = client.post("/api/projects/999/papers", json={"paper_id": "2204.12985"})
+        r = client.post("/api/projects/999/papers", json={"source_id": "2204.12985"})
         assert r.status_code == 404
 
     def test_remove_from_nonexistent_project_returns_404(self, client):
@@ -327,20 +327,20 @@ class TestProjectPapers:
 
 class TestNotes:
     def test_get_notes_empty(self, client):
-        r = client.get("/api/notes?paper_id=2204.12985")
+        r = client.get("/api/notes?source_id=2204.12985")
         assert r.status_code == 200
         assert r.json() == {"notes": []}
 
     def test_create_and_get_note(self, client):
         r = client.post("/api/notes", json={
-            "paper_id": "2204.12985",
+            "source_id": "2204.12985",
             "title": "My Note",
             "content": "Some content",
         })
         assert r.status_code == 200
         assert isinstance(r.json()["id"], int)
 
-        notes = client.get("/api/notes?paper_id=2204.12985").json()["notes"]
+        notes = client.get("/api/notes?source_id=2204.12985").json()["notes"]
         assert len(notes) == 1
         assert notes[0]["title"] == "My Note"
         assert notes[0]["content"] == "Some content"
@@ -348,26 +348,26 @@ class TestNotes:
 
     def test_note_with_project(self, client):
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
-        client.post("/api/notes", json={"paper_id": "2204.12985", "project_id": pid, "title": "T"})
+        client.post("/api/notes", json={"source_id": "2204.12985", "project_id": pid, "title": "T"})
 
-        notes = client.get(f"/api/notes?paper_id=2204.12985&project_id={pid}").json()["notes"]
+        notes = client.get(f"/api/notes?source_id=2204.12985&project_id={pid}").json()["notes"]
         assert len(notes) == 1
         assert notes[0]["project_id"] == pid
 
     def test_all_projects_flag_returns_all_notes(self, client):
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
-        client.post("/api/notes", json={"paper_id": "X", "title": "No project"})
-        client.post("/api/notes", json={"paper_id": "X", "project_id": pid, "title": "With project"})
+        client.post("/api/notes", json={"source_id": "X", "title": "No project"})
+        client.post("/api/notes", json={"source_id": "X", "project_id": pid, "title": "With project"})
 
-        r = client.get("/api/notes?paper_id=X&all_projects=true")
+        r = client.get("/api/notes?source_id=X&all_projects=true")
         assert r.status_code == 200
         assert len(r.json()["notes"]) == 2
 
     def test_notes_isolated_by_paper(self, client):
-        client.post("/api/notes", json={"paper_id": "A", "title": "Note A"})
-        client.post("/api/notes", json={"paper_id": "B", "title": "Note B"})
-        assert len(client.get("/api/notes?paper_id=A").json()["notes"]) == 1
-        assert len(client.get("/api/notes?paper_id=B").json()["notes"]) == 1
+        client.post("/api/notes", json={"source_id": "A", "title": "Note A"})
+        client.post("/api/notes", json={"source_id": "B", "title": "Note B"})
+        assert len(client.get("/api/notes?source_id=A").json()["notes"]) == 1
+        assert len(client.get("/api/notes?source_id=B").json()["notes"]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +383,7 @@ class TestArxivEndpoints:
         data = r.json()
         assert len(data["results"]) == 1
         assert data["results"][0]["title"] == "Mock Paper"
-        assert data["saved_paper_ids"] == []
+        assert data["saved_source_ids"] == []
 
     def test_search_save_flag(self, client):
         result = _arxiv_result()
@@ -391,7 +391,7 @@ class TestArxivEndpoints:
              patch("api.app.save_papers"):
             r = client.post("/api/arxiv/search", json={"query": "test", "save": True})
         assert r.status_code == 200
-        assert len(r.json()["saved_paper_ids"]) == 1
+        assert len(r.json()["saved_source_ids"]) == 1
 
     def test_search_empty_results(self, client):
         with patch("api.app.search_papers", return_value=[]):
@@ -411,16 +411,16 @@ class TestArxivEndpoints:
     def test_fetch_success(self, client):
         result = _arxiv_result()
         with patch("api.app.fetch_paper_metadata", return_value=result):
-            r = client.post("/api/arxiv/fetch", json={"paper_id": "2204.12985", "save": False})
+            r = client.post("/api/arxiv/fetch", json={"source_id": "2204.12985", "save": False})
         assert r.status_code == 200
         data = r.json()
         assert data["paper"]["title"] == "Mock Paper"
-        assert data["paper_id"] == "2204.12985"
+        assert data["source_id"] == "2204.12985"
         assert data["saved"] is False
 
     def test_fetch_error_returns_502(self, client):
         with patch("api.app.fetch_paper_metadata", side_effect=Exception("not found")):
-            r = client.post("/api/arxiv/fetch", json={"paper_id": "9999.99999"})
+            r = client.post("/api/arxiv/fetch", json={"source_id": "9999.99999"})
         assert r.status_code == 502
 
 
@@ -432,11 +432,11 @@ class TestDoiEndpoints:
     _doi = "10.1234/test"
 
     def test_resolve_success(self, client):
-        with patch("api.app.resolve_doi", return_value=_meta(paper_id=self._doi)):
+        with patch("api.app.resolve_doi", return_value=_meta(source_id=self._doi)):
             r = client.post("/api/doi/resolve", json={"doi": self._doi})
         assert r.status_code == 200
         assert "metadata" in r.json()
-        assert r.json()["metadata"]["paper_id"] == self._doi
+        assert r.json()["metadata"]["source_id"] == self._doi
 
     def test_resolve_not_found_returns_400(self, client):
         with patch("api.app.resolve_doi", side_effect=ValueError("not found")):
@@ -448,7 +448,7 @@ class TestDoiEndpoints:
         assert r.status_code == 422
 
     def test_save_success(self, client):
-        with patch("api.app.resolve_doi", return_value=_meta(paper_id=self._doi)):
+        with patch("api.app.resolve_doi", return_value=_meta(source_id=self._doi)):
             r = client.post("/api/doi/save", json={"doi": self._doi})
         assert r.status_code == 200
         data = r.json()
@@ -473,7 +473,7 @@ class TestPdfEndpoint:
     def test_paper_with_url_redirects(self, client):
         import storage.db as db
         db.save_paper_metadata(_meta(
-            paper_id="2204.12985",
+            source_id="2204.12985",
             url="https://arxiv.org/pdf/2204.12985v1",
         ))
         r = client.get("/api/papers/2204.12985/pdf", follow_redirects=False)
@@ -485,7 +485,7 @@ class TestPdfEndpoint:
         pdf_file = tmp_path / "2204.12985v1.pdf"
         pdf_file.write_bytes(b"%PDF-1.4 fake content")
 
-        db.save_paper_metadata(_meta(paper_id="2204.12985", url=None))
+        db.save_paper_metadata(_meta(source_id="2204.12985", url=None))
 
         with patch("api.app.PDF_DIR", tmp_path):
             r = client.get("/api/papers/2204.12985/pdf")
@@ -494,6 +494,6 @@ class TestPdfEndpoint:
 
     def test_paper_with_no_pdf_source_returns_404(self, client):
         import storage.db as db
-        db.save_paper_metadata(_meta(paper_id="2204.12985", url=None))
+        db.save_paper_metadata(_meta(source_id="2204.12985", url=None))
         r = client.get("/api/papers/2204.12985/pdf")
         assert r.status_code == 404

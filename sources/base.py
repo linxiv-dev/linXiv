@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 class PaperMetadata(BaseModel):
     """Normalized paper representation (source-agnostic)."""
-    paper_id: str       # source-specific ID (arxiv: 2204.12985, openalex: W3123456789)
+    source_id: str       # source-specific ID (arxiv: 2204.12985, openalex: W3123456789)
     version: int        # defaults to 1 for non-arxiv sources
     title: str
     authors: list[str]
@@ -44,6 +44,6 @@ class PaperSource(Protocol):
         """Search for papers matching a query string."""
         ...
 
-    def fetch_by_id(self, paper_id: str) -> PaperMetadata:
+    def fetch_by_id(self, source_id: str) -> PaperMetadata:
         """Fetch metadata for a specific paper by its source-specific ID."""
         ...

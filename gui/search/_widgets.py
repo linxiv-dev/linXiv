@@ -1,9 +1,10 @@
+from typing import cast
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QListWidget, QListWidgetItem, QCheckBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from gui.theme import SPACE_SM, SPACE_XS, BTN_H_SM, RADIUS_SM
+from gui.theme import SPACE_SM, SPACE_XS, BTN_H_SM, RADIUS_SM, PANEL, TEXT, MUTED, BORDER
 
 _FIELD_OPTIONS = [
     ("Author",     "au:"),
@@ -76,13 +77,15 @@ class _ClauseRow(QWidget):
 class _ResultList(QListWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        w = self.viewport().width()  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
+        w = cast(QWidget, self.viewport()).width()
         for i in range(self.count()):
             item = self.item(i)
+            if item is None:
+                continue
             widget = self.itemWidget(item)
             if widget is not None:
                 widget.setFixedWidth(w)
-                item.setSizeHint(widget.sizeHint())  # pyright: ignore[reportOptionalMemberAccess] — technically fixable but awkward with current setup
+                item.setSizeHint(widget.sizeHint())
 
 
 class _ResultRow(QWidget):
@@ -98,13 +101,14 @@ class _ResultRow(QWidget):
             badge.setFixedWidth(70)  # TODO: Make more customizable
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setStyleSheet(
-                f"background: #f0f0f0; color: #444444; border: 1px solid #cccccc;"
+                f"background: {PANEL}; color: {MUTED}; border: 1px solid {BORDER};"
                 f" border-radius: {RADIUS_SM}px; font-size: 10px; padding: 1px {SPACE_XS}px;"
             )
             layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignTop)
 
         self._label = QLabel(title)
         self._label.setWordWrap(True)
+        self._label.setStyleSheet(f"color: {TEXT};")
         layout.addWidget(self._label, stretch=1)
 
         self._checkbox = QCheckBox("Save")

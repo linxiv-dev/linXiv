@@ -1,8 +1,11 @@
 import os
+from typing import cast
 
+from service import paper as paper_svc
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QMainWindow, QToolBar, QLabel, QPushButton, QWidget
 from PyQt6.QtPdfWidgets import QPdfView
-from PyQt6.QtPdf import QPdfDocument
+from PyQt6.QtPdf import QPdfDocument, QPdfPageNavigator
 from PyQt6.QtCore import Qt
 
 from gui.theme import BTN_H_SM
@@ -50,19 +53,19 @@ class PdfWindow(QMainWindow):
         bar.addWidget(spacer)
         bar.addWidget(self._page_label)
 
-        self._view.pageNavigator().currentPageChanged.connect(self._update_page_label)  # pyright: ignore[reportOptionalMemberAccess]
+        nav = cast(QPdfPageNavigator, self._view.pageNavigator())
+        nav.currentPageChanged.connect(self._update_page_label)
 
     @staticmethod
-    def resolve_pdf_path(paper_id: str, version: int, fallback_dir: str) -> str | None:
+    def resolve_pdf_path(source_id: str, version: int, fallback_dir: str) -> str | None:
         """Return the best PDF path for a paper: pdf_path from DB, then fallback."""
-        from storage.db import get_paper
-        row = get_paper(paper_id, version)
+        row = paper_svc.get_paper(source_id, version)
         if row:
             db_path = row["pdf_path"]
             if db_path and os.path.isfile(db_path):
                 return db_path
         # Fallback to standard location
-        std = os.path.join(fallback_dir, f"{paper_id}v{version}.pdf")
+        std = os.path.join(fallback_dir, f"{source_id}v{version}.pdf")
         if os.path.isfile(std):
             return std
         return None
@@ -87,3 +90,19 @@ class PdfWindow(QMainWindow):
     def _update_page_label(self, page: int) -> None:
         total = self._doc.pageCount()
         self._page_label.setText(f"Page {page + 1} / {total}" if total else "")
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        # Windows-specific note:
+        # QPdfView can keep internal references to the currently loaded
+        # QPdfDocument during teardown. If we only close the window, the PDF
+        # file handle may remain locked and later delete attempts can fail.
+        old_doc = self._doc
+        # Rebind the view to a fresh document first so the view no longer points
+        # at old_doc, then close old_doc to release its OS file handle.
+        # deleteLater() defers final destruction to a safe point in Qt's event
+        # loop, avoiding teardown-order issues with QObject ownership/signals.
+        self._doc = QPdfDocument(self)
+        self._view.setDocument(self._doc)
+        old_doc.close()
+        old_doc.deleteLater()
+        super().closeEvent(event)

@@ -7,6 +7,7 @@ Serves ``/api/...`` routes and, for the graph viewer, static files under
 
 from __future__ import annotations
 
+import datetime
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,6 +38,7 @@ from storage.db import (
     save_paper_metadata,
 )
 from sources import resolve_doi, fetch_paper_metadata, search_papers
+from service.paper import ensure_paper_root, get_paper_root, get_source_id
 from storage.notes import Note, ensure_notes_db, get_notes
 from storage.projects import (
     Project,
@@ -70,13 +72,23 @@ def _paper_row_dict(row) -> dict:
             out[k] = v.isoformat()
         else:
             out[k] = v
+    out["source_id"] = row["source_id"]  # expose text ID as source_id
     return out
 
 
+def _sfks_to_source_ids(source_fks: list[int]) -> list[str]:
+    result: list[str] = []
+    for sfk in source_fks:
+        sid = get_source_id(sfk)
+        if sid is not None:
+            result.append(sid)
+    return result
+
+
 def _arxiv_result_summary(p: arxiv.Result) -> dict:
-    pid, ver = parse_entry_id(p.entry_id)
+    sid, ver = parse_entry_id(p.entry_id)
     return {
-        "paper_id": pid,
+        "source_id": sid,
         "version": ver,
         "title": p.title,
         "summary": p.summary,
@@ -88,14 +100,14 @@ def _arxiv_result_summary(p: arxiv.Result) -> dict:
     }
 
 
-def _resolve_local_pdf(paper_id: str, version: int | None) -> str | None:
-    row = get_paper(paper_id) if version is None else get_paper(paper_id, version)
+def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
+    row = get_paper(source_id) if version is None else get_paper(source_id, version)
     if not row:
         return None
     ver = row["version"] if version is None else version
     if row["pdf_path"] and os.path.isfile(row["pdf_path"]):
         return row["pdf_path"]
-    std = PDF_DIR / f"{paper_id}v{ver}.pdf"
+    std = PDF_DIR / f"{source_id}v{ver}.pdf"
     if std.is_file():
         return str(std)
     return None
@@ -159,21 +171,21 @@ def api_list_papers(
     return {"papers": [_paper_row_dict(r) for r in rows]}
 
 
-@app.get("/api/papers/{paper_id}")
-def api_get_paper(paper_id: str) -> dict:
-    row = get_paper(paper_id)
+@app.get("/api/papers/{source_id}")
+def api_get_paper(source_id: str) -> dict:
+    row = get_paper(source_id)
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
     return _paper_row_dict(row)
 
 
-@app.delete("/api/papers/{paper_id}")
-def api_delete_paper(paper_id: str) -> dict:
-    row = get_paper(paper_id)
+@app.delete("/api/papers/{source_id}")
+def api_delete_paper(source_id: str) -> dict:
+    row = get_paper(source_id)
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
-    delete_paper(paper_id)
-    return {"deleted": paper_id}
+    delete_paper(source_id)
+    return {"deleted": source_id}
 
 
 @app.get("/api/graph")
@@ -205,9 +217,9 @@ def api_projects() -> dict:
                 "description": p.description or "",
                 "color_hex": color_to_hex(p.color) if p.color else None,
                 "project_tags": p.project_tags or [],
-                "paper_ids": p.paper_ids or [],
+                "source_ids": _sfks_to_source_ids(p.source_fks),
                 "status": p.status.value,
-                "paper_count": len(p.paper_ids or []),
+                "paper_count": p.paper_count,
             }
         )
     return {"projects": out}
@@ -251,7 +263,7 @@ def api_project_get(project_id: int) -> dict:
         "description": p.description or "",
         "color_hex": color_to_hex(p.color) if p.color else None,
         "project_tags": p.project_tags or [],
-        "paper_ids": p.paper_ids or [],
+        "source_ids": _sfks_to_source_ids(p.source_fks),
         "status": p.status.value,
     }
 
@@ -286,7 +298,7 @@ def api_project_delete(project_id: int) -> dict:
 
 
 class ProjectPaperBody(BaseModel):
-    paper_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
 
 
 @app.post("/api/projects/{project_id}/papers")
@@ -294,16 +306,22 @@ def api_project_add_paper(project_id: int, body: ProjectPaperBody) -> dict:
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    p.add_paper(body.paper_id.strip())
+    root = get_paper_root(body.source_id.strip())
+    if root is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    p.add_paper(int(root["SOURCE_FK"]))
     return {"ok": True}
 
 
-@app.delete("/api/projects/{project_id}/papers/{paper_id}")
-def api_project_remove_paper(project_id: int, paper_id: str) -> dict:
+@app.delete("/api/projects/{project_id}/papers/{source_id}")
+def api_project_remove_paper(project_id: int, source_id: str) -> dict:
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    p.remove_paper(paper_id)
+    root = get_paper_root(source_id)
+    if root is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    p.remove_paper(int(root["SOURCE_FK"]))
     return {"ok": True}
 
 
@@ -324,24 +342,24 @@ def api_arxiv_search(body: ArxivSearchBody) -> dict:
     if body.save and results:
         save_papers(results)
         saved = [parse_entry_id(p.entry_id)[0] for p in results]
-    return {"results": summaries, "saved_paper_ids": saved if body.save else []}
+    return {"results": summaries, "saved_source_ids": saved if body.save else []}
 
-
+#TODO:RECREATE API to be more efficient, use service layer???
 class ArxivFetchBody(BaseModel):
-    paper_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
     save: bool = True
 
 
 @app.post("/api/arxiv/fetch")
 def api_arxiv_fetch(body: ArxivFetchBody) -> dict:
     try:
-        paper = fetch_paper_metadata(body.paper_id.strip())
+        paper = fetch_paper_metadata(body.source_id.strip())
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     pid, _ = parse_entry_id(paper.entry_id)
     if body.save:
         save_paper(paper)
-    return {"paper": _arxiv_result_summary(paper), "saved": body.save, "paper_id": pid}
+    return {"paper": _arxiv_result_summary(paper), "saved": body.save, "source_id": pid}
 
 
 class DoiResolveBody(BaseModel):
@@ -372,7 +390,7 @@ def api_doi_save(body: DoiSaveBody) -> dict:
 
 
 class NoteCreate(BaseModel):
-    paper_id: str
+    source_id: str
     project_id: int | None = None
     title: str = ""
     content: str = ""
@@ -380,21 +398,24 @@ class NoteCreate(BaseModel):
 
 @app.get("/api/notes")
 def api_notes(
-    paper_id: str,
+    source_id: str,
     project_id: int | None = None,
     all_projects: bool = Query(default=False),
 ) -> dict:
-    notes = get_notes(paper_id, project_id=project_id, all_projects=all_projects)
+    root = get_paper_root(source_id)
+    if root is None:
+        return {"notes": []}
+    notes = get_notes(int(root["SOURCE_FK"]), project_id=project_id, all_projects=all_projects)
     return {
         "notes": [
             {
-                "id": n.id,
-                "paper_id": n.paper_id,
+                "id": n.note_id,
+                "source_fk": n.source_fk,
                 "project_id": n.project_id,
                 "title": n.title,
                 "content": n.content,
-                "created_at": n.created_at.isoformat() if n.created_at else None,
-                "updated_at": n.updated_at.isoformat() if n.updated_at else None,
+                "created_at": n.created_at.isoformat() if isinstance(n.created_at, datetime.datetime) else n.created_at,
+                "updated_at": n.updated_at.isoformat() if isinstance(n.updated_at, datetime.datetime) else n.updated_at,
             }
             for n in notes
         ]
@@ -403,8 +424,9 @@ def api_notes(
 
 @app.post("/api/notes")
 def api_note_create(body: NoteCreate) -> dict:
+    source_fk = ensure_paper_root(body.source_id.strip())
     n = Note(
-        paper_id=body.paper_id.strip(),
+        source_fk=source_fk,
         project_id=body.project_id,
         title=body.title,
         content=body.content,
@@ -413,12 +435,12 @@ def api_note_create(body: NoteCreate) -> dict:
     return {"id": n.id}
 
 
-@app.get("/api/papers/{paper_id}/pdf", response_model=None)
-def api_paper_pdf(paper_id: str, version: int | None = Query(default=None)):
-    row = get_paper(paper_id) if version is None else get_paper(paper_id, version)
+@app.get("/api/papers/{source_id}/pdf", response_model=None)
+def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
+    row = get_paper(source_id) if version is None else get_paper(source_id, version)
     if not row:
         raise HTTPException(status_code=404, detail="Paper not found")
-    path = _resolve_local_pdf(paper_id, version)
+    path = _resolve_local_pdf(source_id, version)
     if path:
         return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
     url = row["url"]
