@@ -22,7 +22,7 @@ from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -663,6 +663,96 @@ async def api_import_commit(
     finally:
         tmp.unlink(missing_ok=True)
     return {"project_id": project_fk}
+
+
+# ── BibTeX export / import ────────────────────────────────────────────────────
+
+@app.get("/api/projects/{project_id}/export/bibtex")
+def api_project_export_bibtex(project_id: int) -> PlainTextResponse:
+    from formats.bibtex import BibTeXFormat
+    p = get_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    papers = list_paper_details(latest_only=True)
+    project_papers = [
+        pp.to_dict() for pp in papers
+        if pp.source_id in sfks_to_source_ids(p.source_fks)
+    ]
+    bib_text = BibTeXFormat().export_papers(project_papers)
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (p.name or "project"))
+    return PlainTextResponse(
+        content=bib_text,
+        media_type="text/x-bibtex",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.bib"'},
+    )
+
+
+@app.post("/api/papers/import/bibtex")
+async def api_import_bibtex(
+    file: UploadFile = File(...),
+    project_id: int | None = Query(default=None),
+) -> dict:
+    from formats.bibtex import BibTeXFormat
+    text = (await file.read()).decode("utf-8", errors="replace")
+    try:
+        metas = BibTeXFormat().import_string(text)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"BibTeX parse error: {e}") from e
+    saved: list[str] = []
+    for meta in metas:
+        save_paper_metadata(meta)
+        saved.append(meta.source_id)
+    if project_id and saved:
+        proj = get_project(project_id)
+        if proj:
+            for sid in saved:
+                root = get_paper_root(sid)
+                if root:
+                    proj.add_paper(int(root["SOURCE_FK"]))
+    return {"saved_count": len(saved), "source_ids": saved}
+
+
+# ── PDF import ────────────────────────────────────────────────────────────────
+
+@app.post("/api/papers/import/pdf")
+async def api_import_pdf(
+    file: UploadFile = File(...),
+    project_id: int | None = Query(default=None),
+) -> dict:
+    from sources.pdf_metadata import extract_pdf_metadata
+    import uuid
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+    content = await file.read()
+    tmp_path = PDF_DIR / f"_upload_{uuid.uuid4().hex}.pdf"
+    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        tmp_path.write_bytes(content)
+        try:
+            meta = extract_pdf_metadata(str(tmp_path))
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Could not extract PDF metadata: {e}") from e
+        save_paper_metadata(meta)  # type: ignore[arg-type]
+        source_id = getattr(meta, "source_id", None) or meta.get("source_id", "")  # type: ignore[union-attr]
+        version = getattr(meta, "version", None) or meta.get("version", 1)  # type: ignore[union-attr]
+        title = getattr(meta, "title", None) or meta.get("title", "")  # type: ignore[union-attr]
+        final_path = PDF_DIR / f"{source_id}v{version}.pdf"
+        tmp_path.rename(final_path)
+        from service.paper import set_has_pdf_by_source
+        set_has_pdf_by_source(source_id, True)
+        if project_id:
+            proj = get_project(project_id)
+            if proj:
+                root = get_paper_root(source_id)
+                if root:
+                    proj.add_paper(int(root["SOURCE_FK"]))
+    except HTTPException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {"source_id": source_id, "title": title}
 
 
 # ── OpenAlex save ─────────────────────────────────────────────────────────────
