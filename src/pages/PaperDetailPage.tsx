@@ -36,6 +36,7 @@ export default function PaperDetailPage() {
 
   const [showAddNote, setShowAddNote] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+  const [showPdfViewer, setShowPdfViewer] = useState(false);
 
   const {
     data: paper,
@@ -187,45 +188,60 @@ export default function PaperDetailPage() {
             )}
 
             {/* PDF section */}
-            <div className="pt-2">
-              {paper.has_pdf ? (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    const url = getPaperPdfUrl(paper.source_id);
-                    window.open(url, "_blank", "noopener,noreferrer");
-                  }}
-                >
-                  Open PDF
-                </Button>
-              ) : (
-                <div className="flex items-center gap-3">
+            <div className="pt-2 space-y-3">
+              <div className="flex items-center gap-3 flex-wrap">
+                {paper.has_pdf ? (
                   <Button
-                    variant="muted"
-                    onClick={() => downloadPdfMutation.mutate()}
-                    disabled={downloadPdfMutation.isPending}
+                    variant="primary"
+                    onClick={() => setShowPdfViewer((v) => !v)}
                   >
-                    {downloadPdfMutation.isPending ? "Fetching…" : "Download PDF"}
+                    {showPdfViewer ? "Hide PDF" : "View PDF"}
                   </Button>
-                  {downloadPdfMutation.isError && (
-                    <span
-                      className="text-xs"
-                      style={{ color: "var(--color-danger)" }}
-                    >
-                      {downloadPdfMutation.error instanceof Error
-                        ? downloadPdfMutation.error.message
-                        : "Failed to fetch PDF"}
-                    </span>
-                  )}
-                  {downloadPdfMutation.isSuccess && (
-                    <span
-                      className="text-xs"
-                      style={{ color: "var(--color-success)" }}
-                    >
-                      PDF saved
-                    </span>
-                  )}
-                </div>
+                ) : (
+                  <>
+                    {paper.source === "arxiv" && (
+                      <Button
+                        variant="muted"
+                        onClick={() => downloadPdfMutation.mutate()}
+                        disabled={downloadPdfMutation.isPending}
+                      >
+                        {downloadPdfMutation.isPending ? "Fetching…" : "Download PDF"}
+                      </Button>
+                    )}
+                    {paper.url && (
+                      <a
+                        href={paper.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm hover:underline"
+                        style={{ color: "var(--color-accent)" }}
+                      >
+                        View online ↗
+                      </a>
+                    )}
+                  </>
+                )}
+                {downloadPdfMutation.isError && (
+                  <span className="text-xs" style={{ color: "var(--color-danger)" }}>
+                    {downloadPdfMutation.error instanceof Error
+                      ? downloadPdfMutation.error.message
+                      : "Failed to fetch PDF"}
+                  </span>
+                )}
+                {downloadPdfMutation.isSuccess && (
+                  <span className="text-xs" style={{ color: "var(--color-success)" }}>
+                    PDF saved
+                  </span>
+                )}
+              </div>
+
+              {showPdfViewer && paper.has_pdf && (
+                <iframe
+                  src={getPaperPdfUrl(paper.source_id)}
+                  className="w-full rounded border border-border"
+                  style={{ height: "70vh" }}
+                  title="PDF viewer"
+                />
               )}
             </div>
           </div>

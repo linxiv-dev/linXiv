@@ -1,4 +1,4 @@
-const PAPER_COLOR     = '#5b8dee';
+let PAPER_COLOR       = '#5b8dee';
 const AUTHOR_COLOR    = '#e8a838';
 const TAG_COLOR       = '#4caf7d';
 const HIGHLIGHT_COLOR = '#ff6b6b';
@@ -433,7 +433,18 @@ function loadGraph(data) {
     _applyFilter();
 }
 
+function getThemeColors() {
+    const s = getComputedStyle(document.documentElement);
+    return {
+        accent: s.getPropertyValue('--color-accent').trim() || '#5b8dee',
+        bg:     s.getPropertyValue('--color-bg').trim()     || '#0f0f1a',
+        border: s.getPropertyValue('--color-border').trim() || '#2e2e50',
+        muted:  s.getPropertyValue('--color-muted').trim()  || '#7777aa',
+    };
+}
+
 function cytoscapeStyle() {
+    const t = getThemeColors();
     return [
         {
             selector: 'node[type = "paper"]',
@@ -441,10 +452,10 @@ function cytoscapeStyle() {
                 'shape':            'ellipse',
                 'width':            20,
                 'height':           20,
-                'background-color': PAPER_COLOR,
+                'background-color': t.accent,
                 'label':            'data(label)',
                 'font-size':        '11px',
-                'color':            '#aaaacc',
+                'color':            t.muted,
                 'font-family':      'Segoe UI, sans-serif',
                 'text-valign':      'center',
                 'text-halign':      'right',
@@ -452,7 +463,7 @@ function cytoscapeStyle() {
                 'text-max-width':   '180px',
                 'text-wrap':        'ellipsis',
                 'border-width':     1.5,
-                'border-color':     '#0f0f1a',
+                'border-color':     t.bg,
             },
         },
         {
@@ -494,7 +505,7 @@ function cytoscapeStyle() {
             selector: 'edge',
             style: {
                 'width':       1.5,
-                'line-color':  '#2a2a4a',
+                'line-color':  t.border,
                 'curve-style': 'haystack',
             },
         },
@@ -796,6 +807,22 @@ function getSelectedPaperData() {
 }
 
 window.addEventListener('resize', () => { if (cy) cy.resize(); });
+
+(function() { PAPER_COLOR = getThemeColors().accent; })();
+
+window.addEventListener('message', function(e) {
+    if (!e.data || e.data.type !== 'theme_update') return;
+    const c = e.data.colors;
+    const r = document.documentElement;
+    r.style.setProperty('--color-bg',     c.bg);
+    r.style.setProperty('--color-panel',  c.panel);
+    r.style.setProperty('--color-border', c.border);
+    r.style.setProperty('--color-accent', c.accent);
+    r.style.setProperty('--color-text',   c.text);
+    r.style.setProperty('--color-muted',  c.muted);
+    PAPER_COLOR = c.accent;
+    if (cy) cy.style(cytoscapeStyle()).update();
+});
 
 // Bootstrap: http(s) = dev (Vite proxy handles /api), tauri: = production app (backend at 127.0.0.1:8000), file: = Qt bridge (skip).
 (function bootstrapWebGraph() {

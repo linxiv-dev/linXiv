@@ -1,8 +1,14 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useThemeStore } from "../stores/theme";
+import { getColors } from "../lib/theme";
 
 export default function GraphPage() {
   const navigate = useNavigate();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const preset = useThemeStore(s => s.preset);
+  const mode = useThemeStore(s => s.mode);
+  const overrides = useThemeStore(s => s.overrides);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -15,6 +21,17 @@ export default function GraphPage() {
     return () => window.removeEventListener("message", onMessage);
   }, [navigate]);
 
+  const sendTheme = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return;
+    const colors = getColors(preset, mode, overrides);
+    iframe.contentWindow.postMessage({ type: "theme_update", colors }, "*");
+  }, [preset, mode, overrides]);
+
+  useEffect(() => {
+    sendTheme();
+  }, [sendTheme]);
+
   return (
     <div className="w-full h-full flex flex-col">
       <div className="p-4 border-b border-border flex items-center gap-3">
@@ -22,10 +39,12 @@ export default function GraphPage() {
         <span className="text-sm text-muted">Click a node to open the paper</span>
       </div>
       <iframe
+        ref={iframeRef}
         src="/graph/graph.html"
         className="flex-1 border-0 w-full"
         title="Paper knowledge graph"
         allow="scripts"
+        onLoad={sendTheme}
       />
     </div>
   );
