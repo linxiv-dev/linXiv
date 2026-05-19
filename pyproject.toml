@@ -20,6 +20,7 @@ dependencies = [
     "uvicorn[standard]",
     "pypdf>=6.10.2",
     "starlette<1.0",
+    "python-multipart>=0.0.26",
 ]
 
 [project.optional-dependencies]

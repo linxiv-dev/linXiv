@@ -683,6 +683,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "python-dotenv" },
+    { name = "python-multipart" },
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -715,6 +716,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0,<2.13" },
     { name = "pypdf", specifier = ">=6.10.2" },
     { name = "python-dotenv" },
+    { name = "python-multipart", specifier = ">=0.0.26" },
     { name = "starlette", specifier = "<1.0" },
     { name = "uvicorn", extras = ["standard"] },
 ]
