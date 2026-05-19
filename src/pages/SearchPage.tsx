@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import { ClauseRow, type Clause } from "../components/search/ClauseRow";
 import { ResultRow } from "../components/search/ResultRow";
-import { searchArxiv, fetchArxiv, searchOpenAlex, saveDoi } from "../api/search";
+import { searchArxiv, fetchArxiv, searchOpenAlex, saveOpenAlex } from "../api/search";
 import { listPapers } from "../api/papers";
 import type { SearchResult, Paper } from "../types/api";
 
@@ -128,11 +128,7 @@ export default function SearchPage() {
 
   const handleSavePaper = useCallback(async (sourceId: string) => {
     if (sourceId.startsWith("openalex:")) {
-      const result = results?.find((r) => r.source_id === sourceId);
-      const doi = result?.pdf_url;
-      if (doi) {
-        await saveDoi(doi);
-      }
+      await saveOpenAlex(sourceId);
     } else {
       await fetchArxiv(sourceId, true);
     }
@@ -279,11 +275,7 @@ export default function SearchPage() {
                 key={result.source_id}
                 result={result}
                 saved={savedIds.has(result.source_id)}
-                canSave={
-                  result.source_id.startsWith("openalex:")
-                    ? !!result.pdf_url
-                    : true
-                }
+
                 onSave={handleSavePaper}
               />
             ))}

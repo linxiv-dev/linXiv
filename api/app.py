@@ -18,7 +18,8 @@ from config import ENV_PATH, data_dir, resources_dir
 load_dotenv(ENV_PATH)
 
 import arxiv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
@@ -581,6 +582,104 @@ def api_openalex_search(body: OpenAlexSearchBody) -> dict:
             for m in results
         ]
     }
+
+
+# ── Export / Import ───────────────────────────────────────────────────────────
+
+import tempfile
+import shutil
+from service import export_import as _export_import
+
+
+class ExportBody(BaseModel):
+    project_id: int
+    include_pdfs: bool = False
+
+
+@app.post("/api/projects/{project_id}/export")
+def api_project_export(
+    project_id: int,
+    body: ExportBody,
+    background: BackgroundTasks,
+) -> FileResponse:
+    tmp_dir = Path(tempfile.mkdtemp())
+    try:
+        out = _export_import.export_project(
+            project_id,
+            dest_path=tmp_dir / "export",
+            include_pdfs=body.include_pdfs,
+        )
+    except ValueError as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    background.add_task(shutil.rmtree, tmp_dir, True)
+    return FileResponse(
+        path=str(out),
+        filename=out.name,
+        media_type="application/zip",
+    )
+
+
+@app.post("/api/projects/import/preview")
+async def api_import_preview(file: UploadFile = File(...)) -> dict:
+    tmp = Path(tempfile.mktemp(suffix=".lxproj"))
+    try:
+        content = await file.read()
+        tmp.write_bytes(content)
+        preview = _export_import.preview_import(tmp)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        tmp.unlink(missing_ok=True)
+    return {
+        "project_name": preview.project_name,
+        "description": preview.description,
+        "paper_count": preview.paper_count,
+        "note_count": preview.note_count,
+        "has_pdfs": preview.has_pdfs,
+        "format_version": preview.format_version,
+    }
+
+
+@app.post("/api/projects/import/commit")
+async def api_import_commit(
+    file: UploadFile = File(...),
+    on_conflict: str = Query(default="merge", pattern="^(merge|overwrite)$"),
+) -> dict:
+    tmp = Path(tempfile.mktemp(suffix=".lxproj"))
+    try:
+        content = await file.read()
+        tmp.write_bytes(content)
+        project_fk = _export_import.commit_import(
+            tmp, on_conflict=on_conflict  # type: ignore[arg-type]
+        )
+    except _export_import.ProjectImportError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        tmp.unlink(missing_ok=True)
+    return {"project_id": project_fk}
+
+
+# ── OpenAlex save ─────────────────────────────────────────────────────────────
+
+class OpenAlexSaveBody(BaseModel):
+    source_id: str = Field(min_length=1)
+
+
+@app.post("/api/openalex/save")
+def api_openalex_save(body: OpenAlexSaveBody) -> dict:
+    from sources.openalex_source import OpenAlexSource
+    try:
+        meta = OpenAlexSource().fetch_by_id(body.source_id.strip())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    save_paper_metadata(meta)
+    return {"saved": True, "source_id": meta.source_id}
 
 
 app.mount("/assets/graph", StaticFiles(directory=str(GUI_WEB), html=True), name="graph_assets")

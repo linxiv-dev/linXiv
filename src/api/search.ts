@@ -68,3 +68,12 @@ export async function searchOpenAlex(
     body: JSON.stringify({ query, max_results: maxResults }),
   });
 }
+
+export async function saveOpenAlex(
+  sourceId: string,
+): Promise<{ saved: boolean; source_id: string }> {
+  return apiFetch("/api/openalex/save", {
+    method: "POST",
+    body: JSON.stringify({ source_id: sourceId }),
+  });
+}
