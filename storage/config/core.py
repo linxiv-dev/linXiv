@@ -13,18 +13,18 @@ _VIEWS_DIR = _SQL_DIR / "views"
 # Apply in dependency order (FK-safe). Versioned rows: ``PAPER`` + ``PAPER_META``; root id in ``paper_roots``.
 _TABLE_DDL_ORDER: tuple[str, ...] = (
     "AUTHOR.sql",
-    "TAG.SQL",
+    "TAG.sql",
     "PROJECT.sql",
-    "CONTENT.SQL",
     "PAPER_ROOTS.sql",
     "PAPER.sql",
     "PAPER_META.sql",
     "PAPER_TO_AUTHOR.sql",
     "PAPER_TO_TAG.sql",
     "PROJECT_TO_PAPER.sql",
-    "PROJECT_TO_TAG.SQL",
-    "NOTES.SQL",
+    "PROJECT_TO_TAG.sql",
+    "NOTE.sql",
     "papers_fts.sql",
+    "DB_VERSION.sql",
 )
 
 DB_PATH = str(_db_path_fn())
@@ -58,6 +58,16 @@ def _apply_indices(conn: sqlite3.Connection) -> None:
         conn.executescript(script)
 
 
+def _migrate_paper_roots_soft_delete(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(PAPER_ROOTS)")}
+    if "STATUS" not in cols:
+        conn.execute(
+            "ALTER TABLE PAPER_ROOTS ADD COLUMN STATUS TEXT NOT NULL DEFAULT 'active'"
+        )
+    if "DELETED_AT" not in cols:
+        conn.execute("ALTER TABLE PAPER_ROOTS ADD COLUMN DELETED_AT TIMESTAMP")
+
+
 def apply_sql_schema(conn: sqlite3.Connection) -> None:
     """Create bundled tables (and optional views/indexes) from ``sql/tables``."""
     conn.execute("PRAGMA foreign_keys = ON")
@@ -65,13 +75,14 @@ def apply_sql_schema(conn: sqlite3.Connection) -> None:
         script = path.read_text(encoding="utf-8").strip()
         if script:
             conn.executescript(script)
+    _migrate_paper_roots_soft_delete(conn)
     _apply_views(conn)
     _apply_indices(conn)
 
 
 def init_db(db_path: str | None = None) -> None:
     """Standalone initializer: open ``papers.db`` (or ``db_path``) and apply SQL."""
-    path = db_path if db_path is not None else DB_PATH
+    path = db_path if db_path else DB_PATH
     conn = sqlite3.connect(path)
     try:
         apply_sql_schema(conn)

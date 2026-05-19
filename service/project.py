@@ -4,6 +4,7 @@ from typing import Optional
 
 from service.models.project import ProjectDetails, Status
 from storage.notes import count_project_notes as _count_project_notes
+import storage.db as _db
 from storage.projects import (
     Q,
     Project as _StorageProject,
@@ -13,6 +14,7 @@ from storage.projects import (
     get_project as _get_project,
     filter_projects as _filter_projects,
 )
+import storage.tags as _tags_storage
 
 
 @dataclass
@@ -45,7 +47,7 @@ def _to_details(p: _StorageProject) -> ProjectDetails:
         name         = p.name,
         description  = p.description,
         color        = p.color,
-        project_tags = p.project_tags,
+        project_tags = _tags_storage.get_project_tags(p.id) if p.id else [],
         source_fks   = p.source_fks,
         status       = p.status,
         created_at   = p.created_at,
@@ -63,20 +65,20 @@ def get(project: Project) -> Optional[ProjectDetails]:
     if project.project_fk is None:
         return None
     p = _get_project(project.project_fk)
-    return _to_details(p) if p is not None else None
+    return _to_details(p) if p else None
 
 
 def get_many(projects: Projects) -> list[ProjectDetails]:
     """Fetch projects matching any combination of Projects filter fields."""
     condition: Q | None = None
 
-    if projects.project_fks is not None and len(projects.project_fks) > 0:
+    if projects.project_fks and len(projects.project_fks) > 0:
         placeholders = ",".join("?" * len(projects.project_fks))
-        q = Q(f"id IN ({placeholders})", *projects.project_fks)
+        q = Q(f"PROJECT_FK IN ({placeholders})", *projects.project_fks)
         condition = q if condition is None else condition & q
 
-    if projects.status is not None:
-        q = Q("status = ?", projects.status)
+    if projects.status:
+        q = Q("STATUS = ?", projects.status)
         condition = q if condition is None else condition & q
 
     return [_to_details(p) for p in _filter_projects(condition)]
@@ -89,11 +91,12 @@ def upsert(project: ProjectIn, project_fk: int | None = None) -> int:
             name         = project.name,
             description  = project.description,
             color        = project.color,
-            project_tags = project.tags,
             source_fks   = project.source_fks,
         )
         p.save()
-        assert p.id is not None
+        assert p.id
+        if project.tags:
+            _tags_storage.add_project_tags(p.id, project.tags)
         return p.id
     else:
         p = _get_project(project_fk)
@@ -102,10 +105,13 @@ def upsert(project: ProjectIn, project_fk: int | None = None) -> int:
         p.name         = project.name
         p.description  = project.description
         p.color        = project.color
-        p.project_tags = project.tags
         p.source_fks   = project.source_fks
         p.save()
-        assert p.id is not None
+        assert p.id
+        existing = _tags_storage.get_project_tags(p.id)
+        _tags_storage.remove_project_tags(p.id, existing)
+        if project.tags:
+            _tags_storage.add_project_tags(p.id, project.tags)
         return p.id
 
 
@@ -116,6 +122,35 @@ def delete(project: Project) -> None:
     if p is None:
         return
     p.delete()
+
+
+def restore(project: Project) -> None:
+    if project.project_fk is None:
+        return
+    p = _get_project(project.project_fk)
+    if p is None:
+        return
+    p.restore()
+
+
+def archive(project: Project) -> None:
+    if project.project_fk is None:
+        return
+    p = _get_project(project.project_fk)
+    if p is None:
+        return
+    p.archive()
+
+
+def hard_delete(project: Project) -> None:
+    if project.project_fk is None:
+        return
+    fk = project.project_fk
+    with _db._connect() as conn:
+        conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ?", (fk,))
+        conn.execute("DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ?", (fk,))
+        conn.execute("UPDATE NOTE SET PROJECT_FK = NULL WHERE PROJECT_FK = ?", (fk,))
+        conn.execute("DELETE FROM PROJECT WHERE PROJECT_FK = ?", (fk,))
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +188,7 @@ class ProjectPage:
 
 @dataclass
 class ProjectClass:
-    id: int
+    id: int | None
 
 
 @dataclass
@@ -181,7 +216,7 @@ def get_projects(status: Status = Status.ACTIVE) -> ProjectPage:
         project_names = [p.name for p in projects],
         project_ids   = [p.id for p in projects],
         paper_counts  = [p.paper_count for p in projects],
-        note_counts   = [_count_project_notes(p.id) if p.id is not None else 0 for p in projects],
+        note_counts   = [_count_project_notes(p.id) if p.id else 0 for p in projects],
     )
 
 
@@ -198,7 +233,7 @@ def get_project_details(project_id: int) -> Optional[ProjectDetails]:
             id           = project.id,
             description  = project.description,
             color        = project.color,
-            project_tags = project.project_tags,
+            project_tags = _tags_storage.get_project_tags(project_id),
             source_fks   = project.source_fks,
             status       = project.status,
             created_at   = project.created_at,

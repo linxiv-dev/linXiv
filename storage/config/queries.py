@@ -69,7 +69,7 @@ def _fetch_all(
 ) -> list[sqlite3.Row]:
     sql = f"SELECT * FROM {table}"
     params: tuple = ()
-    if q is not None:
+    if q:
         sql += f" WHERE {q.sql}"
         params = q.params
     if order_by:
@@ -114,10 +114,10 @@ def list_authors(
     paper_id: int | None = None,
     name: str | None = None,
 ) -> list[sqlite3.Row]:
-    if paper_id is not None:
+    if paper_id:
         with _connect() as conn:
             return conn.execute(_LIST_AUTHORS_FROM_PAPER_SQL, (paper_id,)).fetchall()
-    q = Q("AUTHOR_FULL_NAME LIKE ?", f"%{name}%") if name is not None else None
+    q = Q("AUTHOR_FULL_NAME LIKE ?", f"%{name}%") if name else None
     return _fetch_all("AUTHOR", q, order_by="AUTHOR_LAST, AUTHOR_FIRST")
 
 
@@ -160,14 +160,12 @@ def get_paper_meta(paper_id: int) -> Optional[sqlite3.Row]:
     return _fetch_one("PAPER_META", Q("PAPER_ID = ?", paper_id))
 
 
-def get_paper_content(paper_id: int) -> Optional[sqlite3.Row]:
-    # CONTENT_FK == PAPER_ID by convention (1-to-1, no FK constraint in schema)
-    return _fetch_one("CONTENT", Q("CONTENT_FK = ?", paper_id))
-
 
 # ---------------------------------------------------------------------------
 # TAG
 # ---------------------------------------------------------------------------
+
+_TAG_FK_BY_LABEL_SQL = "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1"
 
 _TAGS_BY_PAPER_BASE_SQL = """
 SELECT DISTINCT t.TAG_FK, t.TAG
@@ -271,8 +269,17 @@ def list_project_papers(project_fk: int) -> list[sqlite3.Row]:
         return conn.execute(_LIST_PROJECT_PAPERS_SQL, (project_fk,)).fetchall()
 
 
+_COUNT_ACTIVE_PROJECT_PAPERS_SQL = """
+SELECT COUNT(*) FROM PROJECT_TO_PAPER p2p
+JOIN PAPER_ROOTS r ON r.SOURCE_FK = p2p.SOURCE_FK
+WHERE p2p.PROJECT_FK = ? AND r.STATUS = 'active'
+"""
+
+
 def count_project_papers(project_fk: int) -> int:
-    return _count("PROJECT_TO_PAPER", Q("PROJECT_FK = ?", project_fk))
+    with _connect() as conn:
+        row = conn.execute(_COUNT_ACTIVE_PROJECT_PAPERS_SQL, (project_fk,)).fetchone()
+    return int(row[0]) if row else 0
 
 
 def list_projects_for_paper(source_fk: int) -> list[sqlite3.Row]:
@@ -281,32 +288,42 @@ def list_projects_for_paper(source_fk: int) -> list[sqlite3.Row]:
 
 
 # ---------------------------------------------------------------------------
-# LIBRARY_NOTE
+# NOTE
 # ---------------------------------------------------------------------------
 
 def get_note(note_sk: int) -> Optional[sqlite3.Row]:
-    return _fetch_one("LIBRARY_NOTE", Q("NOTE_SK = ?", note_sk))
+    return _fetch_one("NOTE", Q("NOTE_SK = ?", note_sk))
 
 
 def list_notes(
     source_fk: int | None = None,
     paper_id_fk: int | None = None,
     project_fk: int | None = None,
+    project_unscoped: bool = False,
 ) -> list[sqlite3.Row]:
     clauses: list[Q] = []
-    if source_fk is not None:
+    if source_fk:
         clauses.append(Q("SOURCE_FK = ?", source_fk))
-    if paper_id_fk is not None:
+    if paper_id_fk:
         clauses.append(Q("PAPER_ID_FK = ?", paper_id_fk))
-    if project_fk is not None:
+    if project_fk:
         clauses.append(Q("PROJECT_FK = ?", project_fk))
+    elif project_unscoped:
+        clauses.append(Q("PROJECT_FK IS NULL"))
     if not clauses:
         return []
     q = clauses[0]
     for c in clauses[1:]:
         q = q & c
-    return _fetch_all("LIBRARY_NOTE", q, order_by="NOTE_SK")
+    return _fetch_all("NOTE", q, order_by="CREATED_AT ASC")
+
+
+def count_notes(source_fk: int, project_fk: int | None = None) -> int:
+    q = Q("SOURCE_FK = ?", source_fk)
+    if project_fk is not None:
+        q = q & Q("PROJECT_FK = ?", project_fk)
+    return _count("NOTE", q)
 
 
 def count_project_notes(project_fk: int) -> int:
-    return _count("LIBRARY_NOTE", Q("PROJECT_FK = ?", project_fk))
+    return _count("NOTE", Q("PROJECT_FK = ?", project_fk))

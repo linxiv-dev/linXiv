@@ -35,7 +35,12 @@ def color_from_hex(hex_str: str) -> int:
 def _load_source_fks(project_fk: int) -> list[int]:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT SOURCE_FK FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ? ORDER BY PROJECT_TO_PAPER_FK",
+            """
+            SELECT p2p.SOURCE_FK FROM PROJECT_TO_PAPER p2p
+            JOIN PAPER_ROOTS r ON r.SOURCE_FK = p2p.SOURCE_FK
+            WHERE p2p.PROJECT_FK = ? AND r.STATUS = 'active'
+            ORDER BY p2p.PROJECT_TO_PAPER_FK
+            """,
             (project_fk,),
         ).fetchall()
     return [int(row["SOURCE_FK"]) for row in rows]
@@ -68,13 +73,12 @@ class Project:
     @classmethod
     def from_row(cls, row) -> Project:
         proj_fk = row["PROJECT_FK"]
-        source_fks = _load_source_fks(proj_fk) if proj_fk is not None else []
+        source_fks = _load_source_fks(proj_fk) if proj_fk else []
         return cls(
             id           = proj_fk,
             name         = row["NAME"],
             description  = row["DESCRIPTION"] or "",
-            color        = int(row["COLOR"]) if row["COLOR"] is not None else None,
-            project_tags = row["PROJECT_TAGS"] or [],
+            color        = int(row["COLOR"]) if row["COLOR"] else None,
             source_fks   = source_fks,
             status       = Status(row["STATUS"]),
             created_at   = row["CREATED_AT"],
@@ -91,15 +95,15 @@ class Project:
                 cur = conn.execute(
                     """
                     INSERT INTO PROJECT
-                        (NAME, DESCRIPTION, COLOR, STATUS, PROJECT_TAGS,
+                        (NAME, DESCRIPTION, COLOR, STATUS,
                          CREATED_AT, UPDATED_AT, ARCHIVED_AT)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (self.name, self.description, self.color, self.status,
-                     self.project_tags, self.created_at, self.updated_at, self.archived_at),
+                     self.created_at, self.updated_at, self.archived_at),
                 )
                 self.id = cur.lastrowid
-                assert self.id is not None
+                assert self.id 
                 _save_source_fks(conn, self.id, self.source_fks)
         else:
             with _connect() as conn:
@@ -107,13 +111,13 @@ class Project:
                     """
                     UPDATE PROJECT
                     SET NAME = ?, DESCRIPTION = ?, COLOR = ?, STATUS = ?,
-                        PROJECT_TAGS = ?, UPDATED_AT = ?, ARCHIVED_AT = ?
+                        UPDATED_AT = ?, ARCHIVED_AT = ?
                     WHERE PROJECT_FK = ?
                     """,
                     (self.name, self.description, self.color, self.status,
-                     self.project_tags, self.updated_at, self.archived_at, self.id),
+                     self.updated_at, self.archived_at, self.id),
                 )
-                assert self.id is not None
+                assert self.id 
                 _save_source_fks(conn, self.id, self.source_fks)
 
     def delete(self) -> None:
@@ -188,7 +192,7 @@ def get_project(project_id: int) -> Optional[Project]:
         row = conn.execute(
             "SELECT * FROM PROJECT WHERE PROJECT_FK = ?", (project_id,)
         ).fetchone()
-    return Project.from_row(row) if row is not None else None
+    return Project.from_row(row) if row else None
 
 
 def filter_projects(condition: Q | None = None) -> list[Project]:

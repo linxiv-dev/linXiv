@@ -81,17 +81,18 @@ def gen_md_files(papers: list[arxiv.Result], additional_tags: None | Sequence[st
 
 def gen_md_file(paper: arxiv.Result, additional_tags: None | Sequence[str] = None, print_on: bool = False):
     title: str = paper.title
-    source_id: str = paper.entry_id.split('/')[-1]
-    url: str = f"https://arxiv.org/abs/{source_id}"
+    bare_id: str = paper.entry_id.split('/')[-1]
+    source_id: str = f"arxiv:{bare_id}"
+    url: str = f"https://arxiv.org/abs/{bare_id}"
     authors: list[str] = [author.name for author in paper.authors]
     tags: list[str] = ["clippings", "research", "clipping"]
 
-    if additional_tags is not None:
+    if additional_tags:
         for s in additional_tags:
             tags.append(s)
 
     date = paper.published.strftime('%Y-%m-%d')
-    filename = _VAULT_DIR / f"{source_id}.md"
+    filename = _VAULT_DIR / f"{bare_id}.md"
 
     author_list = "\n".join([f'  - "[[{name}]]"' for name in authors])
     tag_list = "\n".join([f'- {tag}' for tag in tags])

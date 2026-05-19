@@ -5,6 +5,7 @@ from __future__ import annotations
 from service.paper import get_source_id
 from storage.db import get_graph_data
 from storage.projects import Status, filter_projects
+from storage.tags import get_project_tags
 
 
 def get_augmented_graph_data() -> dict:
@@ -26,7 +27,7 @@ def get_augmented_graph_data() -> dict:
     try:
         paper_to_projects: dict[str, list[int]] = {}
         for proj in filter_projects():
-            if proj.id is not None:
+            if proj.id:
                 for sfk in proj.source_fks:
                     source_id = get_source_id(sfk)
                     if source_id:
@@ -46,13 +47,13 @@ def project_filter_options() -> list[dict]:
 
     out: list[dict] = []
     for p in filter_projects():
-        if p.id is not None and p.status != Status.DELETED:
+        if p.id and p.status != Status.DELETED:
             out.append(
                 {
                     "id": p.id,
                     "name": p.name,
                     "color": color_to_hex(p.color) if p.color else "#5b8dee",
-                    "tags": p.project_tags or [],
+                    "tags": get_project_tags(p.id),
                 }
             )
     return out

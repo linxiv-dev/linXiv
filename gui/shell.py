@@ -121,10 +121,10 @@ class AppShell(QMainWindow):
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def closeEvent(self, event: QCloseEvent) -> None:
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
         for cb in self._close_callbacks:
             cb()
-        super().closeEvent(event)
+        super().closeEvent(a0)
 
     def _go_to(self, idx: int, *, record_history: bool = True) -> None:
         cur = self._stack.currentIndex()

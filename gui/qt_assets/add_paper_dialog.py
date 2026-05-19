@@ -56,11 +56,11 @@ class _GrowingTextEdit(QTextEdit):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setMinimumHeight(_MIN_H)
         doc = self.document()
-        if doc is not None:
+        if doc:
             doc.contentsChanged.connect(self.updateGeometry)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
+    def resizeEvent(self, a0) -> None:
+        super().resizeEvent(a0)
         self.updateGeometry()
 
     def sizeHint(self) -> QSize:

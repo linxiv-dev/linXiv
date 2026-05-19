@@ -43,19 +43,19 @@ class TestNoteSaveCreate:
         n = Note(source_fk=_sfk("2204.12985"))
         assert n.created_at is None
         n.save()
-        assert n.created_at is not None
+        assert n.created_at
 
     def test_save_sets_updated_at(self):
         n = Note(source_fk=_sfk("2204.12985"))
         n.save()
-        assert n.updated_at is not None
+        assert n.updated_at
 
     def test_save_persists_fields(self):
         n = Note(source_fk=_sfk("2204.12985"), title="My Title", content="Body text")
         n.save()
-        assert n.id is not None
+        assert n.id
         fetched = get_note(n.id)
-        assert fetched is not None
+        assert fetched
         assert fetched.source_fk == _sfk("2204.12985")
         assert fetched.title == "My Title"
         assert fetched.content == "Body text"
@@ -63,30 +63,30 @@ class TestNoteSaveCreate:
     def test_save_persists_project_id(self):
         p = Project(name="Test Project")
         p.save()
-        assert p.id is not None
+        assert p.id
         with _db._connect() as conn:
             conn.execute("INSERT OR IGNORE INTO PROJECT (PROJECT_FK) VALUES (?)", (p.id,))
         n = Note(source_fk=_sfk("2204.12985"), project_id=p.id)
         n.save()
-        assert n.id is not None
+        assert n.id
         fetched = get_note(n.id)
-        assert fetched is not None
+        assert fetched
         assert fetched.project_id == p.id
 
     def test_save_null_project_id(self):
         n = Note(source_fk=_sfk("2204.12985"), project_id=None)
         n.save()
-        assert n.id is not None
+        assert n.id
         fetched = get_note(n.id)
-        assert fetched is not None
+        assert fetched
         assert fetched.project_id is None
 
     def test_save_empty_title_and_content(self):
         n = Note(source_fk=_sfk("2204.12985"))
         n.save()
-        assert n.id is not None
+        assert n.id
         fetched = get_note(n.id)
-        assert fetched is not None
+        assert fetched
         assert fetched.title == ""
         assert fetched.content == ""
 
@@ -118,9 +118,9 @@ class TestNoteSaveUpdate:
         n.save()
         n.title = "After"
         n.save()
-        assert n.id is not None
+        assert n.id
         result = get_note(n.id)
-        assert result is not None
+        assert result
         assert result.title == "After"
 
     def test_resave_updates_content(self):
@@ -128,9 +128,9 @@ class TestNoteSaveUpdate:
         n.save()
         n.content = "v2"
         n.save()
-        assert n.id is not None
+        assert n.id
         result = get_note(n.id)
-        assert result is not None
+        assert result
         assert result.content == "v2"
 
     def test_resave_updates_updated_at(self):
@@ -138,10 +138,10 @@ class TestNoteSaveUpdate:
         n = Note(source_fk=_sfk("2204.12985"))
         n.save()
         first_updated = n.updated_at
-        assert first_updated is not None
+        assert first_updated
         time.sleep(0.01)
         n.save()
-        assert n.updated_at is not None
+        assert n.updated_at
         assert n.updated_at >= first_updated
 
     def test_resave_preserves_created_at(self):
@@ -162,7 +162,7 @@ class TestNoteDelete:
     def test_delete_removes_from_db(self):
         n = Note(source_fk=_sfk("2204.12985"))
         n.save()
-        assert n.id is not None
+        assert n.id
         nid = n.id
         n.delete()
         assert get_note(nid) is None
@@ -185,8 +185,8 @@ class TestNoteDelete:
         a.save()
         b.save()
         a.delete()
-        assert b.id is not None
-        assert get_note(b.id) is not None
+        assert b.id
+        assert get_note(b.id)
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +201,9 @@ class TestGetNote:
     def test_returns_note_for_valid_id(self):
         n = Note(source_fk=_sfk("2204.12985"), title="T")
         n.save()
-        assert n.id is not None
+        assert n.id
         fetched = get_note(n.id)
-        assert fetched is not None
+        assert fetched
         assert fetched.note_id == n.id
         assert fetched.title == "T"
 
@@ -371,7 +371,7 @@ class TestNoteCountsByPaperForProject:
         ensure_projects_db()
         proj = Project(name="Empty", source_fks=[])
         proj.save()
-        assert proj.id is not None
+        assert proj.id
         assert note_counts_by_paper_for_project(proj.id) == {}
 
     def test_counts_include_zeros_and_order(self):
@@ -381,8 +381,8 @@ class TestNoteCountsByPaperForProject:
         sfk_c = _sfk("c")
         proj = Project(name="P", source_fks=[sfk_a, sfk_b, sfk_c])
         proj.save()
-        assert proj.id is not None
-        # Insert a PROJECT row so the FK constraint in LIBRARY_NOTE is satisfied
+        assert proj.id
+        # Insert a PROJECT row so the FK constraint in NOTE is satisfied
         with _db._connect() as conn:
             conn.execute("INSERT OR IGNORE INTO PROJECT (PROJECT_FK) VALUES (?)", (proj.id,))
         Note(source_fk=sfk_a, project_id=proj.id, title="n1").save()

@@ -89,7 +89,7 @@ class PaperListPanel(QWidget):
 
         # Scroll detection for lazy loading
         vbar = self._table.verticalScrollBar()
-        if vbar is not None:
+        if vbar:
             vbar.valueChanged.connect(self._on_scroll)
 
     @property
@@ -266,11 +266,11 @@ class GraphPage(QWidget):
             for node in nodes:
                 if node["type"] == "paper":
                     root = get_paper_root(node["id"])
-                    if root is not None:
+                    if root:
                         sfk_to_source_id[int(root["SOURCE_FK"])] = node["id"]
             paper_to_projects: dict[str, list[int]] = {}
             for proj in filter_projects():
-                if proj.id is not None:
+                if proj.id:
                     for sfk in proj.source_fks:
                         source_id = sfk_to_source_id.get(sfk)
                         if source_id:
@@ -293,7 +293,7 @@ class GraphPage(QWidget):
         proj_data: list[dict] = []
         try:
             for p in filter_projects():
-                if p.id is not None and p.status != Status.DELETED:
+                if p.id and p.status != Status.DELETED:
                     proj_data.append({
                         "id":    p.id,
                         "name":  p.name,

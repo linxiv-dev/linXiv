@@ -55,9 +55,9 @@ def _get_author_papers(author_id: int) -> list[dict]:
 
 def get(author: Author) -> Optional[BasicAuthorDetails]:
     """Fetch a single author. Resolution order: author_id → orcid."""
-    if author.author_id is not None:
+    if author.author_id:
         return _get_author(author.author_id)
-    if author.orcid is not None:
+    if author.orcid:
         for row in _list_authors():
             if row.orcid == author.orcid:
                 return row
@@ -87,7 +87,7 @@ def upsert(author: AuthorIn) -> int | None:
 
 
 def delete(author: Author) -> None:
-    if author.author_id is not None:
+    if author.author_id:
         _authors_storage.delete_author(author.author_id)
 
 

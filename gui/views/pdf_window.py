@@ -91,7 +91,7 @@ class PdfWindow(QMainWindow):
         total = self._doc.pageCount()
         self._page_label.setText(f"Page {page + 1} / {total}" if total else "")
 
-    def closeEvent(self, event: QCloseEvent) -> None:
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
         # Windows-specific note:
         # QPdfView can keep internal references to the currently loaded
         # QPdfDocument during teardown. If we only close the window, the PDF
@@ -105,4 +105,4 @@ class PdfWindow(QMainWindow):
         self._view.setDocument(self._doc)
         old_doc.close()
         old_doc.deleteLater()
-        super().closeEvent(event)
+        super().closeEvent(a0)
