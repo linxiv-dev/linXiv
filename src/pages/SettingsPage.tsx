@@ -20,7 +20,7 @@ import { Spinner } from "../components/ui/spinner";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const PRESET_NAMES: PresetName[] = ["Navy", "Slate", "Charcoal", "Forest", "Ember"];
+const PRESET_NAMES: PresetName[] = ["Navy", "Slate", "Charcoal", "Forest", "Ember", "Cupertino"];
 
 const COLOR_OVERRIDE_KEYS: { key: keyof ThemeColors; label: string }[] = [
   { key: "accent",  label: "Accent"     },

@@ -49,6 +49,16 @@ export const PRESETS = {
     success: "#a5d6a7",
     danger: "#ef5350",
   },
+  Cupertino: {
+    bg: "#f2f2f7",
+    panel: "#ffffff",
+    border: "#d1d1d6",
+    accent: "#007aff",
+    text: "#1c1c1e",
+    muted: "#8e8e93",
+    success: "#34c759",
+    danger: "#ff3b30",
+  },
 } as const;
 
 export type PresetName = keyof typeof PRESETS;
