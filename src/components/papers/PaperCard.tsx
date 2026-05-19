@@ -26,7 +26,7 @@ export function PaperCard({
   const displayAuthors = authors.slice(0, 3);
   const hasMoreAuthors = authors.length > 3;
 
-  const displayTags = paper.tags.slice(0, 4);
+  const displayTags = (paper.tags ?? []).slice(0, 4);
 
   const publishedYear = paper.published
     ? new Date(paper.published).getFullYear()
