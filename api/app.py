@@ -42,8 +42,8 @@ from sources import resolve_doi, fetch_paper_metadata, search_papers
 from sources.pdf_metadata import resolve_pdf_metadata
 from sources.openalex_source import OpenAlexSource
 from formats.bibtex import BibTeXFormat
-from service.paper import set_has_pdf_by_source
 from service.paper import (
+    set_has_pdf_by_source,
     Paper,
     ensure_paper_root,
     get as get_paper_details,
@@ -168,6 +168,14 @@ def api_list_papers(
 ) -> dict:
     papers = list_paper_details(latest_only=True, limit=limit, offset=offset)
     return {"papers": [p.to_dict() for p in papers]}
+
+
+@app.get("/api/papers/sfk/{source_fk}")
+def api_get_paper_by_sfk(source_fk: int) -> dict:
+    paper = get_paper_details(Paper(source_fk=source_fk))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    return paper.to_dict()
 
 
 @app.get("/api/papers/{source_id}")

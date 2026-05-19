@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getPaper, getPaperPdfUrl } from "../api/papers";
+import { getPaperBySfk, getPaperPdfUrl } from "../api/papers";
 import { getNotes, deleteNote } from "../api/notes";
 import { fetchArxiv } from "../api/search";
 import type { Note } from "../types/api";
@@ -30,7 +30,7 @@ function formatDate(dateStr: string | null): string {
 }
 
 export default function PaperDetailPage() {
-  const { sourceId } = useParams<{ sourceId: string }>();
+  const { sfk } = useParams<{ sfk: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -42,36 +42,36 @@ export default function PaperDetailPage() {
     isLoading: paperLoading,
     error: paperError,
   } = useQuery({
-    queryKey: ["paper", sourceId],
-    queryFn: () => getPaper(sourceId!),
-    enabled: !!sourceId,
+    queryKey: ["paper", "sfk", sfk],
+    queryFn: () => getPaperBySfk(Number(sfk)),
+    enabled: !!sfk,
   });
 
   const {
     data: notesData,
     isLoading: notesLoading,
   } = useQuery({
-    queryKey: ["notes", sourceId],
-    queryFn: () => getNotes(sourceId!),
-    enabled: !!sourceId,
+    queryKey: ["notes", paper?.source_id],
+    queryFn: () => getNotes(paper!.source_id),
+    enabled: !!paper?.source_id,
   });
 
   const downloadPdfMutation = useMutation({
-    mutationFn: () => fetchArxiv(sourceId!, true),
+    mutationFn: () => fetchArxiv(paper!.source_id, true),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["paper", sourceId] });
+      queryClient.invalidateQueries({ queryKey: ["paper", "sfk", sfk] });
     },
   });
 
   const deleteNoteMutation = useMutation({
     mutationFn: (noteId: number) => deleteNote(noteId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notes", sourceId] });
+      queryClient.invalidateQueries({ queryKey: ["notes", paper?.source_id] });
     },
   });
 
   function handleNotesSaved() {
-    queryClient.invalidateQueries({ queryKey: ["notes", sourceId] });
+    queryClient.invalidateQueries({ queryKey: ["notes", paper?.source_id] });
     setShowAddNote(false);
     setEditingNote(null);
   }
@@ -249,7 +249,7 @@ export default function PaperDetailPage() {
             {showAddNote && !editingNote && (
               <div className="bg-panel rounded-lg border border-border p-4">
                 <NoteEditor
-                  sourceId={sourceId!}
+                  sourceId={paper.source_id}
                   onSave={handleNotesSaved}
                   onCancel={() => setShowAddNote(false)}
                 />
@@ -260,7 +260,7 @@ export default function PaperDetailPage() {
             {editingNote && (
               <div className="bg-panel rounded-lg border border-border p-4">
                 <NoteEditor
-                  sourceId={sourceId!}
+                  sourceId={paper.source_id}
                   initialNote={editingNote}
                   onSave={handleNotesSaved}
                   onCancel={() => setEditingNote(null)}

@@ -26,6 +26,7 @@ class PaperDetails:
     source:            str | None       = None
     full_text:         str | None       = None
     downloaded_source: bool             = False
+    source_fk:         int | None       = None
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +50,7 @@ class PaperDetails:
             "source":            self.source,
             "full_text":         self.full_text,
             "downloaded_source": self.downloaded_source,
+            "source_fk":         self.source_fk,
         }
 
 

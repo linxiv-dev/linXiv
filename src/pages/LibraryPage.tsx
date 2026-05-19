@@ -192,7 +192,7 @@ export default function LibraryPage() {
               key={paper.source_id}
               paper={paper}
               showCheckbox
-              onNavigate={(id) => navigate(`/library/${id}`)}
+              onNavigate={(sfk) => navigate(`/library/${sfk}`)}
             />
           ))
         )}

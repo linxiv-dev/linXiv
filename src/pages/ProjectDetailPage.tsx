@@ -356,7 +356,7 @@ function PaperRow({ paper, checked, onToggle }: PaperRowProps) {
       />
       <div
         className="flex-1 min-w-0 cursor-pointer"
-        onClick={() => navigate(`/library/${encodeURIComponent(paper.source_id)}`)}
+        onClick={() => navigate(`/library/${paper.source_fk}`)}
       >
         <p
           className="text-sm font-medium leading-snug line-clamp-2"

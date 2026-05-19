@@ -11,7 +11,7 @@ function normalizeAuthors(authors: string | string[]): string[] {
 interface PaperCardProps {
   paper: Paper;
   showCheckbox?: boolean;
-  onNavigate?: (sourceId: string) => void;
+  onNavigate?: (sfk: number) => void;
 }
 
 export function PaperCard({
@@ -33,7 +33,7 @@ export function PaperCard({
     : null;
 
   function handleCardClick() {
-    onNavigate?.(paper.source_id);
+    onNavigate?.(paper.source_fk);
   }
 
   function handleCheckboxChange(e: React.ChangeEvent<HTMLInputElement>) {

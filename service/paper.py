@@ -113,6 +113,7 @@ def _row_to_paper_details(row: sqlite3.Row) -> PaperDetails:
         source=row["source"],
         full_text=row["full_text"],
         downloaded_source=row["downloaded_source"],
+        source_fk=row["source_fk"],
     )
 
 

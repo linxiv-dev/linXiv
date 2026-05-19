@@ -8,6 +8,7 @@ export interface Stats {
 
 export interface Paper {
   source_id: string;
+  source_fk: number;
   version: number;
   title: string;
   summary: string | null;

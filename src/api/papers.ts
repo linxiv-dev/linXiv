@@ -14,6 +14,10 @@ export async function getPaper(sourceId: string): Promise<Paper> {
   return apiFetch<Paper>(`/api/papers/${encodeURIComponent(sourceId)}`);
 }
 
+export async function getPaperBySfk(sfk: number): Promise<Paper> {
+  return apiFetch<Paper>(`/api/papers/sfk/${sfk}`);
+}
+
 export async function deletePaper(sourceId: string): Promise<{ deleted: string }> {
   return apiFetch<{ deleted: string }>(
     `/api/papers/${encodeURIComponent(sourceId)}`,
