@@ -13,7 +13,7 @@ import {
 import { listTrash, restorePaper, hardDeletePaper, type TrashedPaper } from "../api/trash";
 import { useThemeStore } from "../stores/theme";
 import { PRESETS } from "../lib/theme";
-import type { PresetName, ThemeColors } from "../lib/theme";
+import type { PresetName, ThemeColors, ThemeMode } from "../lib/theme";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
@@ -459,7 +459,7 @@ function TrashSection() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { preset, overrides, glassEffects, setPreset, setGlassEffects } = useThemeStore();
+  const { preset, mode, overrides, glassEffects, setPreset, setMode, setGlassEffects } = useThemeStore();
 
   // Remote settings
   const { data: settings } = useQuery({
@@ -502,9 +502,9 @@ export default function SettingsPage() {
     updateSettings({ theme_overrides: { preset: name } }).catch(console.error);
   }
 
-  // Current color values: preset colors merged with store overrides
+  // Current color values: preset+mode colors merged with store overrides
   function resolvedColor(key: keyof ThemeColors): string {
-    return (overrides[key] as string | undefined) ?? PRESETS[preset][key];
+    return (overrides[key] as string | undefined) ?? PRESETS[preset][mode][key];
   }
 
   return (
@@ -532,6 +532,25 @@ export default function SettingsPage() {
                 ].join(" ")}
               >
                 {name}
+              </button>
+            ))}
+          </div>
+
+          {/* Dark / Light mode toggle */}
+          <div className="flex items-center gap-2 mb-4">
+            {(["dark", "light"] as ThemeMode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={[
+                  "px-3 py-1.5 rounded-md border text-sm font-medium transition-colors capitalize",
+                  mode === m
+                    ? "bg-accent border-accent text-white"
+                    : "bg-panel border-border text-muted hover:text-text",
+                ].join(" ")}
+              >
+                {m === "dark" ? "🌙 Dark" : "☀️ Light"}
               </button>
             ))}
           </div>

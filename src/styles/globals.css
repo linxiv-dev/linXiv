@@ -56,10 +56,14 @@ body,
 
 /* ── Cupertino: frosted glass / vibrancy ──────────────────────────────────── */
 
-[data-theme="cupertino"] html,
-[data-theme="cupertino"] body,
-[data-theme="cupertino"] #root {
+[data-theme="cupertino"][data-mode="light"] body,
+[data-theme="cupertino"][data-mode="light"] #root {
   background: linear-gradient(160deg, #dce8f7 0%, #eef1f6 45%, #e8e4f0 100%) fixed;
+}
+
+[data-theme="cupertino"][data-mode="dark"] body,
+[data-theme="cupertino"][data-mode="dark"] #root {
+  background: linear-gradient(160deg, #0a0a1a 0%, #1c1c1e 50%, #0f1a2e 100%) fixed;
 }
 
 [data-theme="cupertino"] aside {

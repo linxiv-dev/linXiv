@@ -7,7 +7,10 @@ import {
   Search,
   Link2,
   Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
+import { useUiStore } from "../../stores/ui";
 
 interface NavItem {
   to: string;
@@ -26,25 +29,61 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
 
+const EXPANDED_W = 160;
+const COLLAPSED_W = 48;
+
 export function Sidebar() {
+  const { sidebarCollapsed, toggleSidebar } = useUiStore();
+  const w = sidebarCollapsed ? COLLAPSED_W : EXPANDED_W;
+
   return (
     <aside
-      className="flex flex-col h-full"
       style={{
-        width: 160,
-        minWidth: 160,
+        width: w,
+        minWidth: w,
         backgroundColor: "var(--color-panel)",
         borderRight: "1px solid var(--color-border)",
+        transition: "width 200ms ease, min-width 200ms ease",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
       }}
     >
-      {/* Logo */}
-      <div className="px-4 py-5 select-none">
-        <span
-          className="text-lg font-bold tracking-tight"
-          style={{ color: "var(--color-accent)" }}
+      {/* Logo / collapse toggle */}
+      <div
+        className="flex items-center px-3 py-5 select-none"
+        style={{ minHeight: 56, justifyContent: sidebarCollapsed ? "center" : "space-between" }}
+      >
+        {!sidebarCollapsed && (
+          <span
+            className="text-lg font-bold tracking-tight"
+            style={{ color: "var(--color-accent)" }}
+          >
+            linXiv
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          style={{
+            color: "var(--color-muted)",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 4,
+            borderRadius: 4,
+            display: "flex",
+            alignItems: "center",
+          }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text)")}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-muted)")}
         >
-          linXiv
-        </span>
+          {sidebarCollapsed
+            ? <PanelLeftOpen size={16} />
+            : <PanelLeftClose size={16} />}
+        </button>
       </div>
 
       {/* Navigation */}
@@ -54,18 +93,20 @@ export function Sidebar() {
             key={to}
             to={to}
             end={end}
+            title={sidebarCollapsed ? label : undefined}
             style={({ isActive }) => ({
               display: "flex",
               alignItems: "center",
+              justifyContent: sidebarCollapsed ? "center" : "flex-start",
               gap: 8,
-              padding: "6px 10px",
+              padding: sidebarCollapsed ? "8px 0" : "6px 10px",
               borderRadius: 6,
               fontSize: 13,
               fontWeight: 500,
               textDecoration: "none",
               transition: "background-color 0.15s, color 0.15s",
               backgroundColor: isActive ? "var(--color-accent)" : "transparent",
-              color: isActive ? "var(--color-bg)" : "var(--color-muted)",
+              color: isActive ? "white" : "var(--color-muted)",
             })}
             onMouseEnter={(e) => {
               const el = e.currentTarget as HTMLAnchorElement;
@@ -81,7 +122,7 @@ export function Sidebar() {
             }}
           >
             {icon}
-            <span>{label}</span>
+            {!sidebarCollapsed && <span style={{ whiteSpace: "nowrap" }}>{label}</span>}
           </NavLink>
         ))}
       </nav>
