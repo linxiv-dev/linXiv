@@ -4,7 +4,7 @@ import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import { ClauseRow, type Clause } from "../components/search/ClauseRow";
 import { ResultRow } from "../components/search/ResultRow";
-import { searchArxiv, fetchArxiv } from "../api/search";
+import { searchArxiv, fetchArxiv, searchOpenAlex, saveDoi } from "../api/search";
 import { listPapers } from "../api/papers";
 import type { SearchResult, Paper } from "../types/api";
 
@@ -60,7 +60,7 @@ function makeClause(): Clause {
 
 // ── component ────────────────────────────────────────────────────────────────
 
-type Source = "arxiv" | "local";
+type Source = "arxiv" | "openalex" | "local";
 
 const MAX_RESULT_OPTIONS = [10, 25, 50, 100] as const;
 
@@ -81,6 +81,15 @@ export default function SearchPage() {
     },
   });
 
+  // OpenAlex search mutation
+  const openAlexSearch = useMutation({
+    mutationFn: (query: string) => searchOpenAlex(query, maxResults),
+    onSuccess: (data) => {
+      setResults(data.results);
+      setSavedIds(new Set());
+    },
+  });
+
   // Local search mutation
   const localSearch = useMutation({
     mutationFn: async (query: string) => {
@@ -97,9 +106,10 @@ export default function SearchPage() {
     },
   });
 
-  const isLoading = arxivSearch.isPending || localSearch.isPending;
+  const isLoading = arxivSearch.isPending || openAlexSearch.isPending || localSearch.isPending;
   const error =
     (arxivSearch.error as Error | null)?.message ??
+    (openAlexSearch.error as Error | null)?.message ??
     (localSearch.error as Error | null)?.message ??
     null;
 
@@ -109,15 +119,25 @@ export default function SearchPage() {
     setResults(null);
     if (source === "arxiv") {
       arxivSearch.mutate(query);
+    } else if (source === "openalex") {
+      openAlexSearch.mutate(query);
     } else {
       localSearch.mutate(query);
     }
-  }, [clauses, source, arxivSearch, localSearch]);
+  }, [clauses, source, arxivSearch, openAlexSearch, localSearch]);
 
   const handleSavePaper = useCallback(async (sourceId: string) => {
-    await fetchArxiv(sourceId, true);
+    if (sourceId.startsWith("openalex:")) {
+      const result = results?.find((r) => r.source_id === sourceId);
+      const doi = result?.pdf_url;
+      if (doi) {
+        await saveDoi(doi);
+      }
+    } else {
+      await fetchArxiv(sourceId, true);
+    }
     setSavedIds((prev) => new Set([...prev, sourceId]));
-  }, []);
+  }, [results]);
 
   function addClause() {
     setClauses((prev) => [...prev, makeClause()]);
@@ -172,25 +192,25 @@ export default function SearchPage() {
           <div
             className="flex rounded-md border border-[var(--color-border)] overflow-hidden text-sm shrink-0"
           >
-            {(["arxiv", "local"] as Source[]).map((s) => (
+            {(["arxiv", "openalex", "local"] as Source[]).map((s) => (
               <button
                 key={s}
                 type="button"
                 onClick={() => setSource(s)}
                 className={[
-                  "px-3 py-1.5 capitalize transition-colors",
+                  "px-3 py-1.5 transition-colors",
                   source === s
                     ? "bg-[var(--color-accent)] text-[var(--color-bg)] font-medium"
                     : "bg-[var(--color-panel)] text-[var(--color-muted)] hover:text-[var(--color-text)]",
                 ].join(" ")}
               >
-                {s === "arxiv" ? "arXiv" : "Local"}
+                {s === "arxiv" ? "arXiv" : s === "openalex" ? "OpenAlex" : "Local"}
               </button>
             ))}
           </div>
 
-          {/* Max results — only relevant for arXiv */}
-          {source === "arxiv" && (
+          {/* Max results — only relevant for arXiv and OpenAlex */}
+          {source !== "local" && (
             <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
               <span>Max</span>
               <select
@@ -259,6 +279,11 @@ export default function SearchPage() {
                 key={result.source_id}
                 result={result}
                 saved={savedIds.has(result.source_id)}
+                canSave={
+                  result.source_id.startsWith("openalex:")
+                    ? !!result.pdf_url
+                    : true
+                }
                 onSave={handleSavePaper}
               />
             ))}

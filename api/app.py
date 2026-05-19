@@ -43,6 +43,10 @@ from service.paper import (
     get as get_paper_details,
     get_paper_root,
     list_paper_details,
+    list_deleted as list_deleted_papers,
+    delete as soft_delete_paper,
+    restore as restore_paper,
+    hard_delete as hard_delete_paper,
     sfks_to_source_ids,
 )
 import user_settings
@@ -507,4 +511,76 @@ def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
 
 
 # Graph viewer static bundle (used by PyQt, external frontends via iframe/proxy)
+# ── Trash (soft-delete) ───────────────────────────────────────────────────────
+
+@app.get("/api/trash")
+def api_trash_list() -> dict:
+    deleted = list_deleted_papers()
+    return {
+        "papers": [
+            {
+                "source_fk": d.source_fk,
+                "source_id": d.source_id,
+                "title": d.title,
+                "authors": d.authors,
+                "published": d.published.isoformat() if d.published else None,
+                "deleted_at": d.deleted_at.isoformat() if d.deleted_at else None,
+                "had_pdf": d.had_pdf,
+            }
+            for d in deleted
+        ]
+    }
+
+
+@app.post("/api/trash/{source_id}/restore")
+def api_trash_restore(source_id: str) -> dict:
+    pdf_path, project_fks = restore_paper(Paper(source_id=source_id))
+    return {"ok": True, "pdf_path": pdf_path, "project_fks": project_fks}
+
+
+@app.delete("/api/trash/{source_id}")
+def api_trash_hard_delete(source_id: str) -> dict:
+    hard_delete_paper(Paper(source_id=source_id))
+    return {"ok": True}
+
+
+@app.delete("/api/papers/{source_id}/soft")
+def api_paper_soft_delete(source_id: str) -> dict:
+    soft_delete_paper(Paper(source_id=source_id))
+    return {"ok": True}
+
+
+# ── OpenAlex search ───────────────────────────────────────────────────────────
+
+class OpenAlexSearchBody(BaseModel):
+    query: str = Field(min_length=1)
+    max_results: int = Field(default=25, ge=1, le=100)
+
+
+@app.post("/api/openalex/search")
+def api_openalex_search(body: OpenAlexSearchBody) -> dict:
+    from sources.openalex_source import OpenAlexSource
+    try:
+        results = OpenAlexSource().search(body.query.strip(), max_results=body.max_results)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return {
+        "results": [
+            {
+                "source_id": m.source_id,
+                "version": m.version,
+                "title": m.title,
+                "summary": m.summary,
+                "authors": m.authors,
+                "published": m.published.isoformat() if m.published else None,
+                "doi": m.doi,
+                "url": m.url,
+                "primary_category": m.category,
+                "entry_id": m.source_id,
+            }
+            for m in results
+        ]
+    }
+
+
 app.mount("/assets/graph", StaticFiles(directory=str(GUI_WEB), html=True), name="graph_assets")

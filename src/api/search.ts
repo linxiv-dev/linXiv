@@ -54,3 +54,17 @@ export async function saveDoi(
     body: JSON.stringify({ doi }),
   });
 }
+
+export interface OpenAlexSearchResponse {
+  results: SearchResult[];
+}
+
+export async function searchOpenAlex(
+  query: string,
+  maxResults = 25,
+): Promise<OpenAlexSearchResponse> {
+  return apiFetch<OpenAlexSearchResponse>("/api/openalex/search", {
+    method: "POST",
+    body: JSON.stringify({ query, max_results: maxResults }),
+  });
+}

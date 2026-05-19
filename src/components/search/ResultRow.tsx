@@ -6,10 +6,11 @@ import type { SearchResult } from "../../types/api";
 interface ResultRowProps {
   result: SearchResult;
   saved: boolean;
+  canSave?: boolean;
   onSave: (sourceId: string) => Promise<void>;
 }
 
-export function ResultRow({ result, saved, onSave }: ResultRowProps) {
+export function ResultRow({ result, saved, canSave = true, onSave }: ResultRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(saved);
@@ -22,7 +23,7 @@ export function ResultRow({ result, saved, onSave }: ResultRowProps) {
     : null;
 
   async function handleCheck(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!e.target.checked || isSaved) return;
+    if (!e.target.checked || isSaved || !canSave) return;
     setSaving(true);
     try {
       await onSave(result.source_id);
@@ -50,8 +51,10 @@ export function ResultRow({ result, saved, onSave }: ResultRowProps) {
           ) : (
             <input
               type="checkbox"
-              className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+              className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               checked={isSaved}
+              disabled={!canSave}
+              title={!canSave ? "No DOI available" : undefined}
               onChange={handleCheck}
               aria-label="Save paper"
             />

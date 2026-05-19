@@ -10,6 +10,7 @@ import {
   uninstallMcp,
   type MpcClientStatus,
 } from "../api/integrations";
+import { listTrash, restorePaper, hardDeletePaper, type TrashedPaper } from "../api/trash";
 import { useThemeStore } from "../stores/theme";
 import { PRESETS } from "../lib/theme";
 import type { PresetName, ThemeColors } from "../lib/theme";
@@ -315,6 +316,146 @@ function IntegrationsSection() {
   );
 }
 
+// ── Trash section ─────────────────────────────────────────────────────────────
+
+function TrashRow({
+  paper,
+  onRestore,
+  onDelete,
+  restoring,
+  deleting,
+}: {
+  paper: TrashedPaper;
+  onRestore: () => void;
+  onDelete: () => void;
+  restoring: boolean;
+  deleting: boolean;
+}) {
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const isPending = restoring || deleting;
+
+  function handleDeleteClick() {
+    if (confirmId === paper.source_id) {
+      setConfirmId(null);
+      onDelete();
+    } else {
+      setConfirmId(paper.source_id);
+    }
+  }
+
+  const authorLine =
+    paper.authors && paper.authors.length > 0
+      ? paper.authors.length > 1
+        ? `${paper.authors[0]} et al.`
+        : paper.authors[0]
+      : null;
+
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-border last:border-0">
+      <div className="flex-1 min-w-0 mr-4">
+        <p className="text-sm font-medium text-text truncate">{paper.title}</p>
+        {authorLine && (
+          <p className="text-xs text-muted mt-0.5">{authorLine}</p>
+        )}
+      </div>
+      <div className="flex-shrink-0 flex gap-2">
+        {restoring ? (
+          <Spinner size={16} />
+        ) : (
+          <Button variant="ghost" size="sm" onClick={onRestore} disabled={isPending}>
+            Restore
+          </Button>
+        )}
+        {deleting ? (
+          <Spinner size={16} />
+        ) : (
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={handleDeleteClick}
+            onBlur={() => setConfirmId(null)}
+            disabled={isPending}
+          >
+            {confirmId === paper.source_id ? "Confirm?" : "Delete forever"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TrashSection() {
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["trash"],
+    queryFn: listTrash,
+    staleTime: 0,
+  });
+
+  const papers = data?.papers ?? [];
+
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  async function handleRestore(sourceId: string) {
+    setRestoringId(sourceId);
+    try {
+      await restorePaper(sourceId);
+      await qc.invalidateQueries({ queryKey: ["trash"] });
+      await qc.invalidateQueries({ queryKey: ["papers"] });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  async function handleDelete(sourceId: string) {
+    setDeletingId(sourceId);
+    try {
+      await hardDeletePaper(sourceId);
+      await qc.invalidateQueries({ queryKey: ["trash"] });
+      await qc.invalidateQueries({ queryKey: ["papers"] });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <Section title="Trash">
+      <p className="text-xs text-muted mb-4">
+        Papers you've deleted. Restore to bring them back, or delete forever to remove permanently.
+      </p>
+      {isLoading ? (
+        <div className="flex items-center gap-2 py-3 text-sm text-muted">
+          <Spinner size={14} /> Loading…
+        </div>
+      ) : papers.length === 0 ? (
+        <p className="text-sm text-muted py-2">Trash is empty</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted mb-2">
+            {papers.length} {papers.length === 1 ? "item" : "items"}
+          </p>
+          {papers.map((paper) => (
+            <TrashRow
+              key={paper.source_id}
+              paper={paper}
+              onRestore={() => handleRestore(paper.source_id)}
+              onDelete={() => handleDelete(paper.source_id)}
+              restoring={restoringId === paper.source_id}
+              deleting={deletingId === paper.source_id}
+            />
+          ))}
+        </>
+      )}
+    </Section>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -526,6 +667,14 @@ export default function SettingsPage() {
 
         {/* ── Integrations ───────────────────────────────────────────────── */}
         <IntegrationsSection />
+
+        <div
+          className="border-t border-border mb-4"
+          style={{ marginLeft: -8, marginRight: -8 }}
+        />
+
+        {/* ── Trash ──────────────────────────────────────────────────────── */}
+        <TrashSection />
       </div>
     </div>
   );
