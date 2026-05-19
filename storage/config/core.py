@@ -68,6 +68,14 @@ def _migrate_paper_roots_soft_delete(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE PAPER_ROOTS ADD COLUMN DELETED_AT TIMESTAMP")
 
 
+def _migrate_paper_meta_provider(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(PAPER_META)")}
+    if "PROVIDER" not in cols:
+        conn.execute(
+            "ALTER TABLE PAPER_META ADD COLUMN PROVIDER TEXT DEFAULT 'arxiv'"
+        )
+
+
 def apply_sql_schema(conn: sqlite3.Connection) -> None:
     """Create bundled tables (and optional views/indexes) from ``sql/tables``."""
     conn.execute("PRAGMA foreign_keys = ON")
@@ -76,6 +84,7 @@ def apply_sql_schema(conn: sqlite3.Connection) -> None:
         if script:
             conn.executescript(script)
     _migrate_paper_roots_soft_delete(conn)
+    _migrate_paper_meta_provider(conn)
     _apply_views(conn)
     _apply_indices(conn)
 
