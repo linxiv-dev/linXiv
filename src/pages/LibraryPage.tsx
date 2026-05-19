@@ -1,10 +1,9 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload } from "lucide-react";
 import { listPapers, deletePaper } from "../api/papers";
 import { listProjects, addPaperToProject } from "../api/projects";
-import { importBibtex, importPdf, commitImport } from "../api/exportImport";
 import { useSelectionStore } from "../stores/selection";
 import type { Paper } from "../types/api";
 import { Spinner } from "../components/ui/spinner";
@@ -13,204 +12,9 @@ import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { PaperCard } from "../components/papers/PaperCard";
 import { SelectionBar } from "../components/papers/SelectionBar";
+import { ImportDialog } from "../components/import/ImportDialog";
 
 type FilterMode = "all" | "has_pdf" | "no_pdf";
-
-// ── Library import dialog ─────────────────────────────────────────────────────
-
-type FileStatus = "queued" | "processing" | "done" | "error";
-
-interface FileEntry {
-  file: File;
-  status: FileStatus;
-  result?: string;
-  error?: string;
-}
-
-function fileType(f: File): "pdf" | "bibtex" | "lxproj" | "unknown" {
-  const name = f.name.toLowerCase();
-  if (name.endsWith(".pdf")) return "pdf";
-  if (name.endsWith(".bib")) return "bibtex";
-  if (name.endsWith(".lxproj")) return "lxproj";
-  return "unknown";
-}
-
-function LibraryImportDialog({
-  open,
-  onClose,
-  onDone,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onDone: (newProjectIds: number[]) => void;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [running, setRunning] = useState(false);
-
-  function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    setEntries((prev) => [
-      ...prev,
-      ...files
-        .filter((f) => fileType(f) !== "unknown")
-        .map((f) => ({ file: f, status: "queued" as FileStatus })),
-    ]);
-    // reset input so the same file can be re-added if needed
-    e.target.value = "";
-  }
-
-  function removeEntry(i: number) {
-    setEntries((prev) => prev.filter((_, idx) => idx !== i));
-  }
-
-  async function handleImport() {
-    if (running || entries.every((e) => e.status !== "queued")) return;
-    setRunning(true);
-    const newProjects: number[] = [];
-
-    for (let i = 0; i < entries.length; i++) {
-      if (entries[i].status !== "queued") continue;
-      setEntries((prev) =>
-        prev.map((e, idx) => (idx === i ? { ...e, status: "processing" } : e))
-      );
-      try {
-        const { file } = entries[i];
-        const type = fileType(file);
-        let result = "";
-        if (type === "pdf") {
-          const r = await importPdf(file);
-          result = `Saved "${r.title || file.name}"`;
-        } else if (type === "bibtex") {
-          const r = await importBibtex(file);
-          result = `${r.saved_count} paper${r.saved_count !== 1 ? "s" : ""} saved`;
-        } else if (type === "lxproj") {
-          const r = await commitImport(file, "merge");
-          newProjects.push(r.project_id);
-          result = `Project imported (id ${r.project_id})`;
-        }
-        setEntries((prev) =>
-          prev.map((e, idx) => (idx === i ? { ...e, status: "done", result } : e))
-        );
-      } catch (err) {
-        setEntries((prev) =>
-          prev.map((e, idx) =>
-            idx === i
-              ? { ...e, status: "error", error: err instanceof Error ? err.message : "Failed" }
-              : e
-          )
-        );
-      }
-    }
-
-    setRunning(false);
-    onDone(newProjects);
-  }
-
-  const queued = entries.filter((e) => e.status === "queued").length;
-  const allDone = entries.length > 0 && entries.every((e) => e.status === "done" || e.status === "error");
-
-  const statusIcon: Record<FileStatus, string> = {
-    queued: "○",
-    processing: "…",
-    done: "✓",
-    error: "✗",
-  };
-
-  return (
-    <Dialog open={open} onClose={onClose} title="Import Papers">
-      <div className="flex flex-col gap-4" style={{ minWidth: 360 }}>
-        <div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.bib,.lxproj"
-            multiple
-            onChange={handleFiles}
-            className="hidden"
-          />
-          <Button variant="muted" size="sm" onClick={() => fileRef.current?.click()}>
-            <Upload size={13} className="mr-1.5" />
-            Add files (.pdf, .bib, .lxproj)
-          </Button>
-          <p className="text-xs mt-1" style={{ color: "var(--color-muted)" }}>
-            Multiple files supported. PDFs are parsed for metadata.
-          </p>
-        </div>
-
-        {entries.length > 0 && (
-          <div
-            className="rounded-md border border-border overflow-hidden"
-            style={{ maxHeight: 260, overflowY: "auto", backgroundColor: "var(--color-bg)" }}
-          >
-            {entries.map((entry, i) => (
-              <div
-                key={i}
-                className="flex items-center gap-2 px-3 py-2 text-sm border-b border-border last:border-0"
-              >
-                <span
-                  style={{
-                    width: 16,
-                    textAlign: "center",
-                    flexShrink: 0,
-                    color:
-                      entry.status === "done"
-                        ? "var(--color-success)"
-                        : entry.status === "error"
-                        ? "var(--color-danger)"
-                        : "var(--color-muted)",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  {entry.status === "processing" ? <Spinner size={12} /> : statusIcon[entry.status]}
-                </span>
-                <span className="flex-1 truncate" style={{ color: "var(--color-text)" }}>
-                  {entry.file.name}
-                </span>
-                {entry.result && (
-                  <span className="text-xs shrink-0" style={{ color: "var(--color-muted)" }}>
-                    {entry.result}
-                  </span>
-                )}
-                {entry.error && (
-                  <span className="text-xs shrink-0 max-w-32 truncate" style={{ color: "var(--color-danger)" }} title={entry.error}>
-                    {entry.error}
-                  </span>
-                )}
-                {entry.status === "queued" && (
-                  <button
-                    type="button"
-                    onClick={() => removeEntry(i)}
-                    className="text-xs shrink-0"
-                    style={{ color: "var(--color-muted)" }}
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-xs" style={{ color: "var(--color-muted)" }}>
-            {queued > 0 ? `${queued} file${queued !== 1 ? "s" : ""} queued` : allDone ? "All done" : ""}
-          </span>
-          <div className="flex gap-2">
-            <Button variant="muted" onClick={onClose}>
-              {allDone ? "Close" : "Cancel"}
-            </Button>
-            {!allDone && (
-              <Button onClick={handleImport} disabled={running || queued === 0}>
-                {running ? <Spinner size={14} /> : `Import${queued > 0 ? ` (${queued})` : ""}`}
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-    </Dialog>
-  );
-}
 
 function normalizeAuthors(authors: string | string[]): string[] {
   if (Array.isArray(authors)) return authors;
@@ -403,7 +207,7 @@ export default function LibraryPage() {
       />
 
       {/* Import dialog */}
-      <LibraryImportDialog
+      <ImportDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onDone={(newProjectIds) => {

@@ -1,15 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Upload } from "lucide-react";
 import { getProject, updateProject, addPaperToProject, removePaperFromProject } from "../api/projects";
 import { listPapers } from "../api/papers";
-import {
-  exportProject, exportBibtex,
-  previewImport, commitImport,
-  importBibtex, importPdf,
-  type ImportPreview,
-} from "../api/exportImport";
+import { exportProject, exportBibtex } from "../api/exportImport";
+import { ImportDialog } from "../components/import/ImportDialog";
 import type { Paper } from "../types/api";
 import { useSelectionStore } from "../stores/selection";
 import { ColorSwatch } from "../components/projects/ColorSwatch";
@@ -455,168 +451,6 @@ function ExportDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Import Dialog
-// ---------------------------------------------------------------------------
-type ImportTab = "lxproj" | "bibtex" | "pdf";
-
-function ImportDialog({
-  open,
-  onClose,
-  projectId,
-  onImported,
-}: {
-  open: boolean;
-  onClose: () => void;
-  projectId: number;
-  onImported: (newProjectId?: number) => void;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [tab, setTab] = useState<ImportTab>("lxproj");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [onConflict, setOnConflict] = useState<"merge" | "overwrite">("merge");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) { setFile(null); setPreview(null); setError(null); setResult(null); }
-  }, [open, tab]);
-
-  const accept: Record<ImportTab, string> = {
-    lxproj: ".lxproj",
-    bibtex: ".bib",
-    pdf: ".pdf",
-  };
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0] ?? null;
-    setFile(f);
-    setPreview(null);
-    setError(null);
-    if (f && tab === "lxproj") {
-      setBusy(true);
-      try {
-        setPreview(await previewImport(f));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not read file");
-      } finally {
-        setBusy(false);
-      }
-    }
-  }
-
-  async function handleImport() {
-    if (!file) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (tab === "lxproj") {
-        const { project_id } = await commitImport(file, onConflict);
-        onImported(project_id);
-      } else if (tab === "bibtex") {
-        const { saved_count } = await importBibtex(file, projectId);
-        setResult(`Saved ${saved_count} paper${saved_count !== 1 ? "s" : ""} to library.`);
-        onImported();
-      } else {
-        const { title } = await importPdf(file, projectId);
-        setResult(`Saved "${title || "PDF"}" to library.`);
-        onImported();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const tabs: { id: ImportTab; label: string }[] = [
-    { id: "lxproj", label: ".lxproj" },
-    { id: "bibtex", label: "BibTeX" },
-    { id: "pdf", label: "PDF" },
-  ];
-
-  return (
-    <Dialog open={open} onClose={onClose} title="Import">
-      <div className="flex flex-col gap-4">
-        {/* Tab row */}
-        <div className="flex rounded-md border border-border overflow-hidden text-sm">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={[
-                "flex-1 px-3 py-1.5 transition-colors",
-                tab === t.id
-                  ? "bg-accent text-white font-medium"
-                  : "bg-panel text-muted hover:text-text",
-              ].join(" ")}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* File picker */}
-        <div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept={accept[tab]}
-            onChange={handleFileChange}
-            className="hidden"
-          />
-          <Button variant="muted" size="sm" onClick={() => fileRef.current?.click()}>
-            <Upload size={13} className="mr-1.5" />
-            {file ? file.name : `Choose ${accept[tab]} file…`}
-          </Button>
-        </div>
-
-        {/* .lxproj preview */}
-        {tab === "lxproj" && preview && (
-          <div className="rounded-md border border-border p-3 text-sm flex flex-col gap-1" style={{ backgroundColor: "var(--color-bg)" }}>
-            <p className="font-medium" style={{ color: "var(--color-text)" }}>{preview.project_name}</p>
-            {preview.description && <p className="text-xs" style={{ color: "var(--color-muted)" }}>{preview.description}</p>}
-            <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-              {preview.paper_count} paper{preview.paper_count !== 1 ? "s" : ""} · {preview.note_count} note{preview.note_count !== 1 ? "s" : ""}
-              {preview.has_pdfs ? " · includes PDFs" : ""}
-            </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs" style={{ color: "var(--color-muted)" }}>On conflict:</span>
-              {(["merge", "overwrite"] as const).map((v) => (
-                <label key={v} className="flex items-center gap-1 text-xs cursor-pointer capitalize" style={{ color: "var(--color-text)" }}>
-                  <input type="radio" name="conflict" value={v} checked={onConflict === v} onChange={() => setOnConflict(v)} className="accent-[var(--color-accent)]" />
-                  {v}
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Success */}
-        {result && (
-          <p className="text-sm" style={{ color: "var(--color-success)" }}>{result}</p>
-        )}
-
-        {error && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>{error}</p>
-        )}
-
-        <div className="flex gap-2 justify-end pt-1">
-          <Button variant="muted" onClick={onClose}>Close</Button>
-          {!result && (
-            <Button onClick={handleImport} disabled={!file || busy}>
-              {busy ? <Spinner size={14} /> : <><Upload size={13} className="mr-1" />Import</>}
-            </Button>
-          )}
-        </div>
-      </div>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 export default function ProjectDetailPage() {
@@ -890,12 +724,13 @@ export default function ProjectDetailPage() {
             open={importOpen}
             onClose={() => setImportOpen(false)}
             projectId={projectId}
-            onImported={(newProjectId) => {
+            onDone={(newProjectIds) => {
               setImportOpen(false);
               queryClient.invalidateQueries({ queryKey: ["project", id] });
               queryClient.invalidateQueries({ queryKey: ["papers"] });
-              if (newProjectId && newProjectId !== projectId) {
-                navigate(`/projects/${newProjectId}`);
+              const newId = newProjectIds[0];
+              if (newId && newId !== projectId) {
+                navigate(`/projects/${newId}`);
               }
             }}
           />
