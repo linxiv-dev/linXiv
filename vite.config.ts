@@ -18,7 +18,6 @@ export default defineConfig({
     watch: { ignored: ["**/src-tauri/**"] },
     proxy: {
       "/api": "http://127.0.0.1:8000",
-      "/assets/graph": "http://127.0.0.1:8000",
     },
   },
   envPrefix: ["VITE_", "TAURI_"],

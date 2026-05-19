@@ -1,9 +1,4 @@
-"""
-FastAPI JSON API for linXiv (backend only — UI lives in separate clients).
-
-Serves ``/api/...`` routes and, for the graph viewer, static files under
-``/assets/graph/`` (from ``gui/graph/web/``) so a frontend can iframe them or proxy the path.
-"""
+"""FastAPI JSON API for linXiv (backend only — UI lives in separate clients)."""
 
 from __future__ import annotations
 
@@ -24,7 +19,6 @@ from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
@@ -69,7 +63,6 @@ from storage.projects import (
 from storage.tags import get_project_tags
 
 PDF_DIR = data_dir() / "pdfs"
-GUI_WEB = resources_dir() / "gui" / "graph" / "web"
 
 
 def _cors_config() -> tuple[list[str], bool]:
@@ -138,7 +131,6 @@ def api_root() -> dict:
         "api": "JSON over HTTP; routes under /api/…",
         "docs": "/docs",
         "openapi": "/openapi.json",
-        "graph_assets": "/assets/graph/graph.html",
     }
 
 
@@ -778,4 +770,3 @@ def api_openalex_save(body: OpenAlexSaveBody) -> dict:
     return {"saved": True, "source_id": meta.source_id}
 
 
-app.mount("/assets/graph", StaticFiles(directory=str(GUI_WEB), html=True), name="graph_assets")
