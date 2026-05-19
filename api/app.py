@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -38,6 +39,10 @@ from storage.db import (
     save_paper_metadata,
 )
 from sources import resolve_doi, fetch_paper_metadata, search_papers
+from sources.pdf_metadata import resolve_pdf_metadata
+from sources.openalex_source import OpenAlexSource
+from formats.bibtex import BibTeXFormat
+from service.paper import set_has_pdf_by_source
 from service.paper import (
     Paper,
     ensure_paper_root,
@@ -560,7 +565,6 @@ class OpenAlexSearchBody(BaseModel):
 
 @app.post("/api/openalex/search")
 def api_openalex_search(body: OpenAlexSearchBody) -> dict:
-    from sources.openalex_source import OpenAlexSource
     try:
         results = OpenAlexSource().search(body.query.strip(), max_results=body.max_results)
     except Exception as e:
@@ -669,7 +673,6 @@ async def api_import_commit(
 
 @app.get("/api/projects/{project_id}/export/bibtex")
 def api_project_export_bibtex(project_id: int) -> PlainTextResponse:
-    from formats.bibtex import BibTeXFormat
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -692,7 +695,6 @@ async def api_import_bibtex(
     file: UploadFile = File(...),
     project_id: int | None = Query(default=None),
 ) -> dict:
-    from formats.bibtex import BibTeXFormat
     text = (await file.read()).decode("utf-8", errors="replace")
     try:
         metas = BibTeXFormat().import_string(text)
@@ -719,8 +721,6 @@ async def api_import_pdf(
     file: UploadFile = File(...),
     project_id: int | None = Query(default=None),
 ) -> dict:
-    from sources.pdf_metadata import extract_pdf_metadata
-    import uuid
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
     content = await file.read()
@@ -729,16 +729,15 @@ async def api_import_pdf(
     try:
         tmp_path.write_bytes(content)
         try:
-            meta = extract_pdf_metadata(str(tmp_path))
+            meta = resolve_pdf_metadata(str(tmp_path))
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Could not extract PDF metadata: {e}") from e
-        save_paper_metadata(meta)  # type: ignore[arg-type]
-        source_id = getattr(meta, "source_id", None) or meta.get("source_id", "")  # type: ignore[union-attr]
-        version = getattr(meta, "version", None) or meta.get("version", 1)  # type: ignore[union-attr]
-        title = getattr(meta, "title", None) or meta.get("title", "")  # type: ignore[union-attr]
+        save_paper_metadata(meta)
+        source_id = meta.source_id
+        version = meta.version
+        title = meta.title
         final_path = PDF_DIR / f"{source_id}v{version}.pdf"
         tmp_path.rename(final_path)
-        from service.paper import set_has_pdf_by_source
         set_has_pdf_by_source(source_id, True)
         if project_id:
             proj = get_project(project_id)
@@ -763,7 +762,6 @@ class OpenAlexSaveBody(BaseModel):
 
 @app.post("/api/openalex/save")
 def api_openalex_save(body: OpenAlexSaveBody) -> dict:
-    from sources.openalex_source import OpenAlexSource
     try:
         meta = OpenAlexSource().fetch_by_id(body.source_id.strip())
     except Exception as e:
