@@ -22,7 +22,7 @@ export default function GraphPage() {
         <span className="text-sm text-muted">Click a node to open the paper</span>
       </div>
       <iframe
-        src="http://127.0.0.1:8000/assets/graph/graph.html"
+        src="/graph/graph.html"
         className="flex-1 border-0 w-full"
         title="Paper knowledge graph"
         allow="scripts"
