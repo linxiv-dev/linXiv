@@ -50,9 +50,9 @@ export const PRESETS = {
     danger: "#ef5350",
   },
   Cupertino: {
-    bg: "#f2f2f7",
-    panel: "#ffffff",
-    border: "#d1d1d6",
+    bg: "#eef1f6",
+    panel: "rgba(255,255,255,0.72)",
+    border: "rgba(209,209,214,0.6)",
     accent: "#007aff",
     text: "#1c1c1e",
     muted: "#8e8e93",
@@ -66,10 +66,12 @@ export type ThemeColors = typeof PRESETS.Navy;
 
 export function applyTheme(
   preset: PresetName,
-  overrides: Partial<ThemeColors> = {}
+  overrides: Partial<ThemeColors> = {},
+  glassEffects = true
 ): void {
   const colors = { ...PRESETS[preset], ...overrides };
   const root = document.documentElement;
+  root.setAttribute("data-theme", preset.toLowerCase());
   root.style.setProperty("--color-bg", colors.bg);
   root.style.setProperty("--color-panel", colors.panel);
   root.style.setProperty("--color-border", colors.border);
@@ -78,4 +80,14 @@ export function applyTheme(
   root.style.setProperty("--color-muted", colors.muted);
   root.style.setProperty("--color-success", colors.success);
   root.style.setProperty("--color-danger", colors.danger);
+  const wantsGlass = preset === "Cupertino" && glassEffects;
+  root.style.setProperty(
+    "--panel-blur",
+    wantsGlass ? "blur(24px) saturate(1.8)" : "none"
+  );
+  if (wantsGlass) {
+    root.setAttribute("data-glass", "true");
+  } else {
+    root.removeAttribute("data-glass");
+  }
 }

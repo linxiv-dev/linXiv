@@ -190,7 +190,7 @@ export default function SearchPage() {
         <div className="flex items-center gap-3 flex-wrap">
           {/* Source segmented control */}
           <div
-            className="flex rounded-md border border-[var(--color-border)] overflow-hidden text-sm shrink-0"
+            className="flex rounded-md border border-border overflow-hidden text-sm shrink-0"
           >
             {(["arxiv", "openalex", "local"] as Source[]).map((s) => (
               <button
@@ -200,8 +200,8 @@ export default function SearchPage() {
                 className={[
                   "px-3 py-1.5 transition-colors",
                   source === s
-                    ? "bg-[var(--color-accent)] text-[var(--color-bg)] font-medium"
-                    : "bg-[var(--color-panel)] text-[var(--color-muted)] hover:text-[var(--color-text)]",
+                    ? "bg-accent text-white font-medium"
+                    : "bg-panel text-muted hover:text-text",
                 ].join(" ")}
               >
                 {s === "arxiv" ? "arXiv" : s === "openalex" ? "OpenAlex" : "Local"}

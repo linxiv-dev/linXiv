@@ -12,6 +12,7 @@
   --color-muted: #7777aa;
   --color-success: #4caf88;
   --color-danger: #e05c6c;
+  --panel-blur: none;
 }
 
 * {
@@ -51,4 +52,38 @@ body,
 *:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* ── Cupertino: frosted glass / vibrancy ──────────────────────────────────── */
+
+[data-theme="cupertino"] html,
+[data-theme="cupertino"] body,
+[data-theme="cupertino"] #root {
+  background: linear-gradient(160deg, #dce8f7 0%, #eef1f6 45%, #e8e4f0 100%) fixed;
+}
+
+[data-theme="cupertino"] aside {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+}
+
+[data-theme="cupertino"] .panel-glass {
+  background: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+}
+
+/* Cards / section panels */
+[data-theme="cupertino"] .bg-panel {
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+}
+
+/* Input fields — slightly more opaque */
+[data-theme="cupertino"] input,
+[data-theme="cupertino"] select,
+[data-theme="cupertino"] textarea {
+  background: rgba(255, 255, 255, 0.85) !important;
 }

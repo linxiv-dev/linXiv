@@ -459,7 +459,7 @@ function TrashSection() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
-  const { preset, overrides, setPreset } = useThemeStore();
+  const { preset, overrides, glassEffects, setPreset, setGlassEffects } = useThemeStore();
 
   // Remote settings
   const { data: settings } = useQuery({
@@ -527,14 +527,39 @@ export default function SettingsPage() {
                 className={[
                   "rounded-full px-4 py-2 border font-medium text-sm cursor-pointer transition-colors",
                   preset === name
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-bg)]"
-                    : "bg-panel text-muted border-border hover:text-text hover:border-[var(--color-accent)]",
+                    ? "border-accent bg-accent text-white"
+                    : "bg-panel text-muted border-border hover:text-text hover:border-accent",
                 ].join(" ")}
               >
                 {name}
               </button>
             ))}
           </div>
+
+          {/* Glass effects toggle — only meaningful for Cupertino */}
+          {preset === "Cupertino" && (
+            <div className="flex items-center justify-between py-2 mb-2 border-t border-border">
+              <div>
+                <span className="text-sm text-text font-medium">Glass effects</span>
+                <p className="text-xs text-muted mt-0.5">Blur and vibrancy on panels (Cupertino only)</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={glassEffects}
+                onClick={() => setGlassEffects(!glassEffects)}
+                className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors"
+                style={{
+                  background: glassEffects ? "var(--color-accent)" : "var(--color-border)",
+                }}
+              >
+                <span
+                  className="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform"
+                  style={{ transform: glassEffects ? "translateX(20px)" : "translateX(0)" }}
+                />
+              </button>
+            </div>
+          )}
 
           {/* Collapsible color overrides */}
           <button
