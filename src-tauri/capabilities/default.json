@@ -5,6 +5,8 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "dialog:allow-save",
+    "dialog:allow-open",
     "opener:default",
     "shell:allow-open",
     "shell:allow-execute"

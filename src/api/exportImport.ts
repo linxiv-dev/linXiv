@@ -1,8 +1,12 @@
+import { save, open } from "@tauri-apps/plugin-dialog";
+
 // Shared base URL (mirrors client.ts logic)
 const BASE_URL =
   typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined
     ? "http://127.0.0.1:8000"
     : "";
+
+const isTauri = typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
 
 export interface ImportPreview {
   project_name: string;
@@ -13,23 +17,31 @@ export interface ImportPreview {
   format_version: number;
 }
 
-async function triggerDownload(res: Response, fallbackFilename: string): Promise<void> {
-  const blob = await res.blob();
-  const cd = res.headers.get("Content-Disposition") ?? "";
-  const match = cd.match(/filename="?([^"]+)"?/);
-  const filename = match?.[1] ?? fallbackFilename;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+
 
 export async function exportProject(
   projectId: number,
-  includePdfs = false
+  includePdfs = false,
+  projectName?: string
 ): Promise<void> {
+  const slug = projectName ? projectName.replace(/\s+/g, "_").toLowerCase() : `project-${projectId}`;
+  if (isTauri) {
+    const destPath = await save({
+      defaultPath: `${slug}.lxproj`,
+      filters: [{ name: "linXiv Project", extensions: ["lxproj"] }],
+    });
+    if (!destPath) return;
+    const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId, include_pdfs: includePdfs, dest_path: destPath }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { detail?: string };
+      throw new Error(body.detail ?? `Export failed (${res.status})`);
+    }
+    return;
+  }
   const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -39,7 +51,12 @@ export async function exportProject(
     const body = await res.json().catch(() => ({})) as { detail?: string };
     throw new Error(body.detail ?? `Export failed (${res.status})`);
   }
-  await triggerDownload(res, `project-${projectId}.lxproj`);
+  const cd = res.headers.get("Content-Disposition") ?? "";
+  const match = cd.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] ?? `${slug}.lxproj`;
+  const url = URL.createObjectURL(await res.blob());
+  Object.assign(document.createElement("a"), { href: url, download: filename }).click();
+  URL.revokeObjectURL(url);
 }
 
 export async function previewImport(file: File): Promise<ImportPreview> {
@@ -73,22 +90,52 @@ export async function commitImport(
   return res.json() as Promise<{ project_id: number }>;
 }
 
-export async function exportBibtex(projectId: number): Promise<void> {
+export async function exportBibtex(projectId: number, projectName?: string): Promise<void> {
+  const slug = projectName ? projectName.replace(/\s+/g, "_").toLowerCase() : `project-${projectId}`;
+  if (isTauri) {
+    const destPath = await save({
+      defaultPath: `${slug}.bib`,
+      filters: [{ name: "BibTeX", extensions: ["bib"] }],
+    });
+    if (!destPath) return;
+    const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export/bibtex?dest_path=${encodeURIComponent(destPath)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { detail?: string };
+      throw new Error(body.detail ?? `BibTeX export failed (${res.status})`);
+    }
+    return;
+  }
   const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export/bibtex`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { detail?: string };
     throw new Error(body.detail ?? `BibTeX export failed (${res.status})`);
   }
-  await triggerDownload(res, `project-${projectId}.bib`);
+  const url = URL.createObjectURL(await res.blob());
+  Object.assign(document.createElement("a"), { href: url, download: `${slug}.bib` }).click();
+  URL.revokeObjectURL(url);
 }
 
-export async function exportObsidian(projectId: number): Promise<void> {
+export async function exportObsidian(projectId: number, projectName?: string): Promise<void> {
+  const slug = projectName ? projectName.replace(/\s+/g, "_").toLowerCase() : `project-${projectId}`;
+  if (isTauri) {
+    const destDir = await open({ directory: true, title: "Select Obsidian vault folder" });
+    if (!destDir) return;
+    const destPath = `${destDir}/${slug}.md`;
+    const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export/obsidian?dest_path=${encodeURIComponent(destPath)}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { detail?: string };
+      throw new Error(body.detail ?? `Obsidian export failed (${res.status})`);
+    }
+    return;
+  }
   const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export/obsidian`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { detail?: string };
     throw new Error(body.detail ?? `Obsidian export failed (${res.status})`);
   }
-  await triggerDownload(res, `project-${projectId}.md`);
+  const url = URL.createObjectURL(await res.blob());
+  Object.assign(document.createElement("a"), { href: url, download: `${slug}.md` }).click();
+  URL.revokeObjectURL(url);
 }
 
 export async function importBibtex(

@@ -144,7 +144,7 @@ class ObsidianFormat:
         for p in papers:
             sid     = p.get("source_id", "")
             title   = p.get("title", sid)
-            authors = ", ".join(p.get("authors") or [])
+            authors = ", ".join(f"[[{a}]]" for a in (p.get("authors") or []))
             url     = _paper_url(sid, p.get("url"))
             lines.append(f"## [{title}]({url})")
             lines.append("")
@@ -203,7 +203,8 @@ class ObsidianFormat:
             if line.startswith("**Paper-ID:**"):
                 current["source_id"] = line[13:].strip()
             elif line.startswith("**Authors:**"):
-                current["authors"] = [a.strip() for a in line[12:].split(",") if a.strip()]
+                raw_authors = [a.strip() for a in line[12:].split(",") if a.strip()]
+                current["authors"] = [a.strip("[]") for a in raw_authors]
             elif line.startswith("**Category:**"):
                 current["category"] = line[13:].strip()
             elif line.startswith("**Tags:**"):

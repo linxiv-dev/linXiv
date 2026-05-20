@@ -384,10 +384,12 @@ function ExportDialog({
   open,
   onClose,
   projectId,
+  projectName,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: number;
+  projectName?: string;
 }) {
   const [includePdfs, setIncludePdfs] = useState(false);
   const [busy, setBusy] = useState<"lxproj" | "bibtex" | "obsidian" | null>(null);
@@ -402,14 +404,15 @@ function ExportDialog({
     setError(null);
     try {
       if (format === "lxproj") {
-        await exportProject(projectId, includePdfs);
+        await exportProject(projectId, includePdfs, projectName);
       } else if (format === "bibtex") {
-        await exportBibtex(projectId);
+        await exportBibtex(projectId, projectName);
       } else {
-        await exportObsidian(projectId);
+        await exportObsidian(projectId, projectName);
       }
       onClose();
     } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Export failed");
     } finally {
       setBusy(null);
@@ -724,6 +727,7 @@ export default function ProjectDetailPage() {
             open={exportOpen}
             onClose={() => setExportOpen(false)}
             projectId={projectId}
+            projectName={project.name}
           />
           <ImportDialog
             open={importOpen}

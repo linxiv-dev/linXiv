@@ -599,14 +599,28 @@ from service import export_import as _export_import
 class ExportBody(BaseModel):
     project_id: int
     include_pdfs: bool = False
+    dest_path: str | None = None
 
 
-@app.post("/api/projects/{project_id}/export")
+@app.post("/api/projects/{project_id}/export", response_model=None)
 def api_project_export(
     project_id: int,
     body: ExportBody,
     background: BackgroundTasks,
-) -> FileResponse:
+) -> FileResponse | dict:
+    if body.dest_path:
+        dest = Path(body.dest_path)
+        try:
+            _export_import.export_project(
+                project_id,
+                dest_path=dest.parent / dest.stem,
+                include_pdfs=body.include_pdfs,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        return {"ok": True}
     tmp_dir = Path(tempfile.mkdtemp())
     try:
         out = _export_import.export_project(
@@ -689,13 +703,35 @@ def _plain_export(project_id: int, fmt_obj: object, media_type: str, ext: str) -
     )
 
 
-@app.get("/api/projects/{project_id}/export/bibtex")
-def api_project_export_bibtex(project_id: int) -> PlainTextResponse:
+@app.get("/api/projects/{project_id}/export/bibtex", response_model=None)
+def api_project_export_bibtex(
+    project_id: int,
+    dest_path: str | None = Query(default=None),
+) -> PlainTextResponse | dict:
+    if dest_path:
+        p = get_project(project_id)
+        if not p:
+            raise HTTPException(status_code=404, detail="Project not found")
+        ids = set(sfks_to_source_ids(p.source_fks))
+        papers = [pp.to_dict() for pp in list_paper_details(latest_only=True) if pp.source_id in ids]
+        Path(dest_path).write_text(BibTeXFormat().export_papers(papers), encoding="utf-8")
+        return {"ok": True}
     return _plain_export(project_id, BibTeXFormat(), "text/x-bibtex", "bib")
 
 
-@app.get("/api/projects/{project_id}/export/obsidian")
-def api_project_export_obsidian(project_id: int) -> PlainTextResponse:
+@app.get("/api/projects/{project_id}/export/obsidian", response_model=None)
+def api_project_export_obsidian(
+    project_id: int,
+    dest_path: str | None = Query(default=None),
+) -> PlainTextResponse | dict:
+    if dest_path:
+        p = get_project(project_id)
+        if not p:
+            raise HTTPException(status_code=404, detail="Project not found")
+        ids = set(sfks_to_source_ids(p.source_fks))
+        papers = [pp.to_dict() for pp in list_paper_details(latest_only=True) if pp.source_id in ids]
+        Path(dest_path).write_text(ObsidianFormat().export_papers(papers), encoding="utf-8")
+        return {"ok": True}
     return _plain_export(project_id, ObsidianFormat(), "text/markdown", "md")
 
 

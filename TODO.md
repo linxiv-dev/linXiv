@@ -37,10 +37,10 @@ Items flagged during design review. Grouped by area.
 - [ ] Tags sidebar entry (off by default, togglable in Settings)
 
 ## Sidebar
-- [ ] Configurable optional page toggles in Settings (Graph, Search, DOI Lookup on by default; Tags, Notes Editor off by default)
+- [ x ] Configurable optional page toggles in Settings (Graph, Search, DOI Lookup on by default; Tags, Notes Editor off by default)
 
 ## Integrations & Import/Export
-- [ ] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
+- [ x ] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
 - [ ] PDF import: make async with progress indicator (currently synchronous / blocking)
 - [ ] Export methods toggle in Settings (show only enabled targets; prune candidates before release)
 
