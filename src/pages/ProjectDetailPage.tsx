@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Upload } from "lucide-react";
 import { getProject, updateProject, addPaperToProject, removePaperFromProject } from "../api/projects";
 import { listPapers } from "../api/papers";
-import { exportProject, exportBibtex } from "../api/exportImport";
+import { exportProject, exportBibtex, exportObsidian } from "../api/exportImport";
 import { ImportDialog } from "../components/import/ImportDialog";
 import type { Paper } from "../types/api";
 import { useSelectionStore } from "../stores/selection";
@@ -390,21 +390,23 @@ function ExportDialog({
   projectId: number;
 }) {
   const [includePdfs, setIncludePdfs] = useState(false);
-  const [busy, setBusy] = useState<"lxproj" | "bibtex" | null>(null);
+  const [busy, setBusy] = useState<"lxproj" | "bibtex" | "obsidian" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setError(null);
   }, [open]);
 
-  async function handleExport(format: "lxproj" | "bibtex") {
+  async function handleExport(format: "lxproj" | "bibtex" | "obsidian") {
     setBusy(format);
     setError(null);
     try {
       if (format === "lxproj") {
         await exportProject(projectId, includePdfs);
-      } else {
+      } else if (format === "bibtex") {
         await exportBibtex(projectId);
+      } else {
+        await exportObsidian(projectId);
       }
       onClose();
     } catch (e) {
@@ -428,7 +430,7 @@ function ExportDialog({
             Include PDFs in .lxproj archive
           </label>
           <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-            BibTeX export always includes paper metadata only.
+            BibTeX and Obsidian exports include paper metadata only.
           </p>
         </div>
 
@@ -436,10 +438,13 @@ function ExportDialog({
           <p className="text-xs" style={{ color: "var(--color-danger)" }}>{error}</p>
         )}
 
-        <div className="flex gap-2 justify-end pt-1">
+        <div className="flex gap-2 justify-end pt-1 flex-wrap">
           <Button variant="muted" onClick={onClose}>Cancel</Button>
           <Button variant="muted" onClick={() => handleExport("bibtex")} disabled={!!busy}>
             {busy === "bibtex" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />BibTeX</>}
+          </Button>
+          <Button variant="muted" onClick={() => handleExport("obsidian")} disabled={!!busy}>
+            {busy === "obsidian" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />Obsidian</>}
           </Button>
           <Button onClick={() => handleExport("lxproj")} disabled={!!busy}>
             {busy === "lxproj" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />.lxproj</>}
