@@ -235,13 +235,16 @@ function AddPapersDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         [...selectedIds].map((id) => addPaperToProject(projectId, id))
       );
-      await queryClient.invalidateQueries({
-        queryKey: ["project", String(projectId)],
-      });
-      onClose();
+      await queryClient.invalidateQueries({ queryKey: ["project", String(projectId)] });
+      const failed = results.filter((r) => r.status === "rejected");
+      if (failed.length > 0) {
+        setError(`Failed to add ${failed.length} paper${failed.length !== 1 ? "s" : ""}`);
+      } else {
+        onClose();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add papers");
     } finally {
@@ -489,17 +492,26 @@ export default function ProjectDetailPage() {
   const moreRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!moreOpen) return;
-    function handleClick(e: MouseEvent) {
+    function handleOutside(e: MouseEvent) {
       if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
         setMoreOpen(false);
+        setConfirmDelete(false);
       }
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") { setMoreOpen(false); setConfirmDelete(false); }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
   }, [moreOpen]);
 
   const [statusBusy, setStatusBusy] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -537,17 +549,22 @@ export default function ProjectDetailPage() {
     setRemoving(true);
     setRemoveError(null);
     try {
-      await Promise.all(
-        [...selectedIds].map((sid) => removePaperFromProject(projectId, sid))
+      const idsArray = [...selectedIds];
+      const results = await Promise.allSettled(
+        idsArray.map((sid) => removePaperFromProject(projectId, sid))
       );
-      await queryClient.invalidateQueries({
-        queryKey: ["project", id],
-      });
-      clear();
+      await queryClient.invalidateQueries({ queryKey: ["project", id] });
+      const failedCount = results.filter((r) => r.status === "rejected").length;
+      if (failedCount > 0) {
+        // Deselect only the papers that were successfully removed so the
+        // selection bar reflects what's actually still in the project.
+        idsArray.forEach((sid, i) => { if (results[i].status === "fulfilled") toggle(sid); });
+        setRemoveError(`Failed to remove ${failedCount} paper${failedCount !== 1 ? "s" : ""}`);
+      } else {
+        clear();
+      }
     } catch (err) {
-      setRemoveError(
-        err instanceof Error ? err.message : "Failed to remove papers"
-      );
+      setRemoveError(err instanceof Error ? err.message : "Failed to remove papers");
     } finally {
       setRemoving(false);
     }
@@ -584,7 +601,11 @@ export default function ProjectDetailPage() {
   }
 
   async function handleDelete() {
-    if (!window.confirm(`Delete project "${project?.name}"? This cannot be undone from here.`)) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setConfirmDelete(false);
     setStatusBusy(true);
     setStatusError(null);
     try {
@@ -672,19 +693,23 @@ export default function ProjectDetailPage() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setMoreOpen((v) => !v)}
+                onClick={() => { setMoreOpen((v) => !v); setConfirmDelete(false); }}
                 aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
               >
                 ···
               </Button>
               {moreOpen && (
                 <div
+                  role="menu"
                   className="absolute right-0 top-full mt-1 z-50 rounded-md border border-border shadow-lg py-1 min-w-28"
                   style={{ background: "var(--color-panel)" }}
                 >
                   {project.status === "active" && (
                     <button
                       type="button"
+                      role="menuitem"
                       className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
                       onClick={() => { setMoreOpen(false); handleArchive(); }}
                       disabled={statusBusy}
@@ -695,6 +720,7 @@ export default function ProjectDetailPage() {
                   {project.status === "archived" && (
                     <button
                       type="button"
+                      role="menuitem"
                       className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
                       onClick={() => { setMoreOpen(false); handleRestore(); }}
                       disabled={statusBusy}
@@ -704,12 +730,13 @@ export default function ProjectDetailPage() {
                   )}
                   <button
                     type="button"
+                    role="menuitem"
                     className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] disabled:opacity-40"
                     style={{ color: "var(--color-danger)" }}
-                    onClick={() => { setMoreOpen(false); handleDelete(); }}
+                    onClick={handleDelete}
                     disabled={statusBusy}
                   >
-                    Delete
+                    {confirmDelete ? "Confirm delete?" : "Delete"}
                   </button>
                 </div>
               )}

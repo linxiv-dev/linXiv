@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from service.models.project import ProjectDetails, Status
@@ -155,14 +155,15 @@ def hard_delete(project: Project) -> None:
 
 def list_deleted() -> list[ProjectDetails]:
     """Return all soft-deleted projects ordered by deletion time (newest first)."""
-    return [_to_details(p) for p in _filter_projects(Q("STATUS = ?", Status.DELETED.value))
-            if p.status == Status.DELETED]
+    projects = _filter_projects(Q("STATUS = ?", Status.DELETED.value))
+    # archived_at is stored/read as naive datetimes; datetime.min is also naive, safe to compare.
+    projects.sort(key=lambda p: p.archived_at or datetime.min, reverse=True)
+    return [_to_details(p) for p in projects]
 
 
 def purge_old(days: int = 30) -> int:
     """Hard-delete projects that have been in the trash for more than `days` days. Returns count."""
-    import datetime as _dt
-    cutoff = datetime.now() - _dt.timedelta(days=days)
+    cutoff = datetime.now() - timedelta(days=days)
     old = [
         p for p in _filter_projects(Q("STATUS = ?", Status.DELETED.value))
         if p.archived_at and p.archived_at < cutoff

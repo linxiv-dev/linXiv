@@ -82,5 +82,7 @@ export interface SearchResult {
 export interface Settings {
   pdf_save_limit_mb: number;
   theme_overrides: Record<string, string>;
+  search_history_enabled?: boolean;
+  search_history_max?: number;
   [key: string]: unknown;
 }

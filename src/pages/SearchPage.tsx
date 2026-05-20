@@ -24,6 +24,14 @@ function buildArxivQuery(clauses: Clause[]): string {
     .join(" ");
 }
 
+// Plain text query for local search — joins clause values without arXiv field prefixes.
+function buildLocalQuery(clauses: Clause[]): string {
+  return clauses
+    .filter((c) => c.value.trim() !== "")
+    .map((c) => c.value.trim())
+    .join(" ");
+}
+
 function paperMatchesQuery(paper: Paper, query: string): boolean {
   const q = query.toLowerCase();
   if (!q) return true;
@@ -54,11 +62,20 @@ function paperToSearchResult(paper: Paper): SearchResult {
   };
 }
 
+function mergeResults(existing: SearchResult[] | null, incoming: SearchResult[]): SearchResult[] {
+  const seen = new Set((existing ?? []).map((r) => r.source_id));
+  return [...(existing ?? []), ...incoming.filter((r) => !seen.has(r.source_id))];
+}
+
 // ── default clause ────────────────────────────────────────────────────────────
 
 function makeClause(): Clause {
   return { operator: "AND", field: "all", value: "" };
 }
+
+// Local paper search reads up to this many papers from the library.
+// Increase if library scale grows beyond this; ideally replace with server-side FTS.
+const LOCAL_SEARCH_PAPER_LIMIT = 500;
 
 // ── component ────────────────────────────────────────────────────────────────
 
@@ -73,11 +90,12 @@ export default function SearchPage() {
 
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [isAppending, setIsAppending] = useState(false);
 
   // per-clause autocomplete suggestions (index → suggestion list)
   const [suggestions, setSuggestions] = useState<Record<number, string[]>>({});
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettings });
-  const historyEnabled = settings ? (settings as Record<string, unknown>).search_history_enabled !== false : true;
+  const historyEnabled = settings?.search_history_enabled !== false;
 
   // Restore search state from db on first mount.
   const [restored, setRestored] = useState(false);
@@ -85,7 +103,8 @@ export default function SearchPage() {
     getSearchState().then((state) => {
       if (state) {
         setClauses(state.clauses.length > 0 ? state.clauses : [makeClause()]);
-        setSource(state.source as Source);
+        const validSources: Source[] = ["arxiv", "openalex", "local"];
+        if (validSources.includes(state.source as Source)) setSource(state.source as Source);
         setMaxResults(state.max_results);
         setResults(state.results);
         setSavedIds(new Set(state.saved_ids));
@@ -96,67 +115,102 @@ export default function SearchPage() {
   // arXiv search mutation
   const arxivSearch = useMutation({
     mutationFn: (query: string) => searchArxiv(query, maxResults, false),
-    onSuccess: (data) => {
-      setResults(data.results);
-      setSavedIds(new Set(data.saved_source_ids));
-    },
   });
 
   // OpenAlex search mutation
   const openAlexSearch = useMutation({
     mutationFn: (query: string) => searchOpenAlex(query, maxResults),
-    onSuccess: (data) => {
-      setResults(data.results);
-      setSavedIds(new Set());
-    },
   });
 
   // Local search mutation
   const localSearch = useMutation({
     mutationFn: async (query: string) => {
-      const { papers } = await listPapers(500);
-      const matched = papers
+      const { papers } = await listPapers(LOCAL_SEARCH_PAPER_LIMIT);
+      return papers
         .filter((p) => paperMatchesQuery(p, query))
         .map(paperToSearchResult);
-      return matched;
-    },
-    onSuccess: (data) => {
-      setResults(data);
-      setSavedIds(new Set(data.map((r) => r.source_id)));
     },
   });
 
   const isLoading = arxivSearch.isPending || openAlexSearch.isPending || localSearch.isPending;
+  const isReplacing = isLoading && !isAppending;
   const error =
     (arxivSearch.error as Error | null)?.message ??
     (openAlexSearch.error as Error | null)?.message ??
     (localSearch.error as Error | null)?.message ??
     null;
 
-  // Persist state after every successful search.
-  function persistState(newResults: SearchResult[], newSavedIds: Set<string>) {
-    saveSearchState(clauses, source, maxResults, newResults, [...newSavedIds]).catch(() => {});
-  }
-
-  const handleSearch = useCallback(() => {
+  // Unified search handler for both replace (fresh search) and append (merge) modes.
+  function runSearch(mode: "replace" | "append") {
     const query = buildArxivQuery(clauses);
     if (!query) return;
-    setResults(null);
     setSuggestions({});
+    if (mode === "replace") {
+      setResults(null);
+      setIsAppending(false);
+    } else {
+      setIsAppending(true);
+    }
+
+    // Snapshot state at call time. Source/select are disabled during loading so
+    // concurrent mutations cannot occur and these values are stable for the async duration.
+    const base = results ?? [];
+    const baseSaved = savedIds;
+
     if (source === "arxiv") {
       arxivSearch.mutate(query, {
-        onSuccess: (data) => persistState(data.results, new Set(data.saved_source_ids)),
+        onSuccess: (data) => {
+          const merged = mode === "append" ? mergeResults(base, data.results) : data.results;
+          const mergedSaved = mode === "append"
+            ? new Set([...baseSaved, ...data.saved_source_ids])
+            : new Set(data.saved_source_ids);
+          setResults(merged);
+          setSavedIds(mergedSaved);
+          saveSearchState(clauses, source, maxResults, merged, [...mergedSaved]).catch(() => {});
+        },
+        onSettled: () => { if (mode === "append") setIsAppending(false); },
       });
     } else if (source === "openalex") {
       openAlexSearch.mutate(query, {
-        onSuccess: (data) => persistState(data.results, new Set()),
+        onSuccess: (data) => {
+          const merged = mode === "append" ? mergeResults(base, data.results) : data.results;
+          // OpenAlex returns no saved_source_ids. Preserve existing saved state for append;
+          // for replace, retain only IDs that reappear in the new results.
+          const newIds = new Set(data.results.map((r) => r.source_id));
+          const mergedSaved = mode === "append"
+            ? new Set([...baseSaved])
+            : new Set([...baseSaved].filter((id) => newIds.has(id)));
+          setResults(merged);
+          setSavedIds(mergedSaved);
+          saveSearchState(clauses, source, maxResults, merged, [...mergedSaved]).catch(() => {});
+        },
+        onSettled: () => { if (mode === "append") setIsAppending(false); },
       });
     } else {
-      localSearch.mutate(query, {
-        onSuccess: (data) => persistState(data, new Set(data.map((r) => r.source_id))),
+      const localQuery = buildLocalQuery(clauses);
+      localSearch.mutate(localQuery, {
+        onSuccess: (data) => {
+          const merged = mode === "append" ? mergeResults(base, data) : data;
+          const mergedSaved = mode === "append"
+            ? new Set([...baseSaved, ...data.map((r) => r.source_id)])
+            : new Set(data.map((r) => r.source_id));
+          setResults(merged);
+          setSavedIds(mergedSaved);
+          saveSearchState(clauses, source, maxResults, merged, [...mergedSaved]).catch(() => {});
+        },
+        onSettled: () => { if (mode === "append") setIsAppending(false); },
       });
     }
-  }, [clauses, source, maxResults, arxivSearch, openAlexSearch, localSearch]);
+  }
+
+  const handleSearch = () => runSearch("replace");
+  const handleAppend = () => runSearch("append");
+
+  function handleClear() {
+    setResults(null);
+    setSavedIds(new Set());
+    setIsAppending(false);
+  }
 
   const handleSavePaper = useCallback(async (sourceId: string) => {
     if (sourceId.startsWith("openalex:")) {
@@ -251,8 +305,9 @@ export default function SearchPage() {
                 key={s}
                 type="button"
                 onClick={() => setSource(s)}
+                disabled={isLoading}
                 className={[
-                  "px-3 py-1.5 transition-colors",
+                  "px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                   source === s
                     ? "bg-accent text-white font-medium"
                     : "bg-panel text-muted hover:text-text",
@@ -268,9 +323,10 @@ export default function SearchPage() {
             <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
               <span>Max</span>
               <select
-                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)]"
+                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
                 value={maxResults}
                 onChange={(e) => setMaxResults(Number(e.target.value))}
+                disabled={isLoading}
                 aria-label="Maximum results"
               >
                 {MAX_RESULT_OPTIONS.map((n) => (
@@ -285,16 +341,38 @@ export default function SearchPage() {
 
           <div className="flex-1" />
 
-          <Button
-            type="button"
-            variant="primary"
-            size="md"
-            onClick={handleSearch}
-            disabled={isLoading || clauses.every((c) => !c.value.trim())}
-          >
-            {isLoading && <Spinner size={14} />}
-            {isLoading ? "Searching…" : "Search"}
-          </Button>
+          <div className="flex rounded-md overflow-hidden shrink-0 border border-[var(--color-border)]">
+            <button
+              type="button"
+              onClick={handleAppend}
+              disabled={isLoading || results === null || clauses.every((c) => !c.value.trim())}
+              title="Append to current results"
+              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
+              style={{ background: "var(--color-success)", color: "var(--color-bg)" }}
+            >
+              {isAppending ? <Spinner size={11} /> : "+"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSearch}
+              disabled={isLoading || clauses.every((c) => !c.value.trim())}
+              className="flex items-center justify-center gap-1 px-4 py-1 text-xs font-semibold tracking-wide transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none border-x border-black/20"
+              style={{ background: "var(--color-accent)", color: "var(--color-bg)" }}
+            >
+              {isReplacing && <Spinner size={11} />}
+              {isReplacing ? "Searching…" : "Search"}
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={isLoading || results === null}
+              title="Clear results"
+              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
+              style={{ background: "var(--color-danger)", color: "white" }}
+            >
+              −
+            </button>
+          </div>
         </div>
       </div>
 
@@ -307,8 +385,8 @@ export default function SearchPage() {
           </p>
         )}
 
-        {/* Loading */}
-        {isLoading && (
+        {/* Full-replace loading */}
+        {isReplacing && (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
             <Spinner size={28} />
             <span className="text-sm">Searching…</span>
@@ -316,17 +394,18 @@ export default function SearchPage() {
         )}
 
         {/* Empty state */}
-        {!isLoading && results !== null && results.length === 0 && (
+        {!isReplacing && results !== null && results.length === 0 && (
           <p className="px-6 py-8 text-sm text-[var(--color-muted)] text-center">
             No results found.
           </p>
         )}
 
         {/* Results */}
-        {!isLoading && results && results.length > 0 && (
+        {!isReplacing && results && results.length > 0 && (
           <div>
             <p className="px-6 py-2 text-xs text-[var(--color-muted)] border-b border-[var(--color-border)]">
               {results.length} result{results.length !== 1 ? "s" : ""}
+              {isAppending && <span className="ml-2 text-[var(--color-accent)]">appending…</span>}
             </p>
             {results.map((result) => (
               <ResultRow
@@ -336,11 +415,17 @@ export default function SearchPage() {
                 onSave={handleSavePaper}
               />
             ))}
+            {isAppending && (
+              <div className="flex items-center gap-2 px-6 py-3 text-xs border-t border-[var(--color-border)]" style={{ color: "var(--color-muted)" }}>
+                <Spinner size={12} />
+                <span>Fetching more…</span>
+              </div>
+            )}
           </div>
         )}
 
         {/* Idle prompt */}
-        {!isLoading && results === null && !error && (
+        {!isReplacing && results === null && !error && (
           <p className="px-6 py-8 text-sm text-[var(--color-muted)] text-center">
             Enter search terms above and press Search.
           </p>

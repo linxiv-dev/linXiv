@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import os
 import uuid
@@ -69,6 +70,8 @@ from service.project import (
     restore as restore_project_svc,
 )
 from storage.tags import get_project_tags
+import storage.search_history as _search_history
+import storage.search_state as _search_state
 
 PDF_DIR = data_dir() / "pdfs"
 
@@ -117,7 +120,13 @@ async def _lifespan(_: FastAPI):
     ensure_projects_db()
     ensure_notes_db()
     PDF_DIR.mkdir(parents=True, exist_ok=True)
-    purge_old_projects(days=30)
+    async def _purge():
+        try:
+            await asyncio.to_thread(purge_old_projects, 30)
+        except Exception as exc:
+            print(f"[linxiv] purge_old_projects failed: {exc}")
+
+    asyncio.create_task(_purge())
     yield
 
 
@@ -296,6 +305,8 @@ def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
             new_status = Status(body.status)
         except ValueError as e:
             raise HTTPException(status_code=400, detail="Invalid status") from e
+        # archive/restore/delete call p.save() internally, which persists ALL
+        # fields on p — including any name/description/color already set above.
         if new_status == Status.ARCHIVED:
             p.archive()
         elif new_status == Status.ACTIVE:
@@ -365,10 +376,6 @@ def api_arxiv_search(body: ArxivSearchBody) -> dict:
 
 
 # ── Search history / state ────────────────────────────────────────────────────
-
-import storage.search_history as _search_history
-import storage.search_state as _search_state
-
 
 @app.get("/api/search/history")
 def api_search_history(prefix: str = Query(default="", min_length=0), limit: int = Query(default=10, ge=1, le=50)) -> dict:
@@ -603,6 +610,7 @@ def api_trash_list() -> dict:
             {
                 "id": p.id,
                 "name": p.name,
+                # archived_at is overwritten by delete(), so it holds the deletion timestamp
                 "deleted_at": p.archived_at.isoformat() if p.archived_at else None,
                 "paper_count": len(p.source_fks),
             }
@@ -625,12 +633,16 @@ def api_trash_hard_delete(source_id: str) -> dict:
 
 @app.post("/api/trash/projects/{project_id}/restore")
 def api_trash_project_restore(project_id: int) -> dict:
+    if get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     restore_project_svc(SvcProject(project_fk=project_id))
     return {"ok": True}
 
 
 @app.delete("/api/trash/projects/{project_id}")
 def api_trash_project_hard_delete(project_id: int) -> dict:
+    if get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     hard_delete_project(SvcProject(project_fk=project_id))
     return {"ok": True}
 

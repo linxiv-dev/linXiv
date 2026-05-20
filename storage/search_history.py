@@ -11,7 +11,8 @@ def add_term(term: str) -> None:
     stripped = term.strip()
     if not stripped:
         return
-    max_history: int = int(user_settings.get("search_history_max") or 200)
+    raw = user_settings.get("search_history_max")
+    max_history: int = int(raw) if raw is not None else 200
     with _connect() as conn:
         conn.execute(
             """
@@ -23,16 +24,14 @@ def add_term(term: str) -> None:
             """,
             (stripped,),
         )
-        count = conn.execute("SELECT COUNT(*) FROM SEARCH_HISTORY").fetchone()[0]
-        if count > max_history:
-            conn.execute(
-                "DELETE FROM SEARCH_HISTORY WHERE HISTORY_ID IN ("
-                "  SELECT HISTORY_ID FROM SEARCH_HISTORY"
-                "  ORDER BY LAST_USED_AT ASC, USE_COUNT ASC"
-                "  LIMIT ?"
-                ")",
-                (count - max_history,),
-            )
+        conn.execute(
+            "DELETE FROM SEARCH_HISTORY WHERE HISTORY_ID NOT IN ("
+            "  SELECT HISTORY_ID FROM SEARCH_HISTORY"
+            "  ORDER BY LAST_USED_AT DESC, USE_COUNT DESC"
+            "  LIMIT ?"
+            ")",
+            (max_history,),
+        )
 
 
 def get_suggestions(prefix: str, limit: int = 10) -> list[str]:

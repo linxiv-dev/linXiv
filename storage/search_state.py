@@ -44,11 +44,14 @@ def load_state() -> dict[str, Any] | None:
         row = conn.execute("SELECT * FROM SEARCH_STATE WHERE ID = 1").fetchone()
     if row is None:
         return None
-    return {
-        "clauses":    json.loads(row["CLAUSES_JSON"]),
-        "source":     str(row["SOURCE"]),
-        "max_results": int(row["MAX_RESULTS"]),
-        "results":    json.loads(row["RESULTS_JSON"]),
-        "saved_ids":  json.loads(row["SAVED_IDS_JSON"]),
-        "updated_at": str(row["UPDATED_AT"]),
-    }
+    try:
+        return {
+            "clauses":     json.loads(row["CLAUSES_JSON"]),
+            "source":      str(row["SOURCE"]),
+            "max_results": int(row["MAX_RESULTS"]),
+            "results":     json.loads(row["RESULTS_JSON"]),
+            "saved_ids":   json.loads(row["SAVED_IDS_JSON"]),
+            "updated_at":  str(row["UPDATED_AT"]),
+        }
+    except (json.JSONDecodeError, ValueError):
+        return None
