@@ -25,9 +25,9 @@ export const useThemeStore = create<ThemeState>()(
       glassEffects: true,
 
       setPreset(p) {
-        const { mode, overrides, glassEffects } = get();
-        applyTheme(p, mode, overrides, glassEffects);
-        set({ preset: p });
+        const { mode, glassEffects } = get();
+        applyTheme(p, mode, {}, glassEffects);
+        set({ preset: p, overrides: {} });
       },
 
       setMode(m) {

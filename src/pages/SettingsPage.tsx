@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSettings, updateSettings, updateEnv } from "../api/settings";
 import { useUiStore, type SidebarPageKey } from "../stores/ui";
@@ -31,14 +31,6 @@ const COLOR_OVERRIDE_KEYS: { key: keyof ThemeColors; label: string }[] = [
   { key: "text",    label: "Text"       },
   { key: "muted",   label: "Muted"      },
 ];
-
-function useDebounce(fn: (...args: unknown[]) => void, delay: number) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  return (...args: unknown[]) => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => fn(...args), delay);
-  };
-}
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
@@ -110,7 +102,7 @@ function ColorRow({
   label: string;
   colorKey: keyof ThemeColors;
   currentValue: string;
-  onChangeDebounced: (key: keyof ThemeColors, value: string) => void;
+  onChangeDebounced: () => void;
 }) {
   const [localVal, setLocalVal] = useState(currentValue);
   const setOverride = useThemeStore((s) => s.setOverride);
@@ -118,7 +110,7 @@ function ColorRow({
   function handleChange(val: string) {
     setLocalVal(val);
     setOverride(colorKey, val);
-    onChangeDebounced(colorKey, val);
+    onChangeDebounced();
   }
 
   return (
@@ -664,14 +656,24 @@ export default function SettingsPage() {
   // Collapsed state for overrides
   const [overridesOpen, setOverridesOpen] = useState(false);
 
-  // Debounced save for color overrides
-  const debouncedSaveOverride = useDebounce((key: unknown, value: unknown) => {
-    updateSettings({ theme_overrides: { [key as string]: value as string } }).catch(console.error);
-  }, 800);
+  // Reads overrides at fire time (not capture time) so rapid multi-key edits
+  // each flush the full object rather than stomping previous keys.
+  const saveOverridesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (saveOverridesTimer.current) clearTimeout(saveOverridesTimer.current);
+  }, []);
+  function scheduleSaveOverrides() {
+    if (saveOverridesTimer.current) clearTimeout(saveOverridesTimer.current);
+    saveOverridesTimer.current = setTimeout(() => {
+      const { overrides } = useThemeStore.getState();
+      updateSettings({ theme_overrides: overrides as Record<string, string> }).catch(console.error);
+    }, 800);
+  }
 
   function handlePresetClick(name: PresetName) {
+    if (saveOverridesTimer.current) clearTimeout(saveOverridesTimer.current);
     setPreset(name);
-    updateSettings({ theme_overrides: { preset: name } }).catch(console.error);
+    updateSettings({ theme_overrides: {} }).catch(console.error);
   }
 
   // Current color values: preset+mode colors merged with store overrides
@@ -775,11 +777,11 @@ export default function SettingsPage() {
             <div className="mt-2">
               {COLOR_OVERRIDE_KEYS.map(({ key, label }) => (
                 <ColorRow
-                  key={key}
+                  key={`${preset}-${mode}-${key}`}
                   label={label}
                   colorKey={key}
                   currentValue={resolvedColor(key)}
-                  onChangeDebounced={(k, v) => debouncedSaveOverride(k, v)}
+                  onChangeDebounced={scheduleSaveOverrides}
                 />
               ))}
             </div>

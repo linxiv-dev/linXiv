@@ -49,7 +49,7 @@ Items flagged during design review. Grouped by area.
 ## Appearance / Theming
 - [ ] Custom palettes: save named color configurations; appear alongside built-in presets in Settings; Changing of pallette selection ui to be slightly more usable will be important.
 - [ ] Glass effect: replace boolean toggle with percentage intensity input + hex color tint input
-- [ ] Right now overrides always override genuinely even if you try to switch to old theme. We should make it so that the overrides are only changing before you switch to another a set theme. and then that theme takes over the overrides, right now you can never return to the defaults.
+- [x] Right now overrides always override genuinely even if you try to switch to old theme. We should make it so that the overrides are only changing before you switch to another a set theme. and then that theme takes over the overrides, right now you can never return to the defaults.
 
 ## Deferred
 - [ ] TeX rendering library decision (KaTeX vs MathJax — must be compatible with future Notes Editor)
