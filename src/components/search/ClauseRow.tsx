@@ -3,8 +3,6 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import type { Clause } from "../../types/api";
 
-export type { Clause };
-
 interface ClauseRowProps {
   clause: Clause;
   onChange: (clause: Clause) => void;
