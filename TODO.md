@@ -4,7 +4,7 @@ Items flagged during design review. Grouped by area.
 
 ## Search
 - [ ] Per-source sort options (arXiv: relevance / date / last-updated; OpenAlex: its own sort fields)
-- [ ] `+` append button adjacent to Search button (adds to working set instead of replacing)
+- [x] `+` append button adjacent to Search button (adds to working set instead of replacing)
 - [x] `search_history` table + autocomplete dropdown on clause input (shows matches after 1 char)
 - [x] `search_results` persistence table; Search page restores from it on mount
 - [x] Remove Search from keep-alive in AppShell once db restore is in place
