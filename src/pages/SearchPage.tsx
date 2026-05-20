@@ -1,10 +1,12 @@
-import { useState, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useState, useCallback, useEffect } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import { ClauseRow, type Clause } from "../components/search/ClauseRow";
 import { ResultRow } from "../components/search/ResultRow";
 import { searchArxiv, fetchArxiv, searchOpenAlex, saveOpenAlex } from "../api/search";
+import { getSearchHistory, getSearchState, saveSearchState } from "../api/searchState";
+import { getSettings } from "../api/settings";
 import { listPapers } from "../api/papers";
 import type { SearchResult, Paper } from "../types/api";
 
@@ -72,6 +74,25 @@ export default function SearchPage() {
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
 
+  // per-clause autocomplete suggestions (index → suggestion list)
+  const [suggestions, setSuggestions] = useState<Record<number, string[]>>({});
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const historyEnabled = settings ? (settings as Record<string, unknown>).search_history_enabled !== false : true;
+
+  // Restore search state from db on first mount.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    getSearchState().then((state) => {
+      if (state) {
+        setClauses(state.clauses.length > 0 ? state.clauses : [makeClause()]);
+        setSource(state.source as Source);
+        setMaxResults(state.max_results);
+        setResults(state.results);
+        setSavedIds(new Set(state.saved_ids));
+      }
+    }).finally(() => setRestored(true));
+  }, []);
+
   // arXiv search mutation
   const arxivSearch = useMutation({
     mutationFn: (query: string) => searchArxiv(query, maxResults, false),
@@ -101,7 +122,6 @@ export default function SearchPage() {
     },
     onSuccess: (data) => {
       setResults(data);
-      // All local papers are already saved
       setSavedIds(new Set(data.map((r) => r.source_id)));
     },
   });
@@ -113,18 +133,30 @@ export default function SearchPage() {
     (localSearch.error as Error | null)?.message ??
     null;
 
+  // Persist state after every successful search.
+  function persistState(newResults: SearchResult[], newSavedIds: Set<string>) {
+    saveSearchState(clauses, source, maxResults, newResults, [...newSavedIds]).catch(() => {});
+  }
+
   const handleSearch = useCallback(() => {
     const query = buildArxivQuery(clauses);
     if (!query) return;
     setResults(null);
+    setSuggestions({});
     if (source === "arxiv") {
-      arxivSearch.mutate(query);
+      arxivSearch.mutate(query, {
+        onSuccess: (data) => persistState(data.results, new Set(data.saved_source_ids)),
+      });
     } else if (source === "openalex") {
-      openAlexSearch.mutate(query);
+      openAlexSearch.mutate(query, {
+        onSuccess: (data) => persistState(data.results, new Set()),
+      });
     } else {
-      localSearch.mutate(query);
+      localSearch.mutate(query, {
+        onSuccess: (data) => persistState(data, new Set(data.map((r) => r.source_id))),
+      });
     }
-  }, [clauses, source, arxivSearch, openAlexSearch, localSearch]);
+  }, [clauses, source, maxResults, arxivSearch, openAlexSearch, localSearch]);
 
   const handleSavePaper = useCallback(async (sourceId: string) => {
     if (sourceId.startsWith("openalex:")) {
@@ -133,7 +165,7 @@ export default function SearchPage() {
       await fetchArxiv(sourceId, true);
     }
     setSavedIds((prev) => new Set([...prev, sourceId]));
-  }, [results]);
+  }, []);
 
   function addClause() {
     setClauses((prev) => [...prev, makeClause()]);
@@ -145,6 +177,30 @@ export default function SearchPage() {
 
   function removeClause(index: number) {
     setClauses((prev) => prev.filter((_, i) => i !== index));
+    setSuggestions((prev) => {
+      const next: Record<number, string[]> = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const ki = Number(k);
+        if (ki < index) next[ki] = v;
+        else if (ki > index) next[ki - 1] = v;
+      });
+      return next;
+    });
+  }
+
+  function handleSuggestionQuery(index: number, prefix: string) {
+    if (!historyEnabled) return;
+    getSearchHistory(prefix).then((s) => {
+      setSuggestions((prev) => ({ ...prev, [index]: s }));
+    }).catch(() => {});
+  }
+
+  if (!restored) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center text-[var(--color-muted)]">
+        <Spinner size={28} />
+      </div>
+    );
   }
 
   return (
@@ -168,6 +224,8 @@ export default function SearchPage() {
               onChange={(c) => updateClause(i, c)}
               onRemove={() => removeClause(i)}
               onSubmit={handleSearch}
+              suggestions={suggestions[i] ?? []}
+              onSuggestionQuery={(prefix) => handleSuggestionQuery(i, prefix)}
             />
           ))}
         </div>
@@ -275,7 +333,6 @@ export default function SearchPage() {
                 key={result.source_id}
                 result={result}
                 saved={savedIds.has(result.source_id)}
-
                 onSave={handleSavePaper}
               />
             ))}

@@ -25,6 +25,8 @@ _TABLE_DDL_ORDER: tuple[str, ...] = (
     "NOTE.sql",
     "papers_fts.sql",
     "DB_VERSION.sql",
+    "SEARCH_HISTORY.sql",
+    "SEARCH_STATE.sql",
 )
 
 DB_PATH = str(_db_path_fn())

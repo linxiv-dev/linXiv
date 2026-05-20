@@ -346,6 +346,51 @@ def api_arxiv_search(body: ArxivSearchBody) -> dict:
         saved = [parse_entry_id(p.entry_id)[0] for p in results]
     return {"results": summaries, "saved_source_ids": saved if body.save else []}
 
+
+# ── Search history / state ────────────────────────────────────────────────────
+
+import storage.search_history as _search_history
+import storage.search_state as _search_state
+
+
+@app.get("/api/search/history")
+def api_search_history(prefix: str = Query(default="", min_length=0), limit: int = Query(default=10, ge=1, le=50)) -> dict:
+    suggestions = _search_history.get_suggestions(prefix, limit)
+    return {"suggestions": suggestions}
+
+
+class SearchStateBody(BaseModel):
+    clauses: list[dict] = Field(default_factory=list)
+    source: str = Field(default="arxiv")
+    max_results: int = Field(default=25)
+    results: list[dict] = Field(default_factory=list)
+    saved_ids: list[str] = Field(default_factory=list)
+
+
+@app.get("/api/search/state")
+def api_search_state_get() -> dict:
+    state = _search_state.load_state()
+    if state is None:
+        return {"state": None}
+    return {"state": state}
+
+
+@app.post("/api/search/state")
+def api_search_state_save(body: SearchStateBody) -> dict:
+    # Record each non-empty clause term to history.
+    for clause in body.clauses:
+        term = clause.get("value", "")
+        if isinstance(term, str) and term.strip():
+            _search_history.add_term(term)
+    _search_state.save_state(
+        clauses=body.clauses,
+        source=body.source,
+        max_results=body.max_results,
+        results=body.results,
+        saved_ids=body.saved_ids,
+    )
+    return {"ok": True}
+
 #TODO:RECREATE API to be more efficient, use service layer???
 class ArxivFetchBody(BaseModel):
     source_id: str = Field(min_length=1)

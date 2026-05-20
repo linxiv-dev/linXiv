@@ -3,10 +3,9 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Spinner } from "../ui/spinner";
 import GraphPage from "../../pages/GraphPage";
-import SearchPage from "../../pages/SearchPage";
 import { useUiStore, type SidebarPageKey } from "../../stores/ui";
 
-const KEEP_ALIVE = ["/graph", "/search"];
+const KEEP_ALIVE = ["/graph"];
 
 const ROUTE_PAGE_KEY: Record<string, SidebarPageKey> = {
   "/graph":  "graph",
@@ -55,13 +54,6 @@ export default function AppShell() {
           style={{ display: pathname === "/graph" ? "flex" : "none" }}
         >
           <GraphPage />
-        </div>
-
-        <div
-          className="absolute inset-0 flex flex-col overflow-y-auto"
-          style={{ display: pathname === "/search" ? "flex" : "none" }}
-        >
-          <SearchPage />
         </div>
 
         {!onKeepAlive && (

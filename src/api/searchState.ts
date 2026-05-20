@@ -1,0 +1,42 @@
+import { apiFetch } from "./client";
+import type { SearchResult } from "../types/api";
+import type { Clause } from "../components/search/ClauseRow";
+
+export interface SearchState {
+  clauses: Clause[];
+  source: string;
+  max_results: number;
+  results: SearchResult[];
+  saved_ids: string[];
+  updated_at: string;
+}
+
+export async function getSearchHistory(prefix: string, limit = 10): Promise<string[]> {
+  const params = new URLSearchParams({ prefix, limit: String(limit) });
+  const data = await apiFetch<{ suggestions: string[] }>(`/api/search/history?${params}`);
+  return data.suggestions;
+}
+
+export async function getSearchState(): Promise<SearchState | null> {
+  const data = await apiFetch<{ state: SearchState | null }>("/api/search/state");
+  return data.state;
+}
+
+export async function saveSearchState(
+  clauses: Clause[],
+  source: string,
+  maxResults: number,
+  results: SearchResult[],
+  savedIds: string[],
+): Promise<void> {
+  await apiFetch("/api/search/state", {
+    method: "POST",
+    body: JSON.stringify({
+      clauses,
+      source,
+      max_results: maxResults,
+      results,
+      saved_ids: savedIds,
+    }),
+  });
+}
