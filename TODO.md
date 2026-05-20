@@ -12,8 +12,8 @@ Items flagged during design review. Grouped by area.
 - [ ] Query builder like in original gui
 ## Library
 - [ ] Virtual scrolling for paper list (expected scale: thousands of papers)
-- [ ] Full-text search across abstract and notes via `papers_fts` (backend ready)
 - [ ] Paper Metadata Editor — shared create/edit form; port field set from PyQt, do not redesign
+- [ ] postMessage bridge: selected PaperCard source_fks → parent app → Add to Project flow
 
 ## Paper Detail
 - [ ] In-app PDF viewer tab (currently only "Open PDF" external link + download)
@@ -27,10 +27,11 @@ Items flagged during design review. Grouped by area.
 
 ## Projects
 - [x] Project status UI: active / archived / deleted (three-state, not two)
-- [ ] Archived projects view (hidden from main list, accessible separately)
+- [x] Archived projects view (hidden from main list, accessible separately)
 - [x] Deleted projects surfaced in Settings trash panel alongside deleted papers (30-day auto-purge on startup)
 - [ ] Project tags UI (create, assign, display)
-- [ ] ProjectCard (ProjectsPage list): Archive and Delete are first-class card buttons — move into `···` context menu or right-click context menu (same treatment applied to ProjectDetailPage header)
+- [x] ProjectCard (ProjectsPage list): Archive and Delete are first-class card buttons 
+- [x] move into `···` **context menu** or right-click context menu (same treatment applied to ProjectDetailPage header)
 
 ## Tags
 - [ ] Clickable tag links everywhere they appear (paper cards, project cards, graph nodes)
@@ -46,8 +47,9 @@ Items flagged during design review. Grouped by area.
 - [ ] Export methods toggle in Settings (show only enabled targets; prune candidates before release)
 
 ## Appearance / Theming
-- [ ] Custom palettes: save named color configurations; appear alongside built-in presets in Settings
+- [ ] Custom palettes: save named color configurations; appear alongside built-in presets in Settings; Changing of pallette selection ui to be slightly more usable will be important.
 - [ ] Glass effect: replace boolean toggle with percentage intensity input + hex color tint input
+- [ ] Right now overrides always override genuinely even if you try to switch to old theme. We should make it so that the overrides are only changing before you switch to another a set theme. and then that theme takes over the overrides, right now you can never return to the defaults.
 
 ## Deferred
 - [ ] TeX rendering library decision (KaTeX vs MathJax — must be compatible with future Notes Editor)
@@ -55,3 +57,4 @@ Items flagged during design review. Grouped by area.
 - [ ] Notes Editor as optional sidebar page (plugin-tier, off by default)
 - [ ] Graph performance: SVG rendering + cluster nodes for large datasets
 - [ ] Version monitoring / RSS-style polling for new arXiv versions (separate from opportunistic capture)
+- [ ] Library: search across abstract and notes via `papers_fts` (backend ready)
