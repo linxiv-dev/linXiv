@@ -1,11 +1,20 @@
-import { Suspense } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Suspense, useEffect } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Spinner } from "../ui/spinner";
 import GraphPage from "../../pages/GraphPage";
 import SearchPage from "../../pages/SearchPage";
+import { useUiStore, type SidebarPageKey } from "../../stores/ui";
 
 const KEEP_ALIVE = ["/graph", "/search"];
+
+const ROUTE_PAGE_KEY: Record<string, SidebarPageKey> = {
+  "/graph":  "graph",
+  "/search": "search",
+  "/doi":    "doi",
+  "/tags":   "tags",
+  "/notes":  "notes",
+};
 
 function PageFallback() {
   return (
@@ -20,7 +29,16 @@ function PageFallback() {
 
 export default function AppShell() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const sidebarPages = useUiStore((s) => s.sidebarPages);
   const onKeepAlive = KEEP_ALIVE.includes(pathname);
+
+  useEffect(() => {
+    const key = ROUTE_PAGE_KEY[pathname];
+    if (key && !sidebarPages[key]) {
+      navigate("/", { replace: true });
+    }
+  }, [pathname, sidebarPages, navigate]);
 
   return (
     <div

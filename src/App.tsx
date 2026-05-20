@@ -22,6 +22,8 @@ const router = createBrowserRouter([
       { path: "projects/:id", element: <ProjectDetailPage /> },
       { path: "graph", element: null },
       { path: "search", element: null },
+      { path: "tags", element: null },
+      { path: "notes", element: null },
       { path: "doi", element: <DoiPage /> },
       { path: "settings", element: <SettingsPage /> },
     ],

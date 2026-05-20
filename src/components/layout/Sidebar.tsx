@@ -7,25 +7,30 @@ import {
   Search,
   Link2,
   Settings,
+  Tag,
+  FileText,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-import { useUiStore } from "../../stores/ui";
+import { useUiStore, type SidebarPageKey } from "../../stores/ui";
 
 interface NavItem {
   to: string;
   label: string;
   icon: React.ReactNode;
   end?: boolean;
+  pageKey?: SidebarPageKey;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Home", icon: <Home size={16} />, end: true },
   { to: "/library", label: "Library", icon: <BookOpen size={16} /> },
   { to: "/projects", label: "Projects", icon: <FolderOpen size={16} /> },
-  { to: "/graph", label: "Graph", icon: <Network size={16} /> },
-  { to: "/search", label: "Search", icon: <Search size={16} /> },
-  { to: "/doi", label: "DOI", icon: <Link2 size={16} /> },
+  { to: "/graph", label: "Graph", icon: <Network size={16} />, pageKey: "graph" },
+  { to: "/search", label: "Search", icon: <Search size={16} />, pageKey: "search" },
+  { to: "/doi", label: "DOI", icon: <Link2 size={16} />, pageKey: "doi" },
+  { to: "/tags", label: "Tags", icon: <Tag size={16} />, pageKey: "tags" },
+  { to: "/notes", label: "Notes", icon: <FileText size={16} />, pageKey: "notes" },
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
 
@@ -33,7 +38,7 @@ const EXPANDED_W = 160;
 const COLLAPSED_W = 48;
 
 export function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar } = useUiStore();
+  const { sidebarCollapsed, toggleSidebar, sidebarPages } = useUiStore();
   const w = sidebarCollapsed ? COLLAPSED_W : EXPANDED_W;
 
   return (
@@ -88,7 +93,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-2 pb-4 flex flex-col gap-0.5">
-        {NAV_ITEMS.map(({ to, label, icon, end }) => (
+        {NAV_ITEMS.filter(({ pageKey }) => !pageKey || sidebarPages[pageKey]).map(({ to, label, icon, end }) => (
           <NavLink
             key={to}
             to={to}
