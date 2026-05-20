@@ -226,19 +226,19 @@ def init_db() -> None:
     with _connect() as conn:
         apply_sql_schema(conn)
 
-    wrong_path_rows = _get_deprecated_path_rows()
-    if wrong_path_rows:
-        for rows in wrong_path_rows:
-            try:
-                curr_path = rows["PDF_PATH"]
-                if Path(curr_path).is_file() and Path(curr_path).rename(curr_path.replace(str(old_pdf_dir()), str(pdf_dir()))).exists():
-                    set_pdf_path(rows["source_id"], curr_path.replace(str(old_pdf_dir()), str(pdf_dir())))
-                    print(f"File [ {curr_path} ] moved and verified!")
-                else:
-                    print(f"File [ {curr_path} ] could not be moved")
-            except Exception as e:
-                print(f"An error occured while trying to parse file {rows['PDF_PATH']}:\n{e}")
     if old_pdf_dir().is_dir():
+        wrong_path_rows = _get_deprecated_path_rows()
+        if wrong_path_rows:
+            for rows in wrong_path_rows:
+                try:
+                    curr_path = rows["PDF_PATH"]
+                    if Path(curr_path).is_file() and Path(curr_path).rename(curr_path.replace(str(old_pdf_dir()), str(pdf_dir()))).exists():
+                        set_pdf_path(rows["source_id"], curr_path.replace(str(old_pdf_dir()), str(pdf_dir())))
+                        print(f"File [ {curr_path} ] moved and verified!")
+                    else:
+                        print(f"File [ {curr_path} ] could not be moved")
+                except Exception as e:
+                    print(f"An error occured while trying to parse file {rows['PDF_PATH']}:\n{e}")
         _remove_gui_pdf_dir(old_pdf_dir())
 
 def _remove_gui_pdf_dir(path: Path):
