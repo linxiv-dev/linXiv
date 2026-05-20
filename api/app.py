@@ -36,6 +36,7 @@ from sources import resolve_doi, fetch_paper_metadata, search_papers
 from sources.pdf_metadata import resolve_pdf_metadata
 from sources.openalex_source import OpenAlexSource
 from formats.bibtex import BibTeXFormat
+from formats.markdown import ObsidianFormat
 from service.paper import (
     set_has_pdf_by_source,
     Paper,
@@ -669,25 +670,33 @@ async def api_import_commit(
     return {"project_id": project_fk}
 
 
-# ── BibTeX export / import ────────────────────────────────────────────────────
+# ── Plain-text export helpers ─────────────────────────────────────────────────
 
-@app.get("/api/projects/{project_id}/export/bibtex")
-def api_project_export_bibtex(project_id: int) -> PlainTextResponse:
+def _plain_export(project_id: int, fmt_obj: object, media_type: str, ext: str) -> PlainTextResponse:
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    papers = list_paper_details(latest_only=True)
+    ids = set(sfks_to_source_ids(p.source_fks))
     project_papers = [
-        pp.to_dict() for pp in papers
-        if pp.source_id in sfks_to_source_ids(p.source_fks)
+        pp.to_dict() for pp in list_paper_details(latest_only=True)
+        if pp.source_id in ids
     ]
-    bib_text = BibTeXFormat().export_papers(project_papers)
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (p.name or "project"))
     return PlainTextResponse(
-        content=bib_text,
-        media_type="text/x-bibtex",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}.bib"'},
+        content=fmt_obj.export_papers(project_papers),  # type: ignore[union-attr]
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.{ext}"'},
     )
+
+
+@app.get("/api/projects/{project_id}/export/bibtex")
+def api_project_export_bibtex(project_id: int) -> PlainTextResponse:
+    return _plain_export(project_id, BibTeXFormat(), "text/x-bibtex", "bib")
+
+
+@app.get("/api/projects/{project_id}/export/obsidian")
+def api_project_export_obsidian(project_id: int) -> PlainTextResponse:
+    return _plain_export(project_id, ObsidianFormat(), "text/markdown", "md")
 
 
 @app.post("/api/papers/import/bibtex")

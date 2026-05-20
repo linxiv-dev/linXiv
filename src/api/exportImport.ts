@@ -13,6 +13,19 @@ export interface ImportPreview {
   format_version: number;
 }
 
+async function triggerDownload(res: Response, fallbackFilename: string): Promise<void> {
+  const blob = await res.blob();
+  const cd = res.headers.get("Content-Disposition") ?? "";
+  const match = cd.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] ?? fallbackFilename;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function exportProject(
   projectId: number,
   includePdfs = false
@@ -26,16 +39,7 @@ export async function exportProject(
     const body = await res.json().catch(() => ({})) as { detail?: string };
     throw new Error(body.detail ?? `Export failed (${res.status})`);
   }
-  const blob = await res.blob();
-  const cd = res.headers.get("Content-Disposition") ?? "";
-  const match = cd.match(/filename="?([^"]+)"?/);
-  const filename = match?.[1] ?? `project-${projectId}.lxproj`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  await triggerDownload(res, `project-${projectId}.lxproj`);
 }
 
 export async function previewImport(file: File): Promise<ImportPreview> {
@@ -75,16 +79,16 @@ export async function exportBibtex(projectId: number): Promise<void> {
     const body = await res.json().catch(() => ({})) as { detail?: string };
     throw new Error(body.detail ?? `BibTeX export failed (${res.status})`);
   }
-  const blob = await res.blob();
-  const cd = res.headers.get("Content-Disposition") ?? "";
-  const match = cd.match(/filename="?([^"]+)"?/);
-  const filename = match?.[1] ?? `project-${projectId}.bib`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  await triggerDownload(res, `project-${projectId}.bib`);
+}
+
+export async function exportObsidian(projectId: number): Promise<void> {
+  const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export/obsidian`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { detail?: string };
+    throw new Error(body.detail ?? `Obsidian export failed (${res.status})`);
+  }
+  await triggerDownload(res, `project-${projectId}.md`);
 }
 
 export async function importBibtex(
