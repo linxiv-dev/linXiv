@@ -210,6 +210,17 @@ class TestGraph:
         assert r.status_code == 200
         assert "projects" in r.json()
 
+    def test_graph_project_options_includes_tags_from_join_table(self, client):
+        import storage.tags as _tags
+        pid = client.post("/api/projects", json={"name": "Graph Tagged"}).json()["project"]["id"]
+        _tags.add_project_tags(pid, ["graph-tag"])
+        r = client.get("/api/graph/project-options")
+        assert r.status_code == 200
+        projects = r.json()["projects"]
+        tagged = next((p for p in projects if p["id"] == pid), None)
+        assert tagged
+        assert "graph-tag" in tagged["tags"]
+
 
 # ---------------------------------------------------------------------------
 # Projects CRUD
@@ -269,6 +280,24 @@ class TestProjects:
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
         r = client.patch(f"/api/projects/{pid}", json={"status": "not_a_status"})
         assert r.status_code == 400
+
+    def test_get_project_returns_project_tags_from_join_table(self, client):
+        import storage.tags as _tags
+        pid = client.post("/api/projects", json={"name": "Tagged"}).json()["project"]["id"]
+        _tags.add_project_tags(pid, ["science", "ml"])
+        r = client.get(f"/api/projects/{pid}")
+        assert r.status_code == 200
+        assert set(r.json()["project_tags"]) == {"science", "ml"}
+
+    def test_list_projects_returns_project_tags_from_join_table(self, client):
+        import storage.tags as _tags
+        pid = client.post("/api/projects", json={"name": "Listed Tagged"}).json()["project"]["id"]
+        _tags.add_project_tags(pid, ["graph"])
+        r = client.get("/api/projects")
+        assert r.status_code == 200
+        projects = r.json()["projects"]
+        tagged = next(p for p in projects if p["id"] == pid)
+        assert tagged["project_tags"] == ["graph"]
 
     def test_patch_nonexistent_returns_404(self, client):
         r = client.patch("/api/projects/999", json={"name": "X"})
@@ -344,7 +373,7 @@ class TestNotes:
         assert len(notes) == 1
         assert notes[0]["title"] == "My Note"
         assert notes[0]["content"] == "Some content"
-        assert notes[0]["created_at"] is not None
+        assert notes[0]["created_at"]
 
     def test_note_with_project(self, client):
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]

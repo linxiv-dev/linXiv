@@ -13,11 +13,14 @@ Run with venv:
 
 from __future__ import annotations
 
+import sys
 import uvicorn
 
 
 def run() -> None:
-    uvicorn.run("api.app:app", host="127.0.0.1", port=8000, reload=True)
+    # reload=True requires the source tree — disabled in frozen PyInstaller builds
+    reload = not getattr(sys, "frozen", False)
+    uvicorn.run("api.app:app", host="127.0.0.1", port=8000, reload=reload)
 
 
 if __name__ == "__main__":

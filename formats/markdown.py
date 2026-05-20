@@ -89,7 +89,7 @@ class MarkdownFormat:
 
             # Top-level bullet: - **[title](url)**
             if line.startswith("- **") and line.endswith("**"):
-                if current is not None:
+                if current:
                     results.append(_dict_to_metadata(current))
                 inner = line[4:-2]  # strip '- **' and '**'
                 m = _MD_LINK_RE.match(inner)
@@ -113,7 +113,7 @@ class MarkdownFormat:
             elif line.startswith("- Tags: "):
                 current["tags"] = [t.strip() for t in line[8:].split(",") if t.strip()]
 
-        if current is not None:
+        if current:
             results.append(_dict_to_metadata(current))
         return results
 
@@ -144,7 +144,7 @@ class ObsidianFormat:
         for p in papers:
             sid     = p.get("source_id", "")
             title   = p.get("title", sid)
-            authors = ", ".join(p.get("authors") or [])
+            authors = ", ".join(f"[[{a}]]" for a in (p.get("authors") or []))
             url     = _paper_url(sid, p.get("url"))
             lines.append(f"## [{title}]({url})")
             lines.append("")
@@ -186,7 +186,7 @@ class ObsidianFormat:
 
             # Section header: ## [title](url)
             if line.startswith("## "):
-                if current is not None:
+                if current:
                     results.append(_dict_to_metadata(current))
                 m = _MD_LINK_RE.match(line[3:])
                 if m:
@@ -203,13 +203,14 @@ class ObsidianFormat:
             if line.startswith("**Paper-ID:**"):
                 current["source_id"] = line[13:].strip()
             elif line.startswith("**Authors:**"):
-                current["authors"] = [a.strip() for a in line[12:].split(",") if a.strip()]
+                raw_authors = [a.strip() for a in line[12:].split(",") if a.strip()]
+                current["authors"] = [a.strip("[]") for a in raw_authors]
             elif line.startswith("**Category:**"):
                 current["category"] = line[13:].strip()
             elif line.startswith("**Tags:**"):
                 current["tags"] = [t.strip() for t in line[9:].split(",") if t.strip()]
 
-        if current is not None:
+        if current:
             results.append(_dict_to_metadata(current))
         return results
 

@@ -1,45 +1,57 @@
-"""
-FastAPI JSON API for linXiv (backend only — UI lives in separate clients).
-
-Serves ``/api/...`` routes and, for the graph viewer, static files under
-``/assets/graph/`` (from ``gui/graph/web/``) so a frontend can iframe them or proxy the path.
-"""
+"""FastAPI JSON API for linXiv (backend only — UI lives in separate clients)."""
 
 from __future__ import annotations
 
 import datetime
 import os
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from config import ENV_PATH
+from config import ENV_PATH, data_dir, resources_dir
 load_dotenv(ENV_PATH)
 
 import arxiv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.background import BackgroundTasks
+from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
 from storage.db import (
     delete_paper,
     get_categories,
-    get_paper,
     get_tags,
     init_db,
-    list_papers,
     parse_entry_id,
     save_paper,
     save_papers,
     save_paper_metadata,
 )
 from sources import resolve_doi, fetch_paper_metadata, search_papers
-from service.paper import ensure_paper_root, get_paper_root, get_source_id
-from storage.notes import Note, ensure_notes_db, get_notes
+from sources.pdf_metadata import resolve_pdf_metadata
+from sources.openalex_source import OpenAlexSource
+from formats.bibtex import BibTeXFormat
+from formats.markdown import ObsidianFormat
+from service.paper import (
+    set_has_pdf_by_source,
+    Paper,
+    ensure_paper_root,
+    get as get_paper_details,
+    get_paper_root,
+    list_paper_details,
+    list_deleted as list_deleted_papers,
+    delete as soft_delete_paper,
+    restore as restore_paper,
+    hard_delete as hard_delete_paper,
+    sfks_to_source_ids,
+)
+import user_settings
+from storage.notes import Note, ensure_notes_db, get_note, get_notes
 from storage.projects import (
     Project,
     Status,
@@ -49,10 +61,9 @@ from storage.projects import (
     filter_projects,
     get_project,
 )
+from storage.tags import get_project_tags
 
-ROOT = Path(__file__).resolve().parent.parent
-PDF_DIR = ROOT / "pdfs"
-GUI_WEB = ROOT / "gui" / "graph" / "web"
+PDF_DIR = data_dir() / "pdfs"
 
 
 def _cors_config() -> tuple[list[str], bool]:
@@ -63,26 +74,6 @@ def _cors_config() -> tuple[list[str], bool]:
     origins = [o.strip() for o in raw.split(",") if o.strip()]
     return origins, True
 
-
-def _paper_row_dict(row) -> dict:
-    out: dict = {}
-    for k in row.keys():
-        v = row[k]
-        if hasattr(v, "isoformat"):
-            out[k] = v.isoformat()
-        else:
-            out[k] = v
-    out["source_id"] = row["source_id"]  # expose text ID as source_id
-    return out
-
-
-def _sfks_to_source_ids(source_fks: list[int]) -> list[str]:
-    result: list[str] = []
-    for sfk in source_fks:
-        sid = get_source_id(sfk)
-        if sid is not None:
-            result.append(sid)
-    return result
 
 
 def _arxiv_result_summary(p: arxiv.Result) -> dict:
@@ -101,12 +92,12 @@ def _arxiv_result_summary(p: arxiv.Result) -> dict:
 
 
 def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
-    row = get_paper(source_id) if version is None else get_paper(source_id, version)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id, version=version))
+    if not paper:
         return None
-    ver = row["version"] if version is None else version
-    if row["pdf_path"] and os.path.isfile(row["pdf_path"]):
-        return row["pdf_path"]
+    ver = paper.version if version is None else version
+    if paper.pdf_path and os.path.isfile(paper.pdf_path):
+        return paper.pdf_path
     std = PDF_DIR / f"{source_id}v{ver}.pdf"
     if std.is_file():
         return str(std)
@@ -141,7 +132,6 @@ def api_root() -> dict:
         "api": "JSON over HTTP; routes under /api/…",
         "docs": "/docs",
         "openapi": "/openapi.json",
-        "graph_assets": "/assets/graph/graph.html",
     }
 
 
@@ -152,13 +142,15 @@ def health() -> dict:
 
 @app.get("/api/stats")
 def stats() -> dict:
-    papers = list_papers(latest_only=True)
+    papers = list_paper_details(latest_only=True)
     tags = get_tags()
-    recent = [_paper_row_dict(r) for r in papers[:10]]
+    categories = get_categories()
     return {
         "paper_count": len(papers),
         "tag_count": len(tags),
-        "recent_papers": recent,
+        "category_count": len(categories),
+        "pdf_count": sum(1 for p in papers if p.has_pdf),
+        "recent_papers": [p.to_dict() for p in papers[:10]],
     }
 
 
@@ -167,22 +159,30 @@ def api_list_papers(
     limit: int | None = Query(default=200, ge=1, le=5000),
     offset: int = Query(default=0, ge=0),
 ) -> dict:
-    rows = list_papers(latest_only=True, limit=limit, offset=offset)
-    return {"papers": [_paper_row_dict(r) for r in rows]}
+    papers = list_paper_details(latest_only=True, limit=limit, offset=offset)
+    return {"papers": [p.to_dict() for p in papers]}
+
+
+@app.get("/api/papers/sfk/{source_fk}")
+def api_get_paper_by_sfk(source_fk: int) -> dict:
+    paper = get_paper_details(Paper(source_fk=source_fk))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    return paper.to_dict()
 
 
 @app.get("/api/papers/{source_id}")
 def api_get_paper(source_id: str) -> dict:
-    row = get_paper(source_id)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id))
+    if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    return _paper_row_dict(row)
+    return paper.to_dict()
 
 
 @app.delete("/api/papers/{source_id}")
 def api_delete_paper(source_id: str) -> dict:
-    row = get_paper(source_id)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id))
+    if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
     delete_paper(source_id)
     return {"deleted": source_id}
@@ -216,8 +216,8 @@ def api_projects() -> dict:
                 "name": p.name,
                 "description": p.description or "",
                 "color_hex": color_to_hex(p.color) if p.color else None,
-                "project_tags": p.project_tags or [],
-                "source_ids": _sfks_to_source_ids(p.source_fks),
+                "project_tags": get_project_tags(p.id),
+                "source_ids": sfks_to_source_ids(p.source_fks),
                 "status": p.status.value,
                 "paper_count": p.paper_count,
             }
@@ -230,6 +230,8 @@ def api_graph_project_options() -> dict:
     return {"projects": project_filter_options()}
 
 
+# TODO: add tags: list[str] = [] to ProjectCreate and ProjectUpdate, then call
+#       storage.tags.add_project_tags / remove+add in api_project_create and api_project_patch
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
@@ -248,7 +250,7 @@ def api_project_create(body: ProjectCreate) -> dict:
     color = color_from_hex(body.color_hex) if body.color_hex else None
     p = Project(name=body.name.strip(), description=body.description.strip(), color=color)
     p.save()
-    assert p.id is not None
+    assert p.id
     return {"project": {"id": p.id, "name": p.name}}
 
 
@@ -262,8 +264,8 @@ def api_project_get(project_id: int) -> dict:
         "name": p.name,
         "description": p.description or "",
         "color_hex": color_to_hex(p.color) if p.color else None,
-        "project_tags": p.project_tags or [],
-        "source_ids": _sfks_to_source_ids(p.source_fks),
+        "project_tags": get_project_tags(p.id) if p.id else [],
+        "source_ids": sfks_to_source_ids(p.source_fks),
         "status": p.status.value,
     }
 
@@ -273,13 +275,13 @@ def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
     p = get_project(project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    if body.name is not None:
+    if body.name:
         p.name = body.name.strip()
-    if body.description is not None:
+    if body.description:
         p.description = body.description
-    if body.color_hex is not None:
+    if body.color_hex:
         p.color = color_from_hex(body.color_hex)
-    if body.status is not None:
+    if body.status:
         try:
             p.status = Status(body.status)
         except ValueError as e:
@@ -435,19 +437,381 @@ def api_note_create(body: NoteCreate) -> dict:
     return {"id": n.id}
 
 
+class NoteUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None
+
+
+@app.patch("/api/notes/{note_id}")
+def api_note_update(note_id: int, body: NoteUpdate) -> dict:
+    details = get_note(note_id)
+    if details is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+    n = Note(
+        id=details.note_id,
+        source_fk=details.source_fk,
+        paper_id_fk=details.paper_id_fk,
+        project_id=details.project_id,
+        title=body.title if body.title is not None else details.title,
+        content=body.content if body.content is not None else details.content,
+    )
+    n.save()
+    return {"ok": True}
+
+
+@app.delete("/api/notes/{note_id}")
+def api_note_delete(note_id: int) -> dict:
+    details = get_note(note_id)
+    if details is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+    n = Note(
+        id=details.note_id,
+        source_fk=details.source_fk,
+        paper_id_fk=details.paper_id_fk,
+        project_id=details.project_id,
+        title=details.title,
+        content=details.content,
+    )
+    n.delete()
+    return {"ok": True}
+
+
+@app.get("/api/settings")
+def api_settings_get() -> dict:
+    return user_settings.all_settings()
+
+
+class SettingsUpdate(BaseModel):
+    updates: dict
+
+
+@app.patch("/api/settings")
+def api_settings_patch(body: SettingsUpdate) -> dict:
+    for key, value in body.updates.items():
+        user_settings.set(key, value)
+    return {"ok": True}
+
+
+class EnvUpdate(BaseModel):
+    key: str
+    value: str
+
+
+@app.patch("/api/env")
+def api_env_patch(body: EnvUpdate) -> dict:
+    set_key(str(ENV_PATH), body.key, body.value)
+    os.environ[body.key] = body.value
+    return {"ok": True}
+
+
 @app.get("/api/papers/{source_id}/pdf", response_model=None)
 def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
-    row = get_paper(source_id) if version is None else get_paper(source_id, version)
-    if not row:
+    paper = get_paper_details(Paper(source_id=source_id, version=version))
+    if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
     path = _resolve_local_pdf(source_id, version)
     if path:
         return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
-    url = row["url"]
-    if url:
-        return RedirectResponse(url)
+    if paper.url:
+        return RedirectResponse(paper.url)
     raise HTTPException(status_code=404, detail="No PDF available")
 
 
 # Graph viewer static bundle (used by PyQt, external frontends via iframe/proxy)
-app.mount("/assets/graph", StaticFiles(directory=str(GUI_WEB), html=True), name="graph_assets")
+# ── Trash (soft-delete) ───────────────────────────────────────────────────────
+
+@app.get("/api/trash")
+def api_trash_list() -> dict:
+    deleted = list_deleted_papers()
+    return {
+        "papers": [
+            {
+                "source_fk": d.source_fk,
+                "source_id": d.source_id,
+                "title": d.title,
+                "authors": d.authors,
+                "published": d.published.isoformat() if d.published else None,
+                "deleted_at": d.deleted_at.isoformat() if d.deleted_at else None,
+                "had_pdf": d.had_pdf,
+            }
+            for d in deleted
+        ]
+    }
+
+
+@app.post("/api/trash/{source_id}/restore")
+def api_trash_restore(source_id: str) -> dict:
+    pdf_path, project_fks = restore_paper(Paper(source_id=source_id))
+    return {"ok": True, "pdf_path": pdf_path, "project_fks": project_fks}
+
+
+@app.delete("/api/trash/{source_id}")
+def api_trash_hard_delete(source_id: str) -> dict:
+    hard_delete_paper(Paper(source_id=source_id))
+    return {"ok": True}
+
+
+@app.delete("/api/papers/{source_id}/soft")
+def api_paper_soft_delete(source_id: str) -> dict:
+    soft_delete_paper(Paper(source_id=source_id))
+    return {"ok": True}
+
+
+# ── OpenAlex search ───────────────────────────────────────────────────────────
+
+class OpenAlexSearchBody(BaseModel):
+    query: str = Field(min_length=1)
+    max_results: int = Field(default=25, ge=1, le=100)
+
+
+@app.post("/api/openalex/search")
+def api_openalex_search(body: OpenAlexSearchBody) -> dict:
+    try:
+        results = OpenAlexSource().search(body.query.strip(), max_results=body.max_results)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return {
+        "results": [
+            {
+                "source_id": m.source_id,
+                "version": m.version,
+                "title": m.title,
+                "summary": m.summary,
+                "authors": m.authors,
+                "published": m.published.isoformat() if m.published else None,
+                "doi": m.doi,
+                "url": m.url,
+                "primary_category": m.category,
+                "entry_id": m.source_id,
+            }
+            for m in results
+        ]
+    }
+
+
+# ── Export / Import ───────────────────────────────────────────────────────────
+
+import tempfile
+import shutil
+from service import export_import as _export_import
+
+
+class ExportBody(BaseModel):
+    project_id: int
+    include_pdfs: bool = False
+    dest_path: str | None = None
+
+
+@app.post("/api/projects/{project_id}/export", response_model=None)
+def api_project_export(
+    project_id: int,
+    body: ExportBody,
+    background: BackgroundTasks,
+) -> FileResponse | dict:
+    if body.dest_path:
+        dest = Path(body.dest_path)
+        try:
+            _export_import.export_project(
+                project_id,
+                dest_path=dest.parent / dest.stem,
+                include_pdfs=body.include_pdfs,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        return {"ok": True}
+    tmp_dir = Path(tempfile.mkdtemp())
+    try:
+        out = _export_import.export_project(
+            project_id,
+            dest_path=tmp_dir / "export",
+            include_pdfs=body.include_pdfs,
+        )
+    except ValueError as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    background.add_task(shutil.rmtree, tmp_dir, True)
+    return FileResponse(
+        path=str(out),
+        filename=out.name,
+        media_type="application/zip",
+    )
+
+
+@app.post("/api/projects/import/preview")
+async def api_import_preview(file: UploadFile = File(...)) -> dict:
+    tmp = Path(tempfile.mktemp(suffix=".lxproj"))
+    try:
+        content = await file.read()
+        tmp.write_bytes(content)
+        preview = _export_import.preview_import(tmp)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        tmp.unlink(missing_ok=True)
+    return {
+        "project_name": preview.project_name,
+        "description": preview.description,
+        "paper_count": preview.paper_count,
+        "note_count": preview.note_count,
+        "has_pdfs": preview.has_pdfs,
+        "format_version": preview.format_version,
+    }
+
+
+@app.post("/api/projects/import/commit")
+async def api_import_commit(
+    file: UploadFile = File(...),
+    on_conflict: str = Query(default="merge", pattern="^(merge|overwrite)$"),
+) -> dict:
+    tmp = Path(tempfile.mktemp(suffix=".lxproj"))
+    try:
+        content = await file.read()
+        tmp.write_bytes(content)
+        project_fk = _export_import.commit_import(
+            tmp, on_conflict=on_conflict  # type: ignore[arg-type]
+        )
+    except _export_import.ProjectImportError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        tmp.unlink(missing_ok=True)
+    return {"project_id": project_fk}
+
+
+# ── Plain-text export helpers ─────────────────────────────────────────────────
+
+def _plain_export(project_id: int, fmt_obj: object, media_type: str, ext: str) -> PlainTextResponse:
+    p = get_project(project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    ids = set(sfks_to_source_ids(p.source_fks))
+    project_papers = [
+        pp.to_dict() for pp in list_paper_details(latest_only=True)
+        if pp.source_id in ids
+    ]
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in (p.name or "project"))
+    return PlainTextResponse(
+        content=fmt_obj.export_papers(project_papers),  # type: ignore[union-attr]
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.{ext}"'},
+    )
+
+
+@app.get("/api/projects/{project_id}/export/bibtex", response_model=None)
+def api_project_export_bibtex(
+    project_id: int,
+    dest_path: str | None = Query(default=None),
+) -> PlainTextResponse | dict:
+    if dest_path:
+        p = get_project(project_id)
+        if not p:
+            raise HTTPException(status_code=404, detail="Project not found")
+        ids = set(sfks_to_source_ids(p.source_fks))
+        papers = [pp.to_dict() for pp in list_paper_details(latest_only=True) if pp.source_id in ids]
+        Path(dest_path).write_text(BibTeXFormat().export_papers(papers), encoding="utf-8")
+        return {"ok": True}
+    return _plain_export(project_id, BibTeXFormat(), "text/x-bibtex", "bib")
+
+
+@app.get("/api/projects/{project_id}/export/obsidian", response_model=None)
+def api_project_export_obsidian(
+    project_id: int,
+    dest_path: str | None = Query(default=None),
+) -> PlainTextResponse | dict:
+    if dest_path:
+        p = get_project(project_id)
+        if not p:
+            raise HTTPException(status_code=404, detail="Project not found")
+        ids = set(sfks_to_source_ids(p.source_fks))
+        papers = [pp.to_dict() for pp in list_paper_details(latest_only=True) if pp.source_id in ids]
+        Path(dest_path).write_text(ObsidianFormat().export_papers(papers), encoding="utf-8")
+        return {"ok": True}
+    return _plain_export(project_id, ObsidianFormat(), "text/markdown", "md")
+
+
+@app.post("/api/papers/import/bibtex")
+async def api_import_bibtex(
+    file: UploadFile = File(...),
+    project_id: int | None = Query(default=None),
+) -> dict:
+    text = (await file.read()).decode("utf-8", errors="replace")
+    try:
+        metas = BibTeXFormat().import_string(text)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"BibTeX parse error: {e}") from e
+    saved: list[str] = []
+    for meta in metas:
+        save_paper_metadata(meta)
+        saved.append(meta.source_id)
+    if project_id and saved:
+        proj = get_project(project_id)
+        if proj:
+            for sid in saved:
+                root = get_paper_root(sid)
+                if root:
+                    proj.add_paper(int(root["SOURCE_FK"]))
+    return {"saved_count": len(saved), "source_ids": saved}
+
+
+# ── PDF import ────────────────────────────────────────────────────────────────
+
+@app.post("/api/papers/import/pdf")
+async def api_import_pdf(
+    file: UploadFile = File(...),
+    project_id: int | None = Query(default=None),
+) -> dict:
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF")
+    content = await file.read()
+    tmp_path = PDF_DIR / f"_upload_{uuid.uuid4().hex}.pdf"
+    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        tmp_path.write_bytes(content)
+        try:
+            meta = resolve_pdf_metadata(str(tmp_path))
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Could not extract PDF metadata: {e}") from e
+        save_paper_metadata(meta)
+        source_id = meta.source_id
+        version = meta.version
+        title = meta.title
+        final_path = PDF_DIR / f"{source_id}v{version}.pdf"
+        tmp_path.rename(final_path)
+        set_has_pdf_by_source(source_id, True)
+        if project_id:
+            proj = get_project(project_id)
+            if proj:
+                root = get_paper_root(source_id)
+                if root:
+                    proj.add_paper(int(root["SOURCE_FK"]))
+    except HTTPException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {"source_id": source_id, "title": title}
+
+
+# ── OpenAlex save ─────────────────────────────────────────────────────────────
+
+class OpenAlexSaveBody(BaseModel):
+    source_id: str = Field(min_length=1)
+
+
+@app.post("/api/openalex/save")
+def api_openalex_save(body: OpenAlexSaveBody) -> dict:
+    try:
+        meta = OpenAlexSource().fetch_by_id(body.source_id.strip())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    save_paper_metadata(meta)
+    return {"saved": True, "source_id": meta.source_id}
+
+

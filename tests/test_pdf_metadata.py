@@ -280,11 +280,11 @@ class TestResolvePdfMetadata:
                 with patch("sources.pdf_metadata.Path") as mock_path:
                     mock_path.return_value.read_bytes.return_value = b"content"
                     result = resolve_pdf_metadata("/fake/path.pdf")
-        assert result.source_id.startswith("pdf:")
+        assert result.source_id.startswith("local:")
 
     def test_partial_record_id_is_deterministic(self):
         content = b"stable pdf bytes"
-        expected_id = "pdf:" + hashlib.sha256(content).hexdigest()[:16]
+        expected_id = "local:" + hashlib.sha256(content).hexdigest()[:16]
         with self._patch_extract():
             with patch("sources.pdf_metadata._try_crossref_title", return_value=None):
                 with patch("sources.pdf_metadata.Path") as mock_path:

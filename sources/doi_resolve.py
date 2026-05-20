@@ -99,7 +99,7 @@ def _try_semantic_scholar(doi: str) -> PaperMetadata | None:
     s2_url = data.get("url") or f"https://www.semanticscholar.org/paper/{data.get('paperId', '')}"
 
     return PaperMetadata(
-        source_id=doi,
+        source_id=f"doi:{doi}",
         version=1,
         title=data["title"],
         authors=authors,
@@ -154,7 +154,7 @@ def _try_crossref(doi: str) -> PaperMetadata | None:
     cr_url = msg.get("URL") or f"https://doi.org/{doi}"
 
     return PaperMetadata(
-        source_id=doi,
+        source_id=f"doi:{doi}",
         version=1,
         title=title,
         authors=authors,

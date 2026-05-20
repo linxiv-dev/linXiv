@@ -396,6 +396,7 @@ function loadGraph(data) {
             _applyAllStyles();
             _notifySelectionChanged();
             console.log('GRAPHVIEW_PAPER_CLICKED:' + paper_id);
+            window.parent.postMessage({ type: 'paper_clicked', id: paper_id }, '*');
         }
     });
 

@@ -5,7 +5,6 @@ from typing import Optional
 
 import storage.db as db
 import storage.tags as _tags_storage
-from storage.projects import get_project
 from service.models.tag import TagDetails
 
 
@@ -37,9 +36,9 @@ class TagIn:
 
 def get(tag: Tag) -> Optional[TagDetails]:
     """Fetch a single tag. Resolution order: tag_id → label."""
-    if tag.tag_id is not None:
+    if tag.tag_id:
         return _get_tag(tag.tag_id)
-    if tag.label is not None:
+    if tag.label:
         all_labels = list_all_tags()
         for label in all_labels:
             if label.lower() == tag.label.lower():
@@ -60,15 +59,15 @@ def get_many(tags: Tags) -> list[TagDetails]:
     all_labels = list_all_tags()
     results: list[TagDetails] = []
 
-    if tags.paper_id is not None:
+    if tags.paper_id:
         paper_labels = get_paper_tags_by_id(tags.paper_id)
         all_labels = [l for l in all_labels if l in paper_labels]
 
-    if tags.project_id is not None:
+    if tags.project_id:
         project_labels = get_project_tags(tags.project_id)
         all_labels = [l for l in all_labels if l in project_labels]
 
-    if tags.label is not None:
+    if tags.label:
         all_labels = [l for l in all_labels if l.lower() == tags.label.lower()]
 
     for label in all_labels:
@@ -89,7 +88,7 @@ def upsert(tag: TagIn) -> int | None:
 
 
 def delete(tag: Tag) -> None:
-    if tag.tag_id is not None:
+    if tag.tag_id:
         delete_tag(tag.tag_id)
 
 
@@ -179,28 +178,12 @@ def remove_paper_tags(source_id: str, tags: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 def get_project_tags(project_id: int) -> list[str]:
-    project = get_project(project_id)
-    if project is None:
-        return []
-    return list(project.project_tags)
+    return _tags_storage.get_project_tags(project_id)
 
 
-def add_project_tags(project_id: int, tags: list[str]) -> None:
-    project = get_project(project_id)
-    if project is None:
-        return
-    existing = set(project.project_tags)
-    for tag in tags:
-        if tag not in existing:
-            project.project_tags.append(tag)
-            existing.add(tag)
-    project.save()
+def add_project_tags(project_id: int, tags: list[str]) -> list[str]:
+    return _tags_storage.add_project_tags(project_id, tags)
 
 
-def remove_project_tags(project_id: int, tags: list[str]) -> None:
-    project = get_project(project_id)
-    if project is None:
-        return
-    remove = set(tags)
-    project.project_tags = [t for t in project.project_tags if t not in remove]
-    project.save()
+def remove_project_tags(project_id: int, tags: list[str]) -> list[str]:
+    return _tags_storage.remove_project_tags(project_id, tags)

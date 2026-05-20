@@ -19,8 +19,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from pathlib import Path
+
+from PyQt6.QtWidgets import QMessageBox
+
 import user_settings as _user_settings
 import service.files as _files
+import service.paper as _paper_svc
+import service.project as _project_svc
 import gui.theme as _theme
 from gui.theme import BG as _BG, PANEL as _PANEL, BORDER as _BORDER
 from gui.theme import ACCENT as _ACCENT, TEXT as _TEXT, MUTED as _MUTED
@@ -29,7 +35,10 @@ from gui.theme import (
     SPACE_XL, SPACE_MD, SPACE_SM, SPACE_XS,
     RADIUS_LG, RADIUS_SM, CARD_PAD_H, CARD_PAD_V, PAGE_MARGIN_H,
 )
+from gui.qt_assets import TrashPanel
 from gui.qt_assets.styles import BTN_MUTED as _BTN_MUTED
+import service.project as _project_svc
+from service.project import filter_projects, Q, Status
 
 
 def _section_label(text: str) -> QLabel:
@@ -192,7 +201,7 @@ class _ColorPicker(QWidget):
         self._color = hex_color.lower()
         self._field.setText(self._color)
         self._refresh_swatch()
-        if self._on_change is not None:
+        if self._on_change:
             self._on_change(self._color)
 
 
@@ -390,7 +399,7 @@ class _ThemeCard(QWidget):
         semantic: bool = False,
     ) -> QWidget:
         label, desc = _COLOR_META[key]
-        hex_color = override if override is not None else self._current.get(
+        hex_color = override if override else self._current.get(
             key, _SEMANTIC_DEFAULTS.get(key, "#000000")
         )
 
@@ -406,9 +415,9 @@ class _ThemeCard(QWidget):
                 _user_settings.set("theme_overrides", overrides)
                 _theme.reload()
                 self._refresh_chip_styles()
-                if self._on_self_refresh is not None:
+                if self._on_self_refresh:
                     self._on_self_refresh()
-                if self._on_theme_change is not None:
+                if self._on_theme_change:
                     self._on_theme_change()
 
         picker = _ColorPicker(hex_color, on_change=_on_pick)
@@ -443,9 +452,9 @@ class _ThemeCard(QWidget):
             if key in colors:
                 picker.set_color(colors[key])
         self._refresh_chip_styles()
-        if self._on_self_refresh is not None:
+        if self._on_self_refresh:
             self._on_self_refresh()
-        if self._on_theme_change is not None:
+        if self._on_theme_change:
             self._on_theme_change()
 
     def _reset(self) -> None:
@@ -625,6 +634,18 @@ class SettingsPage(QWidget):
 
         inner.addSpacing(SPACE_XL)
 
+        # ── Projects ──────────────────────────────────────────────────────────
+        _projects_lbl = _section_label("Projects")
+        self._section_labels.append(_projects_lbl)
+        inner.addWidget(_projects_lbl)
+        inner.addSpacing(SPACE_SM)
+
+        self._trash_panel = TrashPanel()
+        inner.addWidget(self._trash_panel)
+        self._rebuild_trash()
+
+        inner.addSpacing(SPACE_XL)
+
         # ── Appearance ────────────────────────────────────────────────────────
         _appear_lbl = _section_label("Appearance")
         self._section_labels.append(_appear_lbl)
@@ -643,6 +664,75 @@ class SettingsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(scroll)
+
+    def showEvent(self, a0) -> None:
+        super().showEvent(a0)
+        self._rebuild_trash()
+
+    def _rebuild_trash(self) -> None:
+        try:
+            deleted_projects = filter_projects(Q("status = ?", Status.DELETED))
+        except Exception as e:
+            print(f"[SettingsPage] _rebuild_trash (projects) failed: {e}")
+            deleted_projects = []
+        try:
+            deleted_papers = _paper_svc.list_deleted()
+        except Exception as e:
+            print(f"[SettingsPage] _rebuild_trash (papers) failed: {e}")
+            deleted_papers = []
+        self._trash_panel.rebuild(
+            deleted_projects,
+            deleted_papers,
+            on_restore_project=self._on_trash_restore_project,
+            on_hard_delete_project=self._on_trash_hard_delete_project,
+            on_restore_paper=self._on_trash_restore_paper,
+            on_hard_delete_paper=self._on_trash_hard_delete_paper,
+        )
+
+    def _on_trash_restore_project(self, project) -> None:
+        _project_svc.restore(_project_svc.Project(project_fk=project.id))
+        self._rebuild_trash()
+
+    def _on_trash_hard_delete_project(self, project) -> None:
+        _project_svc.hard_delete(_project_svc.Project(project_fk=project.id))
+        self._rebuild_trash()
+
+    def _on_trash_restore_paper(self, deleted_paper) -> None:
+        pdf_path, project_fks = _paper_svc.restore(_paper_svc.Paper(source_fk=deleted_paper.source_fk))
+
+        if project_fks:
+            proj_details = _project_svc.get_many(_project_svc.Projects(project_fks=project_fks))
+            proj_names = ", ".join(d.name for d in proj_details) if proj_details else str(project_fks)
+            reply = QMessageBox.question(
+                self,
+                "Restore paper",
+                f'"{deleted_paper.title}" was in these projects:\n{proj_names}\n\nKeep it in those projects?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.No:
+                _paper_svc.remove_from_all_projects(deleted_paper.source_fk)
+
+        if deleted_paper.had_pdf and pdf_path:
+            p = Path(pdf_path)
+            if p.is_file():
+                QMessageBox.information(
+                    self,
+                    "PDF found",
+                    f'The previous PDF was found at:\n{pdf_path}\nIt has been re-linked.',
+                )
+                _paper_svc.set_has_pdf_by_source(deleted_paper.source_id, True)
+            else:
+                QMessageBox.information(
+                    self,
+                    "PDF not found",
+                    f'The paper had a PDF at:\n{pdf_path}\nbut it no longer exists.',
+                )
+
+        self._rebuild_trash()
+
+    def _on_trash_hard_delete_paper(self, deleted_paper) -> None:
+        _paper_svc.hard_delete(_paper_svc.Paper(source_fk=deleted_paper.source_fk))
+        self._rebuild_trash()
 
     def refresh_styles(self) -> None:
         t = _theme
@@ -671,4 +761,5 @@ class SettingsPage(QWidget):
         self._usage_label.setStyleSheet(f"color: {t.MUTED}; font-size: {FONT_SECONDARY}px;")
         self._metadata_card.refresh_styles()
         self._storage_card.refresh_styles()
+        self._trash_panel.refresh_styles()
         self._theme_card.refresh_styles()

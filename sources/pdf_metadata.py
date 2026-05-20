@@ -111,7 +111,7 @@ def _extract_title_from_text(text: str) -> Optional[str]:
 
 def _pdf_source_id(pdf_path: str) -> str:
     digest = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()[:16]
-    return f"pdf:{digest}"
+    return f"local:{digest}"
 
 
 def extract_pdf_metadata(pdf_path: str) -> dict:

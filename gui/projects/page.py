@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.library.page import LibraryPage
-from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, ProjectExportButton, ProjectImportButton
+from gui.qt_assets import ElidedLabel, PaperCard, SelectionBar, PdfMetadataWorker, ProjectExportButton, ProjectImportButton
 from gui.qt_assets.note_card import NoteCard
 import gui.qt_assets.styles as _qt_styles
 from gui.qt_assets.styles import (
@@ -51,7 +51,6 @@ from gui.views import PdfWindow
 from service import paper as paper_svc, project as project_svc
 from service.note import count_project_notes, ensure_notes_db
 from service.project import filter_projects, Q, Status
-from sources.pdf_metadata import resolve_pdf_metadata
 from storage.projects import Project
 # Long project descriptions as a single tall QLabel can blow layout/GPU on window resize (Windows D3D11).
 _PROJECT_DESC_VIEWPORT_MAX_H = 550
@@ -73,24 +72,6 @@ _INPUT_STYLE = f"""
     }}
     QLineEdit:focus, QTextEdit:focus {{ border-color: {ACCENT}; }}
 """
-
-
-# ── PDF metadata worker ───────────────────────────────────────────────────────
-
-class _PdfMetadataWorker(QThread):
-    finished = pyqtSignal(object, str)   # PaperMetadata, pdf_path
-    failed   = pyqtSignal(str)
-
-    def __init__(self, pdf_path: str) -> None:
-        super().__init__()
-        self._path = pdf_path
-
-    def run(self) -> None:
-        try:
-            meta = resolve_pdf_metadata(self._path)
-            self.finished.emit(meta, self._path)
-        except Exception as e:
-            self.failed.emit(str(e))
 
 
 # ── New-project dialog ────────────────────────────────────────────────────────
@@ -197,8 +178,11 @@ class NewProjectDialog(QDialog):
         project_svc.ensure_projects_db()
         ensure_notes_db()
 
-        p = Project(name=name, description=desc, color=self._color, project_tags=project_tags)
+        p = Project(name=name, description=desc, color=self._color)
         p.save()
+        if project_tags and p.id:
+            import storage.tags as _tags_storage
+            _tags_storage.add_project_tags(p.id, project_tags)
         self.accept()
 
 
@@ -292,10 +276,10 @@ class _ClickableCard(QFrame):
         self._on_click = on_click
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+    def mousePressEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton:
             self._on_click()
-        super().mousePressEvent(event)
+        super().mousePressEvent(a0)
 
 
 class _NoBarHorizontalScrollArea(QScrollArea):
@@ -309,43 +293,44 @@ class _NoBarHorizontalScrollArea(QScrollArea):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+    def mousePressEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
-            self._drag_last_x = int(event.position().x())
+            self._drag_last_x = int(a0.position().x())
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
-            event.accept()
+            a0.accept()
             return
-        super().mousePressEvent(event)
+        super().mousePressEvent(a0)
 
-    def mouseMoveEvent(self, event) -> None:
-        if self._dragging:
-            x = int(event.position().x())
+    def mouseMoveEvent(self, a0) -> None:
+        if a0 and self._dragging:
+            x = int(a0.position().x())
             dx = x - self._drag_last_x
             self._drag_last_x = x
             bar = self.horizontalScrollBar()
-            if bar is not None:
+            if bar:
                 bar.setValue(bar.value() - dx)
-            event.accept()
+            a0.accept()
             return
-        super().mouseMoveEvent(event)
+        super().mouseMoveEvent(a0)
 
-    def mouseReleaseEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._dragging:
+    def mouseReleaseEvent(self, a0) -> None:
+        if a0 and a0.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._dragging = False
             self.setCursor(Qt.CursorShape.OpenHandCursor)
-            event.accept()
+            a0.accept()
             return
-        super().mouseReleaseEvent(event)
+        super().mouseReleaseEvent(a0)
 
-    def wheelEvent(self, event) -> None:
+    def wheelEvent(self, a0) -> None:
         bar = self.horizontalScrollBar()
-        delta = event.angleDelta().x() or event.angleDelta().y()
-        if delta and bar is not None:
-            bar.setValue(bar.value() - int(delta / 2))
-            event.accept()
-            return
-        super().wheelEvent(event)
+        if a0 and bar:
+            delta = a0.angleDelta().x() or a0.angleDelta().y()
+            if delta:
+                bar.setValue(bar.value() - int(delta / 2))
+                a0.accept()
+                return
+        super().wheelEvent(a0)
 
 
 # ── Notes preview (Projects only) ─────────────────────────────────────────────
@@ -463,7 +448,7 @@ class NoteEditorDialog(QDialog):
 
     def _on_save(self) -> None:
         import service.note as note_svc
-        if self._note is not None:
+        if self._note:
             note_svc.upsert(note_svc.NoteIn(
                 note_id    = self._note.note_id,
                 source_fk  = self._note.source_fk,
@@ -555,7 +540,7 @@ class NotesDialog(QDialog):
         while self._notes_layout.count() > 1:
             item = cast(QLayoutItem, self._notes_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 self._retire_card(w)
         self._cards.clear()
 
@@ -567,7 +552,7 @@ class NotesDialog(QDialog):
             for note in notes:
                 card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.note_id is not None:
+                if note.note_id:
                     self._cards[note.note_id] = card
         else:
             self._empty_lbl.setVisible(True)
@@ -579,30 +564,30 @@ class NotesDialog(QDialog):
         card.hide()
         self._retired_cards.append(card)
 
-    def closeEvent(self, event: QCloseEvent) -> None:
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
         # Tear down note cards while this dialog still exists (orderly widget cleanup).
         while self._notes_layout.count() > 1:
             item = cast(QLayoutItem, self._notes_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 self._retire_card(w)
         for card in self._retired_cards:
             card.deleteLater()
         self._retired_cards.clear()
         self._cards.clear()
-        super().closeEvent(event)
+        super().closeEvent(a0)
 
     def _pop_and_recreate(self, note) -> None:
         note_id = note.note_id
-        old_card = self._cards.pop(note_id, None) if note_id is not None else None
-        if old_card is not None:
+        old_card = self._cards.pop(note_id, None) if note_id else None
+        if old_card:
             idx = self._notes_layout.indexOf(old_card)
             self._retire_card(old_card)
         else:
             idx = self._notes_layout.count() - 1
         card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
         self._notes_layout.insertWidget(idx, card)
-        if note_id is not None:
+        if note_id:
             self._cards[note_id] = card
 
     def _edit_note(self, note) -> None:
@@ -614,8 +599,8 @@ class NotesDialog(QDialog):
         import service.note as note_svc
         note_id = note.note_id
         note_svc.delete(note_svc.Note(note_id=note_id))
-        card = self._cards.pop(note_id, None) if note_id is not None else None
-        if card is not None:
+        card = self._cards.pop(note_id, None) if note_id else None
+        if card:
             self._retire_card(card)
             if self._notes_layout.count() <= 1:
                 self._empty_lbl.setVisible(True)
@@ -632,7 +617,7 @@ class NotesDialog(QDialog):
             for note in new_notes:
                 card = NoteCard(self, note, {}, on_delete=lambda n=note: self._delete_note(n))
                 self._notes_layout.insertWidget(self._notes_layout.count() - 1, card)
-                if note.note_id is not None:
+                if note.note_id:
                     self._cards[note.note_id] = card
 
 
@@ -647,7 +632,7 @@ class ProjectDetailView(QWidget):
         self.setStyleSheet(f"background: {BG}; color: {TEXT};")
         self._project = None
         self._selected_pids: set[int] = set()
-        self._pdf_worker: _PdfMetadataWorker | None = None
+        self._pdf_worker: PdfMetadataWorker | None = None
         self._pdf_window = PdfWindow(self)
         self._pdf_queue:  list[str] = []
         self._pdf_total  = 0
@@ -701,6 +686,14 @@ class ProjectDetailView(QWidget):
         self._title_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         header.addWidget(self._title_scroll, stretch=1, alignment=Qt.AlignmentFlag.AlignVCenter)
 
+        self._readonly_badge = QLabel("Read-only")
+        self._readonly_badge.setStyleSheet(
+            f"font-size: {FONT_TERTIARY}px; color: {MUTED}; background: {PANEL};"
+            f" border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;"
+            f" padding: 2px 8px;"
+        )
+        self._readonly_badge.setVisible(False)
+        header.addWidget(self._readonly_badge, alignment=Qt.AlignmentFlag.AlignVCenter)
         self._export_btn = ProjectExportButton()
         self._export_btn.setFixedHeight(BTN_H_MD)
         header.addWidget(self._export_btn)
@@ -814,18 +807,30 @@ class ProjectDetailView(QWidget):
         self._add_paper_btn.setStyleSheet(_qt_styles.BTN_PRIMARY)
         self._import_pdf_btn.setStyleSheet(_qt_styles.BTN_MUTED)
 
+    def _is_readonly(self) -> bool:
+        return bool(self._project and self._project.status == Status.ARCHIVED)
+
     def load(self, project) -> None:
         self._project = project
         self._delete_confirming = False
         self._delete_btn.setText("Delete")
         self._export_btn.set_project_fk(project.id)
 
-        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
+        archived = project.status == Status.ARCHIVED
+        self._readonly_badge.setVisible(archived)
+        self._archive_btn.setText("Unarchive" if archived else "Archive")
+        self._add_paper_btn.setEnabled(not archived)
+        self._add_paper_btn.setVisible(not archived)
+        self._import_pdf_btn.setEnabled(not archived)
+        self._import_pdf_btn.setVisible(not archived)
+        self._paper_action_bar.setVisible(not archived)
+
+        hex_color = project_svc.color_to_hex(project.color) if project.color else ACCENT
         self._color_stripe.setStyleSheet(f"background: {hex_color}; border-radius: 3px;")
         self._title_lbl.setText(project.name)
         self._title_lbl.adjustSize()
         hbar = self._title_scroll.horizontalScrollBar()
-        if hbar is not None:
+        if hbar:
             hbar.setValue(0)
         self._desc_lbl.setText(project.description)
         self._desc_lbl.setVisible(bool(project.description))
@@ -841,14 +846,14 @@ class ProjectDetailView(QWidget):
         while self._papers_layout.count() > 1:
             item = cast(QLayoutItem, self._papers_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 w.deleteLater()
 
         paper_ids = self._project.source_fks if self._project and self._project.source_fks else []
         self._papers_lbl.setText(f"Papers  ({len(paper_ids)})")
 
         if paper_ids:
-            assert self._project is not None  # paper_ids is non-empty only when _project is set
+            assert self._project  # paper_ids is non-empty only when _project is set
             self._empty_papers_lbl.setVisible(False)
             rendered_count = 0
             for pid in paper_ids:
@@ -863,7 +868,8 @@ class ProjectDetailView(QWidget):
                 card.double_clicked.connect(
                     lambda r: self.navigate_to_paper.emit(r["source_fk"])
                 )
-                card.selection_toggled.connect(self._on_card_selection_toggled)
+                if not self._is_readonly():
+                    card.selection_toggled.connect(self._on_card_selection_toggled)
                 self._papers_layout.insertWidget(self._papers_layout.count() - 1, card)
             self._papers_lbl.setText(f"Papers  ({rendered_count})")
         else:
@@ -971,7 +977,7 @@ class ProjectDetailView(QWidget):
         idx = self._pdf_total - len(self._pdf_queue) + 1
         self._import_pdf_btn.setText(f"Resolving {idx}/{self._pdf_total}…")
         path = self._pdf_queue[0]
-        self._pdf_worker = _PdfMetadataWorker(path)
+        self._pdf_worker = PdfMetadataWorker(path)
         self._pdf_worker.finished.connect(self._on_pdf_metadata_done)
         self._pdf_worker.failed.connect(self._on_pdf_metadata_failed)
         self._pdf_worker.start()
@@ -993,7 +999,7 @@ class ProjectDetailView(QWidget):
         paper_svc.set_pdf_path(meta.source_id, path)
         paper_svc.set_has_pdf(meta.source_id, meta.version, True)
         root = paper_svc.get_paper_root(meta.source_id)
-        if root is not None:
+        if root:
             try:
                 self._project.add_paper(int(root["SOURCE_FK"]))
             except Exception:
@@ -1027,16 +1033,12 @@ class ProjectDetailView(QWidget):
     def _on_archive(self) -> None:
         if self._project is None:
             return
-        reply = QMessageBox.question(
-            self,
-            "Archive Project",
-            f"Archive \"{self._project.name}\"?\nIt can be restored later.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._project.archive()
-            self.back_requested.emit()
+        fk = project_svc.Project(project_fk=self._project.id)
+        if self._project.status == Status.ARCHIVED:
+            project_svc.restore(fk)
+        else:
+            project_svc.archive(fk)
+        self.back_requested.emit()
 
     def _on_delete(self) -> None:
         if self._project is None:
@@ -1047,7 +1049,7 @@ class ProjectDetailView(QWidget):
         else:
             self._delete_confirming = False
             self._delete_btn.setText("Delete")
-            self._project.delete()
+            project_svc.delete(project_svc.Project(project_fk=self._project.id))
             self.back_requested.emit()
 
 
@@ -1056,13 +1058,14 @@ class ProjectDetailView(QWidget):
 class ProjectCard(QFrame):
     clicked = pyqtSignal(object)   # emits the Project
 
-    def __init__(self, project, parent: QWidget | None = None) -> None:
+    def __init__(self, project, archived: bool = False, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._project = project
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        border_col = MUTED if archived else BORDER
         self.setStyleSheet(f"""
             QFrame {{
-                background: {PANEL}; border: 1px solid {BORDER}; border-radius: {RADIUS_LG}px;
+                background: {PANEL}; border: 1px solid {border_col}; border-radius: {RADIUS_LG}px;
             }}
             QLabel {{ border: none; background: transparent; }}
         """)
@@ -1074,7 +1077,7 @@ class ProjectCard(QFrame):
 
         stripe = QWidget()
         stripe.setFixedWidth(6)
-        hex_color = project_svc.color_to_hex(project.color) if project.color is not None else ACCENT
+        hex_color = project_svc.color_to_hex(project.color) if project.color else ACCENT
         stripe.setStyleSheet(f"background: {hex_color}; border-radius: 10px 0 0 10px;")
         outer.addWidget(stripe)
 
@@ -1095,16 +1098,16 @@ class ProjectCard(QFrame):
         stats_row.setSpacing(SPACE_MD)
         stats_row.setContentsMargins(0, SPACE_XS, 0, 0)
 
-        paper_count = project.paper_count
-        note_count = self._note_count(project)
-
-        for icon, value, label in [
-            ("📄", paper_count, "paper" if paper_count == 1 else "papers"),
-            ("📝", note_count,  "note"  if note_count  == 1 else "notes"),
-        ]:
-            lbl = QLabel(f"{icon} {value} {label}")
-            lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
-            stats_row.addWidget(lbl)
+        if not archived:
+            paper_count = project.paper_count
+            note_count = self._note_count(project)
+            for icon, value, lbl_text in [
+                ("📄", paper_count, "paper" if paper_count == 1 else "papers"),
+                ("📝", note_count,  "note"  if note_count  == 1 else "notes"),
+            ]:
+                lbl = QLabel(f"{icon} {value} {lbl_text}")
+                lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {MUTED};")
+                stats_row.addWidget(lbl)
 
         if project.project_tags:
             tags_lbl = QLabel("  ".join(f"#{t}" for t in project.project_tags))
@@ -1123,9 +1126,9 @@ class ProjectCard(QFrame):
         except Exception:
             return 0
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, a0) -> None:
         self.clicked.emit(self._project)
-        super().mousePressEvent(event)
+        super().mousePressEvent(a0)
 
 
 # ── Projects page ─────────────────────────────────────────────────────────────
@@ -1261,24 +1264,37 @@ class ProjectsPage(QWidget):
         while self._list_layout.count() > 1:
             item = cast(QLayoutItem, self._list_layout.takeAt(0))
             w = item.widget()
-            if w is not None:
+            if w:
                 w.deleteLater()
 
         try:
             project_svc.ensure_projects_db()
             ensure_notes_db()
-            projects = filter_projects(Q("status = ?", Status.ACTIVE))
-        except Exception:
-            projects = []
+            active_projects   = filter_projects(Q("status = ?", Status.ACTIVE))
+            archived_projects = filter_projects(Q("status = ?", Status.ARCHIVED))
+        except Exception as e:
+            print(f"[ProjectsPage] _refresh failed: {e}")
+            active_projects = archived_projects = []
 
-        if projects:
-            self._empty_lbl.setVisible(False)
-            for p in projects:
-                card = ProjectCard(p)
+        has_any = bool(active_projects or archived_projects)
+        self._empty_lbl.setVisible(not has_any)
+
+        for p in active_projects:
+            card = ProjectCard(p)
+            card.clicked.connect(self._open_project)
+            self._list_layout.insertWidget(self._list_layout.count() - 1, card)
+
+        if archived_projects:
+            sep = QLabel("Archived")
+            sep.setStyleSheet(
+                f"font-size: {FONT_SECONDARY}px; color: {MUTED}; font-weight: 600;"
+                f" padding-top: {SPACE_MD}px; background: transparent;"
+            )
+            self._list_layout.insertWidget(self._list_layout.count() - 1, sep)
+            for p in archived_projects:
+                card = ProjectCard(p, archived=True)
                 card.clicked.connect(self._open_project)
                 self._list_layout.insertWidget(self._list_layout.count() - 1, card)
-        else:
-            self._empty_lbl.setVisible(True)
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -1312,9 +1328,9 @@ class ProjectsPage(QWidget):
         self._return_to_library_paper_id = None
         self._refresh()
         self._inner.setCurrentIndex(0)
-        if prior_shell and self._app_shell is not None:
+        if prior_shell and self._app_shell:
             self._app_shell.go_back()
-            if paper_id and self._library_page is not None:
+            if paper_id and self._library_page:
                 lib = self._library_page
                 QTimer.singleShot(0, lambda pid=paper_id, lp=lib: lp.show_paper_detail_by_id(pid))
 

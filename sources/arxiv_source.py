@@ -12,8 +12,8 @@ def _parse_arxiv_id(entry_id: str) -> tuple[str, int]:
     """Split 'http://arxiv.org/abs/2204.12985v4' into ('2204.12985', 4)."""
     raw = entry_id.split("/")[-1]
     match = re.match(r"^(.+?)(?:v(\d+))?$", raw)
-    assert match is not None
-    source_id = match.group(1)
+    assert match
+    source_id = f"arxiv:{match.group(1)}"
     version = int(match.group(2)) if match.group(2) else 1
     return source_id, version
 
@@ -42,7 +42,9 @@ def _result_to_metadata(result: arxiv.Result) -> PaperMetadata:
 class ArxivSource(PaperSource):
     """Paper source backed by the arXiv API."""
 
-    source_name: str = "arxiv"  # written into PaperMetadata.source for every record this class produces
+    @property
+    def source_name(self) -> str:
+        return "arxiv"
 
     # TODO: should these be hardcoded?
     def __init__(self) -> None:
@@ -66,7 +68,8 @@ class ArxivSource(PaperSource):
         return [_result_to_metadata(r) for r in results]
 
     def fetch_by_id(self, source_id: str) -> PaperMetadata:
-        search = arxiv.Search(id_list=[source_id])
+        bare_id = source_id.removeprefix("arxiv:")
+        search = arxiv.Search(id_list=[bare_id])
         _check_ratelimit()
         try:
             result = next(self._client.results(search))

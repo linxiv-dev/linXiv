@@ -1,15 +1,16 @@
 import os
+from pathlib import Path
 
 import user_settings
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QListWidgetItem,
-    QLabel, QSplitter, QCheckBox, QComboBox, QSpinBox,
+    QLabel, QMessageBox, QSplitter, QCheckBox, QComboBox, QSpinBox,
     QFrame, QFileDialog,
 )
 from PyQt6.QtCore import Qt
 import arxiv
-from service import paper as paper_svc
+from service import paper as paper_svc, project as project_svc
 from sources.base import PaperMetadata
 from sources.arxiv_downloads import cleanup_pdfs as _cleanup_pdfs, saved_pdfs_size
 from gui.views import TexView, PdfWindow
@@ -434,7 +435,7 @@ class SearchPage(QWidget):
         for paper in results:
             row_widget = _ResultRow(paper.title)
             paper_id, _ = paper_svc.parse_entry_id(paper.entry_id)
-            row_widget.set_checked(paper_svc.get_paper(paper_id) is not None)
+            row_widget.set_checked(bool(paper_svc.get_paper(paper_id)))
             row_widget._checkbox.stateChanged.connect(
                 lambda state, p=paper: self._on_checkbox_changed(p, state)
             )
@@ -450,7 +451,7 @@ class SearchPage(QWidget):
         self._meta_results = results
         for paper in results:
             row_widget = _ResultRow(paper.title, source=paper.source)
-            row_widget.set_checked(paper_svc.get_paper(paper.source_id) is not None)
+            row_widget.set_checked(bool(paper_svc.get_paper(paper.source_id)))
             row_widget._checkbox.stateChanged.connect(
                 lambda state, p=paper: self._on_meta_checkbox_changed(p, state)
             )
@@ -496,7 +497,13 @@ class SearchPage(QWidget):
     def _on_meta_checkbox_changed(self, paper: PaperMetadata, state: int) -> None:
         if state == Qt.CheckState.Checked.value:
             tags = self._parse_tags()
-            paper_svc.save_paper_metadata(paper, tags=tags if tags else None)
+            was_deleted = paper_svc.is_paper_deleted(paper.source_id)
+            if was_deleted:
+                pdf_path, project_fks = paper_svc.restore(paper_svc.Paper(source_id=paper.source_id))
+                paper_svc.save_paper_metadata(paper, tags=tags if tags else None)
+                self._show_restore_info(paper.source_id, pdf_path, project_fks)
+            else:
+                paper_svc.save_paper_metadata(paper, tags=tags if tags else None)
         else:
             paper_svc.delete_paper(paper.source_id)
 
@@ -509,10 +516,36 @@ class SearchPage(QWidget):
     def _on_checkbox_changed(self, paper: arxiv.Result, state: int) -> None:
         if state == Qt.CheckState.Checked.value:
             tags = self._parse_tags()
-            paper_svc.save_paper(paper, tags=tags if tags else None)
+            paper_id, _ = paper_svc.parse_entry_id(paper.entry_id)
+            was_deleted = paper_svc.is_paper_deleted(paper_id)
+            if was_deleted:
+                pdf_path, project_fks = paper_svc.restore(paper_svc.Paper(source_id=paper_id))
+                paper_svc.save_paper(paper, tags=tags if tags else None)
+                self._show_restore_info(paper_id, pdf_path, project_fks)
+            else:
+                paper_svc.save_paper(paper, tags=tags if tags else None)
         else:
             paper_id, _ = paper_svc.parse_entry_id(paper.entry_id)
             paper_svc.delete_paper(paper_id)
+
+    def _show_restore_info(self, source_id: str, pdf_path: str | None, project_fks: list[int]) -> None:
+        lines: list[str] = [f'"{source_id}" has been restored from trash.']
+
+        if project_fks:
+            proj_details = project_svc.get_many(project_svc.Projects(project_fks=project_fks))
+            proj_names = ", ".join(d.name for d in proj_details) if proj_details else ""
+            if proj_names:
+                lines.append(f"Restored to projects: {proj_names}")
+
+        if pdf_path:
+            p = Path(pdf_path)
+            if p.is_file():
+                lines.append("Previous PDF re-linked successfully.")
+                paper_svc.set_has_pdf_by_source(source_id, True)
+            else:
+                lines.append("Note: previous PDF no longer exists at its stored path.")
+
+        QMessageBox.information(self, "Paper restored", "\n".join(lines))
 
     def _on_select(self, row: int) -> None:
         # Determine which result list is active
