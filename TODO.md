@@ -9,7 +9,7 @@ Items flagged during design review. Grouped by area.
 - [x] `search_results` persistence table; Search page restores from it on mount
 - [x] Remove Search from keep-alive in AppShell once db restore is in place
 - [ ] TeX rendering in result titles and abstracts (library choice TBD — see Deferred)
-
+- [ ] Query builder like in original gui
 ## Library
 - [ ] Virtual scrolling for paper list (expected scale: thousands of papers)
 - [ ] Full-text search across abstract and notes via `papers_fts` (backend ready)
