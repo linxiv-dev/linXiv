@@ -11,7 +11,7 @@ import {
   uninstallMcp,
   type MpcClientStatus,
 } from "../api/integrations";
-import { listTrash, restorePaper, hardDeletePaper, type TrashedPaper } from "../api/trash";
+import { listTrash, restorePaper, hardDeletePaper, restoreProject, hardDeleteProject, type TrashedPaper, type TrashedProject } from "../api/trash";
 import { useThemeStore } from "../stores/theme";
 import { PRESETS } from "../lib/theme";
 import type { PresetName, ThemeColors, ThemeMode } from "../lib/theme";
@@ -433,6 +433,35 @@ function TrashRow({
   );
 }
 
+function ProjectTrashRow({ project, onRestore, onDelete, restoring, deleting }: {
+  project: TrashedProject;
+  onRestore: () => void;
+  onDelete: () => void;
+  restoring: boolean;
+  deleting: boolean;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const isPending = restoring || deleting;
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-border last:border-0">
+      <div className="flex-1 min-w-0 mr-4">
+        <p className="text-sm font-medium text-text truncate">{project.name}</p>
+        <p className="text-xs text-muted mt-0.5">{project.paper_count} paper{project.paper_count !== 1 ? "s" : ""}</p>
+      </div>
+      <div className="flex-shrink-0 flex gap-2">
+        {restoring ? <Spinner size={16} /> : (
+          <Button variant="ghost" size="sm" onClick={onRestore} disabled={isPending}>Restore</Button>
+        )}
+        {deleting ? <Spinner size={16} /> : (
+          <Button variant="danger" size="sm" onClick={() => confirm ? onDelete() : setConfirm(true)} onBlur={() => setConfirm(false)} disabled={isPending}>
+            {confirm ? "Confirm?" : "Delete forever"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TrashSection() {
   const qc = useQueryClient();
 
@@ -443,9 +472,13 @@ function TrashSection() {
   });
 
   const papers = data?.papers ?? [];
+  const projects = data?.projects ?? [];
+  const total = papers.length + projects.length;
 
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [restoringProjectId, setRestoringProjectId] = useState<number | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<number | null>(null);
 
   async function handleRestore(sourceId: string) {
     setRestoringId(sourceId);
@@ -453,11 +486,7 @@ function TrashSection() {
       await restorePaper(sourceId);
       await qc.invalidateQueries({ queryKey: ["trash"] });
       await qc.invalidateQueries({ queryKey: ["papers"] });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setRestoringId(null);
-    }
+    } catch (e) { console.error(e); } finally { setRestoringId(null); }
   }
 
   async function handleDelete(sourceId: string) {
@@ -466,39 +495,70 @@ function TrashSection() {
       await hardDeletePaper(sourceId);
       await qc.invalidateQueries({ queryKey: ["trash"] });
       await qc.invalidateQueries({ queryKey: ["papers"] });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDeletingId(null);
-    }
+    } catch (e) { console.error(e); } finally { setDeletingId(null); }
+  }
+
+  async function handleRestoreProject(id: number) {
+    setRestoringProjectId(id);
+    try {
+      await restoreProject(id);
+      await qc.invalidateQueries({ queryKey: ["trash"] });
+      await qc.invalidateQueries({ queryKey: ["projects"] });
+    } catch (e) { console.error(e); } finally { setRestoringProjectId(null); }
+  }
+
+  async function handleDeleteProject(id: number) {
+    setDeletingProjectId(id);
+    try {
+      await hardDeleteProject(id);
+      await qc.invalidateQueries({ queryKey: ["trash"] });
+      await qc.invalidateQueries({ queryKey: ["projects"] });
+    } catch (e) { console.error(e); } finally { setDeletingProjectId(null); }
   }
 
   return (
     <Section title="Trash">
       <p className="text-xs text-muted mb-4">
-        Papers you've deleted. Restore to bring them back, or delete forever to remove permanently.
+        Deleted items are kept for 30 days, then permanently removed.
       </p>
       {isLoading ? (
         <div className="flex items-center gap-2 py-3 text-sm text-muted">
           <Spinner size={14} /> Loading…
         </div>
-      ) : papers.length === 0 ? (
+      ) : total === 0 ? (
         <p className="text-sm text-muted py-2">Trash is empty</p>
       ) : (
         <>
-          <p className="text-xs text-muted mb-2">
-            {papers.length} {papers.length === 1 ? "item" : "items"}
-          </p>
-          {papers.map((paper) => (
-            <TrashRow
-              key={paper.source_id}
-              paper={paper}
-              onRestore={() => handleRestore(paper.source_id)}
-              onDelete={() => handleDelete(paper.source_id)}
-              restoring={restoringId === paper.source_id}
-              deleting={deletingId === paper.source_id}
-            />
-          ))}
+          {projects.length > 0 && (
+            <>
+              <p className="text-xs font-semibold text-muted mb-1 mt-2">Projects</p>
+              {projects.map((p) => (
+                <ProjectTrashRow
+                  key={p.id}
+                  project={p}
+                  onRestore={() => handleRestoreProject(p.id)}
+                  onDelete={() => handleDeleteProject(p.id)}
+                  restoring={restoringProjectId === p.id}
+                  deleting={deletingProjectId === p.id}
+                />
+              ))}
+            </>
+          )}
+          {papers.length > 0 && (
+            <>
+              <p className="text-xs font-semibold text-muted mb-1 mt-2">Papers</p>
+              {papers.map((paper) => (
+                <TrashRow
+                  key={paper.source_id}
+                  paper={paper}
+                  onRestore={() => handleRestore(paper.source_id)}
+                  onDelete={() => handleDelete(paper.source_id)}
+                  restoring={restoringId === paper.source_id}
+                  deleting={deletingId === paper.source_id}
+                />
+              ))}
+            </>
+          )}
         </>
       )}
     </Section>

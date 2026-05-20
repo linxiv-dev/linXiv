@@ -23,18 +23,13 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
       }}
       className="rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] p-5 cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-sm flex flex-col gap-3"
     >
-      {/* Top: swatch + name */}
       <div className="flex items-center gap-2">
         <ColorSwatch color={project.color_hex} size={12} />
-        <span
-          className="font-semibold text-sm truncate"
-          style={{ color: "var(--color-text)" }}
-        >
+        <span className="font-semibold text-sm truncate" style={{ color: "var(--color-text)" }}>
           {project.name}
         </span>
       </div>
 
-      {/* Description */}
       {project.description && (
         <p
           className="text-sm leading-snug"
@@ -50,7 +45,6 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
         </p>
       )}
 
-      {/* Bottom row */}
       <div className="flex items-center gap-2 flex-wrap mt-auto">
         <Badge>
           {project.paper_count ?? project.source_ids.length} paper

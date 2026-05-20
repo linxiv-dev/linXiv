@@ -1,8 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Upload } from "lucide-react";
-import { getProject, updateProject, addPaperToProject, removePaperFromProject } from "../api/projects";
+import {
+  getProject,
+  updateProject,
+  addPaperToProject,
+  removePaperFromProject,
+  archiveProject,
+  restoreProject,
+  deleteProject,
+} from "../api/projects";
 import { listPapers } from "../api/papers";
 import { exportProject, exportBibtex, exportObsidian } from "../api/exportImport";
 import { ImportDialog } from "../components/import/ImportDialog";
@@ -477,6 +485,21 @@ export default function ProjectDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [addPapersOpen, setAddPapersOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [moreOpen]);
+
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -527,6 +550,51 @@ export default function ProjectDetailPage() {
       );
     } finally {
       setRemoving(false);
+    }
+  }
+
+  async function handleArchive() {
+    setStatusBusy(true);
+    setStatusError(null);
+    try {
+      await archiveProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigate("/projects");
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to archive project");
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function handleRestore() {
+    setStatusBusy(true);
+    setStatusError(null);
+    try {
+      await restoreProject(projectId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project", id] }),
+      ]);
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to restore project");
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Delete project "${project?.name}"? This cannot be undone from here.`)) return;
+    setStatusBusy(true);
+    setStatusError(null);
+    try {
+      await deleteProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigate("/projects");
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to delete project");
+    } finally {
+      setStatusBusy(false);
     }
   }
 
@@ -590,7 +658,7 @@ export default function ProjectDetailPage() {
               {project.name}
             </h1>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Button variant="muted" size="sm" onClick={() => setImportOpen(true)}>
               <Upload size={13} className="mr-1" />Import
             </Button>
@@ -600,12 +668,64 @@ export default function ProjectDetailPage() {
             <Button variant="muted" size="sm" onClick={() => setEditOpen(true)}>
               Edit
             </Button>
+            <div className="relative" ref={moreRef}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setMoreOpen((v) => !v)}
+                aria-label="More actions"
+              >
+                ···
+              </Button>
+              {moreOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1 z-50 rounded-md border border-border shadow-lg py-1 min-w-28"
+                  style={{ background: "var(--color-panel)" }}
+                >
+                  {project.status === "active" && (
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
+                      onClick={() => { setMoreOpen(false); handleArchive(); }}
+                      disabled={statusBusy}
+                    >
+                      {statusBusy ? <Spinner size={12} /> : "Archive"}
+                    </button>
+                  )}
+                  {project.status === "archived" && (
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
+                      onClick={() => { setMoreOpen(false); handleRestore(); }}
+                      disabled={statusBusy}
+                    >
+                      {statusBusy ? <Spinner size={12} /> : "Restore"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] disabled:opacity-40"
+                    style={{ color: "var(--color-danger)" }}
+                    onClick={() => { setMoreOpen(false); handleDelete(); }}
+                    disabled={statusBusy}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         {project.description && (
           <p className="text-sm" style={{ color: "var(--color-muted)" }}>
             {project.description}
+          </p>
+        )}
+
+        {statusError && (
+          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+            {statusError}
           </p>
         )}
 

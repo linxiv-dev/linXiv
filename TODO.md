@@ -26,10 +26,11 @@ Items flagged during design review. Grouped by area.
 - [ ] postMessage bridge: selected node IDs → parent app → Add to Project flow
 
 ## Projects
-- [ ] Project status UI: active / archived / deleted (three-state, not two)
+- [x] Project status UI: active / archived / deleted (three-state, not two)
 - [ ] Archived projects view (hidden from main list, accessible separately)
-- [ ] Deleted projects surfaced in Settings trash panel alongside deleted papers
+- [x] Deleted projects surfaced in Settings trash panel alongside deleted papers (30-day auto-purge on startup)
 - [ ] Project tags UI (create, assign, display)
+- [ ] ProjectCard (ProjectsPage list): Archive and Delete are first-class card buttons — move into `···` context menu or right-click context menu (same treatment applied to ProjectDetailPage header)
 
 ## Tags
 - [ ] Clickable tag links everywhere they appear (paper cards, project cards, graph nodes)

@@ -61,6 +61,13 @@ from storage.projects import (
     filter_projects,
     get_project,
 )
+from service.project import (
+    Project as SvcProject,
+    hard_delete as hard_delete_project,
+    list_deleted as list_deleted_projects,
+    purge_old as purge_old_projects,
+    restore as restore_project_svc,
+)
 from storage.tags import get_project_tags
 
 PDF_DIR = data_dir() / "pdfs"
@@ -110,6 +117,7 @@ async def _lifespan(_: FastAPI):
     ensure_projects_db()
     ensure_notes_db()
     PDF_DIR.mkdir(parents=True, exist_ok=True)
+    purge_old_projects(days=30)
     yield
 
 
@@ -204,8 +212,10 @@ def api_tags() -> dict:
 
 
 @app.get("/api/projects")
-def api_projects() -> dict:
+def api_projects(status: str = "active") -> dict:
     projects = filter_projects()
+    if status != "all":
+        projects = [p for p in projects if p.status.value == status]
     out = []
     for p in projects:
         if p.id is None:
@@ -283,9 +293,16 @@ def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
         p.color = color_from_hex(body.color_hex)
     if body.status:
         try:
-            p.status = Status(body.status)
+            new_status = Status(body.status)
         except ValueError as e:
             raise HTTPException(status_code=400, detail="Invalid status") from e
+        if new_status == Status.ARCHIVED:
+            p.archive()
+        elif new_status == Status.ACTIVE:
+            p.restore()
+        elif new_status == Status.DELETED:
+            p.delete()
+        return {"ok": True}
     p.save()
     return {"ok": True}
 
@@ -567,7 +584,8 @@ def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
 
 @app.get("/api/trash")
 def api_trash_list() -> dict:
-    deleted = list_deleted_papers()
+    deleted_papers = list_deleted_papers()
+    deleted_projects = list_deleted_projects()
     return {
         "papers": [
             {
@@ -579,8 +597,17 @@ def api_trash_list() -> dict:
                 "deleted_at": d.deleted_at.isoformat() if d.deleted_at else None,
                 "had_pdf": d.had_pdf,
             }
-            for d in deleted
-        ]
+            for d in deleted_papers
+        ],
+        "projects": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "deleted_at": p.archived_at.isoformat() if p.archived_at else None,
+                "paper_count": len(p.source_fks),
+            }
+            for p in deleted_projects
+        ],
     }
 
 
@@ -593,6 +620,18 @@ def api_trash_restore(source_id: str) -> dict:
 @app.delete("/api/trash/{source_id}")
 def api_trash_hard_delete(source_id: str) -> dict:
     hard_delete_paper(Paper(source_id=source_id))
+    return {"ok": True}
+
+
+@app.post("/api/trash/projects/{project_id}/restore")
+def api_trash_project_restore(project_id: int) -> dict:
+    restore_project_svc(SvcProject(project_fk=project_id))
+    return {"ok": True}
+
+
+@app.delete("/api/trash/projects/{project_id}")
+def api_trash_project_hard_delete(project_id: int) -> dict:
+    hard_delete_project(SvcProject(project_fk=project_id))
     return {"ok": True}
 
 

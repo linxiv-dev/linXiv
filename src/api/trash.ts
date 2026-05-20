@@ -10,7 +10,14 @@ export interface TrashedPaper {
   had_pdf: boolean;
 }
 
-export async function listTrash(): Promise<{ papers: TrashedPaper[] }> {
+export interface TrashedProject {
+  id: number;
+  name: string;
+  deleted_at: string | null;
+  paper_count: number;
+}
+
+export async function listTrash(): Promise<{ papers: TrashedPaper[]; projects: TrashedProject[] }> {
   return apiFetch("/api/trash");
 }
 
@@ -20,4 +27,12 @@ export async function restorePaper(sourceId: string): Promise<{ ok: boolean }> {
 
 export async function hardDeletePaper(sourceId: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/trash/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
+}
+
+export async function restoreProject(projectId: number): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/trash/projects/${projectId}/restore`, { method: "POST" });
+}
+
+export async function hardDeleteProject(projectId: number): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/trash/projects/${projectId}`, { method: "DELETE" });
 }

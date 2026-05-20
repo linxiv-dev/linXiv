@@ -153,6 +153,25 @@ def hard_delete(project: Project) -> None:
         conn.execute("DELETE FROM PROJECT WHERE PROJECT_FK = ?", (fk,))
 
 
+def list_deleted() -> list[ProjectDetails]:
+    """Return all soft-deleted projects ordered by deletion time (newest first)."""
+    return [_to_details(p) for p in _filter_projects(Q("STATUS = ?", Status.DELETED.value))
+            if p.status == Status.DELETED]
+
+
+def purge_old(days: int = 30) -> int:
+    """Hard-delete projects that have been in the trash for more than `days` days. Returns count."""
+    import datetime as _dt
+    cutoff = datetime.now() - _dt.timedelta(days=days)
+    old = [
+        p for p in _filter_projects(Q("STATUS = ?", Status.DELETED.value))
+        if p.archived_at and p.archived_at < cutoff
+    ]
+    for p in old:
+        hard_delete(Project(project_fk=p.id))
+    return len(old)
+
+
 # ---------------------------------------------------------------------------
 # Colour / DB helpers
 # ---------------------------------------------------------------------------

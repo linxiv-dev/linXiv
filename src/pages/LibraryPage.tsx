@@ -52,7 +52,7 @@ export default function LibraryPage() {
 
   const { data: projectsData } = useQuery({
     queryKey: ["projects"],
-    queryFn: listProjects,
+    queryFn: () => listProjects(),
     enabled: projectPickerOpen,
   });
 
