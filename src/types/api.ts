@@ -86,3 +86,18 @@ export interface Settings {
   search_history_max?: number;
   [key: string]: unknown;
 }
+
+export interface Clause {
+  operator: "AND" | "OR" | "AND NOT";
+  field: "all" | "ti" | "au" | "abs";
+  value: string;
+}
+
+export interface SearchState {
+  clauses: Clause[];
+  source: string;
+  max_results: number;
+  results: SearchResult[];
+  saved_ids: string[];
+  updated_at: string;
+}

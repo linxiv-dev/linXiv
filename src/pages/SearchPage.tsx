@@ -2,13 +2,13 @@ import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
-import { ClauseRow, type Clause } from "../components/search/ClauseRow";
+import { ClauseRow } from "../components/search/ClauseRow";
 import { ResultRow } from "../components/search/ResultRow";
 import { searchArxiv, fetchArxiv, searchOpenAlex, saveOpenAlex } from "../api/search";
 import { getSearchHistory, getSearchState, saveSearchState } from "../api/searchState";
 import { getSettings } from "../api/settings";
 import { listPapers } from "../api/papers";
-import type { SearchResult, Paper } from "../types/api";
+import type { Clause, SearchResult, Paper } from "../types/api";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

@@ -43,13 +43,21 @@ Items flagged during design review. Grouped by area.
 
 ## Integrations & Import/Export
 - [ x ] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
-- [ ] PDF import: make async with progress indicator (currently synchronous / blocking)
+- [ ] PDF import: make async with progress indicator (currently synchronous / blocking). Note: `exportImport.ts` also bypasses `apiFetch` entirely and duplicates BASE_URL/isTauri detection — fix the infrastructure seam when touching this module.
 - [ ] Export methods toggle in Settings (show only enabled targets; prune candidates before release)
 
 ## Appearance / Theming
 - [ ] Custom palettes: save named color configurations; appear alongside built-in presets in Settings; Changing of pallette selection ui to be slightly more usable will be important.
 - [ ] Glass effect: replace boolean toggle with percentage intensity input + hex color tint input
 - [x] Right now overrides always override genuinely even if you try to switch to old theme. We should make it so that the overrides are only changing before you switch to another a set theme. and then that theme takes over the overrides, right now you can never return to the defaults.
+
+## Architecture & Backend Integrity
+
+- [ ] **[HIGH PRIORITY] Delete alias time-bomb** — `storage/db.py:delete_paper` is an alias for `soft_delete_paper` but reads as a hard delete. Two endpoints call different paths to the same operation. Remove the alias, route all deletes through the service layer. Prevents a future "fix" silently bifurcating soft/hard delete behavior across endpoints.
+- [ ] **[HIGH PRIORITY] Service layer punches through storage seam** — `service/paper.py` has three functions (`_get_paper_project_fks`, `set_has_pdf_by_source`, `remove_from_all_projects`) that call `db._connect()` directly and write raw SQL. Add proper `storage/db.*` functions for these three and remove the internal-access violations.
+- [ ] **Paper dispatch logging** — `service/paper.py:Paper` dataclass dispatch uses `if paper.source_fk:` (falsy check, wrong for id=0) and silently resolves to the first populated key with no validation that exactly one is set. Add verbose logging at dispatch time and fix checks to `is not None`.
+- [ ] **SettingsPage decomposition** — `src/pages/SettingsPage.tsx` is 910 lines across 10+ concerns (Appearance, API Keys, Storage, CrossRef, Search, Sidebar, Integrations, Trash). Extract each section into `src/components/settings/`.
+- [ ] **N+1 query in project listing** — `api/app.py` project list endpoint calls `get_project_tags` and `sfks_to_source_ids` per project, one DB query per paper per project. Replace with a single JOIN query; use the `Q` class in `storage/config/queries.py` to compose the WHERE predicates so the query stays readable and composable rather than raw f-strings.
 
 ## Deferred
 - [ ] TeX rendering library decision (KaTeX vs MathJax — must be compatible with future Notes Editor)

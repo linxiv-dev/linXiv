@@ -1,12 +1,9 @@
 import { useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import type { Clause } from "../../types/api";
 
-export interface Clause {
-  operator: "AND" | "OR" | "AND NOT";
-  field: "all" | "ti" | "au" | "abs";
-  value: string;
-}
+export type { Clause };
 
 interface ClauseRowProps {
   clause: Clause;

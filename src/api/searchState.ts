@@ -1,15 +1,7 @@
 import { apiFetch } from "./client";
-import type { SearchResult } from "../types/api";
-import type { Clause } from "../components/search/ClauseRow";
+import type { Clause, SearchResult, SearchState } from "../types/api";
 
-export interface SearchState {
-  clauses: Clause[];
-  source: string;
-  max_results: number;
-  results: SearchResult[];
-  saved_ids: string[];
-  updated_at: string;
-}
+export type { SearchState };
 
 export async function getSearchHistory(prefix: string, limit = 10): Promise<string[]> {
   const params = new URLSearchParams({ prefix, limit: String(limit) });
