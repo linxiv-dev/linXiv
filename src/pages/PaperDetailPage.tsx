@@ -12,6 +12,7 @@ import { NoteCard } from "../components/notes/NoteCard";
 import { NoteEditor } from "../components/notes/NoteEditor";
 import { PaperMetadataEditor } from "../components/papers/PaperMetadataEditor";
 import { normalizeAuthors } from "../lib/papers";
+import { TagBadge } from "../components/tags/TagBadge";
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
@@ -86,6 +87,8 @@ export default function PaperDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["papers"] });
     queryClient.invalidateQueries({ queryKey: ["graph"] });
     queryClient.invalidateQueries({ queryKey: ["stats"] });
+    queryClient.invalidateQueries({ queryKey: ["tags"] });
+    queryClient.invalidateQueries({ queryKey: ["tag"] });
   }
 
   if (paperLoading) {
@@ -179,7 +182,7 @@ export default function PaperDetailPage() {
             {paper.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {paper.tags.map((tag) => (
-                  <Badge key={tag}>{tag}</Badge>
+                  <TagBadge key={tag} label={tag} />
                 ))}
               </div>
             )}

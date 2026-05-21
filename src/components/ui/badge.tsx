@@ -1,15 +1,24 @@
 import type { HTMLAttributes } from "react";
 
+type BadgeSize = "sm" | "md";
+
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   color?: string;
+  size?: BadgeSize;
 }
 
-export function Badge({ color, className = "", style, children, ...props }: BadgeProps) {
+const sizeStyles: Record<BadgeSize, string> = {
+  sm: "px-2 py-0.5 text-xs",
+  md: "px-3 py-1 text-sm",
+};
+
+export function Badge({ color, size = "sm", className = "", style, children, ...props }: BadgeProps) {
   return (
     <span
       className={[
-        "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+        "inline-flex items-center rounded-full font-medium",
         "border border-[var(--color-border)] bg-[var(--color-panel)] text-[var(--color-text)]",
+        sizeStyles[size],
         className,
       ].join(" ")}
       style={

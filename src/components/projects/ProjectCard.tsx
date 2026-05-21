@@ -1,5 +1,6 @@
 import type { Project } from "../../types/api";
 import { Badge } from "../ui/badge";
+import { TagBadge } from "../tags/TagBadge";
 import { ColorSwatch } from "./ColorSwatch";
 
 interface ProjectCardProps {
@@ -51,7 +52,7 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
           {(project.paper_count ?? project.source_ids.length) !== 1 ? "s" : ""}
         </Badge>
         {visibleTags.map((tag) => (
-          <Badge key={tag}>{tag}</Badge>
+          <TagBadge key={tag} label={tag} />
         ))}
       </div>
     </div>

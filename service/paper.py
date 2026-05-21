@@ -359,6 +359,11 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
 def get_categories() -> list[str]:
     return db.get_categories()
 
+def get_papers_by_tag(label: str) -> list[PaperDetails]:
+    """Return all latest papers whose tags include the given label (case-insensitive)."""
+    rows = db.get_papers_by_json_tag(label)
+    return [_row_to_paper_details(r) for r in rows]
+
 
 # ---------------------------------------------------------------------------
 # Write / mutate

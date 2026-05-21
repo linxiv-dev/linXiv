@@ -21,6 +21,7 @@ import { PRESET_COLORS } from "../components/projects/constants";
 import { TagInput, type TagInputHandle } from "../components/projects/TagInput";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import { TagBadge } from "../components/tags/TagBadge";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/input";
@@ -91,6 +92,8 @@ function EditProjectDialog({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["project", String(projectId)] }),
+        queryClient.invalidateQueries({ queryKey: ["tags"] }),
+        queryClient.invalidateQueries({ queryKey: ["tag"] }),
       ]);
       onClose();
     } catch (err) {
@@ -777,7 +780,7 @@ export default function ProjectDetailPage() {
         {project.project_tags.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             {project.project_tags.map((tag) => (
-              <Badge key={tag}>{tag}</Badge>
+              <TagBadge key={tag} label={tag} />
             ))}
           </div>
         )}

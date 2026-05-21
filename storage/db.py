@@ -717,15 +717,33 @@ def get_categories() -> list[str]:
 
 
 def get_tags() -> list[str]:
-    """Return a sorted list of all distinct tags across all papers."""
+    """Return a sorted list of all distinct tag labels across papers and projects."""
     with _connect() as conn:
         rows = conn.execute("""
-            SELECT DISTINCT je.value AS tag
+            SELECT DISTINCT LOWER(je.value) AS tag
             FROM latest_papers p, json_each(p.tags) je
             WHERE p.tags IS NOT NULL
-            ORDER BY je.value
+            UNION
+            SELECT DISTINCT LOWER(t.TAG) AS tag
+            FROM TAG t
+            JOIN PROJECT_TO_TAG ptt ON ptt.TAG_FK = t.TAG_FK
+            JOIN PROJECT pr ON pr.PROJECT_FK = ptt.PROJECT_FK
+            WHERE pr.STATUS = 'active'
+            ORDER BY tag
         """).fetchall()
     return [row["tag"] for row in rows]
+
+
+def get_papers_by_json_tag(label: str) -> list[sqlite3.Row]:
+    """Return latest_papers rows whose JSON tags array contains the given label (case-insensitive)."""
+    with _connect() as conn:
+        return conn.execute("""
+            SELECT DISTINCT lp.*
+            FROM latest_papers lp, json_each(lp.tags) je
+            WHERE lp.tags IS NOT NULL
+              AND je.value = ? COLLATE NOCASE
+            ORDER BY lp.published DESC, lp.paper_id DESC
+        """, (label,)).fetchall()
 
 
 #TODO: FIX TO CONTAIN TOTAL FUNCTIONALITY 

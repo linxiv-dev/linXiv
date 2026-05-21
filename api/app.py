@@ -54,6 +54,7 @@ from service.paper import (
     hard_delete as hard_delete_paper,
     repair_paper as svc_repair_paper,
     sfks_to_source_ids,
+    get_papers_by_tag,
 )
 import user_settings
 from storage.notes import Note, ensure_notes_db, get_note, get_notes
@@ -75,7 +76,7 @@ from service.project import (
     restore as restore_project_svc,
 )
 from storage.tags import add_project_tags, get_project_tags, remove_project_tags
-from storage.config.queries import Q, list_project_tags_bulk, list_project_source_ids_bulk
+from storage.config.queries import Q, list_project_tags_bulk, list_project_source_ids_bulk, list_projects_by_tag, get_tag_by_label
 import storage.search_history as _search_history
 import storage.search_state as _search_state
 
@@ -325,6 +326,39 @@ def api_categories() -> dict:
 @app.get("/api/tags")
 def api_tags() -> dict:
     return {"tags": get_tags()}
+
+
+@app.get("/api/tags/{label}")
+def api_tag_detail(label: str) -> dict:
+    papers = get_papers_by_tag(label)
+
+    tag_row = get_tag_by_label(label)
+    canonical_label = tag_row["TAG"] if tag_row else label
+    projects: list[dict] = []
+    if tag_row is not None:
+        tag_fk = int(tag_row["TAG_FK"])
+        proj_rows = list_projects_by_tag(tag_fk)
+        project_ids = [r["PROJECT_FK"] for r in proj_rows]
+        tags_by_proj = list_project_tags_bulk(project_ids)
+        source_ids_by_proj = list_project_source_ids_bulk(project_ids)
+        for row in proj_rows:
+            pid = int(row["PROJECT_FK"])
+            projects.append({
+                "id": pid,
+                "name": row["NAME"],
+                "description": row["DESCRIPTION"] or "",
+                "color_hex": color_to_hex(row["COLOR"]) if row["COLOR"] is not None else None,
+                "project_tags": tags_by_proj.get(pid, []),
+                "source_ids": source_ids_by_proj.get(pid, []),
+                "status": row["STATUS"],
+                "paper_count": len(source_ids_by_proj.get(pid, [])),
+            })
+
+    return {
+        "label": canonical_label,
+        "papers": [p.to_dict() for p in papers],
+        "projects": projects,
+    }
 
 
 @app.get("/api/projects")

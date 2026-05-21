@@ -42,7 +42,11 @@ function NewProjectDialog({
         color_hex: color,
         project_tags: currentTags.length > 0 ? currentTags : undefined,
       });
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["tags"] }),
+        queryClient.invalidateQueries({ queryKey: ["tag"] }),
+      ]);
       handleClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");

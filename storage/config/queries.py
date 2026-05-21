@@ -168,6 +168,15 @@ def get_paper_meta(paper_id: int) -> Optional[sqlite3.Row]:
 
 _TAG_FK_BY_LABEL_SQL = "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1"
 
+
+def get_tag_by_label(label: str) -> Optional[sqlite3.Row]:
+    """Return the TAG row (TAG_FK, TAG) for a label (case-insensitive), or None."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT TAG_FK, TAG FROM TAG WHERE TAG = ? COLLATE NOCASE ORDER BY TAG_FK ASC LIMIT 1",
+            (label,),
+        ).fetchone()
+
 _TAGS_BY_PAPER_BASE_SQL = """
 SELECT DISTINCT t.TAG_FK, t.TAG
 FROM TAG t
@@ -180,7 +189,11 @@ FROM TAG t
 JOIN PROJECT_TO_TAG ptt ON ptt.TAG_FK = t.TAG_FK
 """
 
-# Returns the latest version of every paper that has the tag on any version.
+# Relational paper-by-tag query (via PAPER_TO_TAG join). Returns the latest
+# version of every paper that has the tag on any version.
+# NOTE: The public API uses get_papers_by_json_tag() (storage/db.py) instead,
+# which queries the JSON tags column directly — consistent with what paper cards
+# display. This relational path is kept for completeness and potential future use.
 _LIST_PAPERS_BY_TAG_SQL = """
 SELECT DISTINCT lp.*
 FROM latest_papers lp
@@ -190,11 +203,13 @@ WHERE ptt.TAG_FK = ?
 ORDER BY lp.paper_id
 """
 
+# Only returns active projects; archived/deleted projects are intentionally excluded.
 _LIST_PROJECTS_BY_TAG_SQL = """
 SELECT DISTINCT pr.*
 FROM PROJECT pr
 JOIN PROJECT_TO_TAG ptt ON ptt.PROJECT_FK = pr.PROJECT_FK
 WHERE ptt.TAG_FK = ?
+  AND pr.STATUS = 'active'
 ORDER BY pr.PROJECT_FK
 """
 
@@ -232,6 +247,7 @@ def list_papers_by_tag(tag_fk: int) -> list[sqlite3.Row]:
 
 
 def list_projects_by_tag(tag_fk: int) -> list[sqlite3.Row]:
+    """Return active projects tagged with tag_fk. Archived/deleted projects are excluded."""
     with _connect() as conn:
         return conn.execute(_LIST_PROJECTS_BY_TAG_SQL, (tag_fk,)).fetchall()
 
