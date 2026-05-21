@@ -17,24 +17,14 @@ import { ImportDialog } from "../components/import/ImportDialog";
 import type { Paper } from "../types/api";
 import { useSelectionStore } from "../stores/selection";
 import { ColorSwatch } from "../components/projects/ColorSwatch";
+import { PRESET_COLORS } from "../components/projects/constants";
+import { TagInput, type TagInputHandle } from "../components/projects/TagInput";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
-
-// ---------------------------------------------------------------------------
-// Preset swatches (same as create dialog)
-// ---------------------------------------------------------------------------
-const PRESET_COLORS = [
-  "#5b8dee",
-  "#4caf88",
-  "#e8912d",
-  "#748ffc",
-  "#e05c6c",
-  "#51cf66",
-];
 
 // ---------------------------------------------------------------------------
 // Edit Project Dialog
@@ -46,6 +36,7 @@ interface EditProjectDialogProps {
   initialName: string;
   initialDescription: string;
   initialColor: string | null;
+  initialTags: string[];
 }
 
 function EditProjectDialog({
@@ -55,23 +46,32 @@ function EditProjectDialog({
   initialName,
   initialDescription,
   initialColor,
+  initialTags,
 }: EditProjectDialogProps) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
   const [color, setColor] = useState<string | null>(initialColor);
+  const [tags, setTags] = useState<string[]>(initialTags);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tagInputRef = useRef<TagInputHandle>(null);
 
-  // Re-seed from props each time dialog opens
+  // Keep a mutable ref so the effect below always reads the latest props
+  // without listing them as dependencies (prevents background refetches from
+  // wiping the user's in-progress edits while the dialog is open).
+  const seedRef = useRef({ initialName, initialDescription, initialColor, initialTags });
+  seedRef.current = { initialName, initialDescription, initialColor, initialTags };
+
   useEffect(() => {
-    if (open) {
-      setName(initialName);
-      setDescription(initialDescription);
-      setColor(initialColor);
-      setError(null);
-    }
-  }, [open, initialName, initialDescription, initialColor]);
+    if (!open) return;
+    setName(seedRef.current.initialName);
+    setDescription(seedRef.current.initialDescription);
+    setColor(seedRef.current.initialColor);
+    setTags(seedRef.current.initialTags);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -79,10 +79,14 @@ function EditProjectDialog({
     setSubmitting(true);
     setError(null);
     try {
+      // Read via imperative handle to capture any uncommitted draft text
+      // (typed but not yet Enter'd — stale closure on tags state is unsafe here).
+      const currentTags = tagInputRef.current?.getTagsWithDraft() ?? tags;
       await updateProject(projectId, {
         name: name.trim(),
         description: description.trim(),
         color_hex: color,
+        project_tags: currentTags,
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -149,6 +153,20 @@ function EditProjectDialog({
               />
             ))}
           </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="edit-proj-tags"
+            className="text-xs font-medium"
+            style={{ color: "var(--color-muted)" }}
+          >
+            Tags
+          </label>
+          <TagInput ref={tagInputRef} id="edit-proj-tags" value={tags} onChange={setTags} />
+          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+            Press Enter to add a tag. Backspace removes the last tag.
+          </p>
         </div>
 
         {error && (
@@ -863,6 +881,7 @@ export default function ProjectDetailPage() {
             initialName={project.name}
             initialDescription={project.description}
             initialColor={project.color_hex}
+            initialTags={project.project_tags}
           />
           <AddPapersDialog
             open={addPapersOpen}

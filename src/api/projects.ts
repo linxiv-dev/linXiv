@@ -15,6 +15,7 @@ export interface ProjectCreateBody {
   name: string;
   description?: string;
   color_hex?: string | null;
+  project_tags?: string[];
 }
 
 export async function createProject(
@@ -31,6 +32,7 @@ export interface ProjectUpdateBody {
   description?: string;
   color_hex?: string | null;
   status?: string;
+  project_tags?: string[];
 }
 
 export async function updateProject(

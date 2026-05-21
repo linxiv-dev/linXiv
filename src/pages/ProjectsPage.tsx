@@ -1,23 +1,16 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listProjects, createProject } from "../api/projects";
 import { ProjectCard } from "../components/projects/ProjectCard";
 import { ColorSwatch } from "../components/projects/ColorSwatch";
+import { PRESET_COLORS } from "../components/projects/constants";
+import { TagInput, type TagInputHandle } from "../components/projects/TagInput";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
-
-const PRESET_COLORS = [
-  "#5b8dee",
-  "#4caf88",
-  "#e8912d",
-  "#748ffc",
-  "#e05c6c",
-  "#51cf66",
-];
 
 function NewProjectDialog({
   open,
@@ -30,8 +23,10 @@ function NewProjectDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [color, setColor] = useState<string | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tagInputRef = useRef<TagInputHandle>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -39,10 +34,13 @@ function NewProjectDialog({
     setSubmitting(true);
     setError(null);
     try {
+      // Read via imperative handle to capture any uncommitted draft text.
+      const currentTags = tagInputRef.current?.getTagsWithDraft() ?? tags;
       await createProject({
         name: name.trim(),
         description: description.trim() || undefined,
         color_hex: color,
+        project_tags: currentTags.length > 0 ? currentTags : undefined,
       });
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
       handleClose();
@@ -57,6 +55,7 @@ function NewProjectDialog({
     setName("");
     setDescription("");
     setColor(null);
+    setTags([]);
     setError(null);
     onClose();
   }
@@ -116,6 +115,20 @@ function NewProjectDialog({
               />
             ))}
           </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="new-proj-tags"
+            className="text-xs font-medium"
+            style={{ color: "var(--color-muted)" }}
+          >
+            Tags
+          </label>
+          <TagInput ref={tagInputRef} id="new-proj-tags" value={tags} onChange={setTags} />
+          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+            Press Enter to add a tag. Backspace removes the last tag.
+          </p>
         </div>
 
         {error && (

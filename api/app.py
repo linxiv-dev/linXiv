@@ -72,7 +72,7 @@ from service.project import (
     purge_old as purge_old_projects,
     restore as restore_project_svc,
 )
-from storage.tags import get_project_tags
+from storage.tags import add_project_tags, get_project_tags, remove_project_tags
 from storage.config.queries import Q, list_project_tags_bulk, list_project_source_ids_bulk
 import storage.search_history as _search_history
 import storage.search_state as _search_state
@@ -338,12 +338,35 @@ def api_graph_project_options() -> dict:
     return {"projects": project_filter_options()}
 
 
-# TODO: add tags: list[str] = [] to ProjectCreate and ProjectUpdate, then call
-#       storage.tags.add_project_tags / remove+add in api_project_create and api_project_patch
+def _normalize_tags(tags: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for t in tags:
+        label = t.strip().lower()
+        if label and label not in seen:
+            seen.add(label)
+            result.append(label)
+    return result
+
+
+def _sync_project_tags(project_id: int, new_tags: list[str]) -> None:
+    normalized = _normalize_tags(new_tags)
+    current = get_project_tags(project_id)
+    current_lower = {t.lower() for t in current}
+    new_lower = {t.lower() for t in normalized}
+    to_remove = [t for t in current if t.lower() not in new_lower]
+    to_add = [t for t in normalized if t.lower() not in current_lower]
+    if to_remove:
+        remove_project_tags(project_id, to_remove)
+    if to_add:
+        add_project_tags(project_id, to_add)
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
     color_hex: str | None = None
+    project_tags: list[str] = []
 
 
 class ProjectUpdate(BaseModel):
@@ -351,6 +374,7 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     color_hex: str | None = None
     status: str | None = None
+    project_tags: list[str] | None = None
 
 
 @app.post("/api/projects")
@@ -359,6 +383,8 @@ def api_project_create(body: ProjectCreate) -> dict:
     p = Project(name=body.name.strip(), description=body.description.strip(), color=color)
     p.save()
     assert p.id
+    if body.project_tags:
+        add_project_tags(p.id, _normalize_tags(body.project_tags))
     return {"project": {"id": p.id, "name": p.name}}
 
 
@@ -389,6 +415,8 @@ def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
         p.description = body.description
     if body.color_hex:
         p.color = color_from_hex(body.color_hex)
+    if body.project_tags is not None and p.id is not None:
+        _sync_project_tags(p.id, body.project_tags)
     if body.status:
         try:
             new_status = Status(body.status)
