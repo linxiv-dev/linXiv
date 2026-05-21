@@ -157,7 +157,7 @@ def cmd_paper_get(args: argparse.Namespace) -> None:
 def cmd_paper_delete(args: argparse.Namespace) -> None:
     source_id = _as_source_id(args.source_id)
     _resolve_paper_or_exit(source_id)
-    svc_paper.delete_paper(source_id)
+    svc_paper.delete(svc_paper.Paper(source_id=source_id))
     _output({"deleted": source_id})
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import os
+import sqlite3
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,11 +21,10 @@ from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
 from storage.db import (
-    delete_paper,
     get_categories,
     get_tags,
     init_db,
@@ -34,6 +34,7 @@ from storage.db import (
     save_paper_metadata,
 )
 from sources import resolve_doi, fetch_paper_metadata, search_papers
+from sources.base import PaperMetadata
 from sources.pdf_metadata import resolve_pdf_metadata
 from sources.openalex_source import OpenAlexSource
 from formats.bibtex import BibTeXFormat
@@ -49,6 +50,7 @@ from service.paper import (
     delete as soft_delete_paper,
     restore as restore_paper,
     hard_delete as hard_delete_paper,
+    repair_paper as svc_repair_paper,
     sfks_to_source_ids,
 )
 import user_settings
@@ -61,6 +63,7 @@ from storage.projects import (
     ensure_projects_db,
     filter_projects,
     get_project,
+    remove_paper_from_all_projects,
 )
 from service.project import (
     Project as SvcProject,
@@ -201,8 +204,90 @@ def api_delete_paper(source_id: str) -> dict:
     paper = get_paper_details(Paper(source_id=source_id))
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    delete_paper(source_id)
+    soft_delete_paper(Paper(source_id=source_id))
     return {"deleted": source_id}
+
+
+class PaperRepairBody(BaseModel):
+    title: str
+    authors: list[str]
+    published: datetime.date
+    summary: str = ""
+    category: str | None = None
+    # min_length=1 on Optional[str]: Pydantic v2 skips the constraint when the
+    # value is None, so null/omitted → None (valid) but "" → validation error.
+    doi: str | None = Field(default=None, min_length=1)
+    url: str | None = None
+    tags: list[str] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("title must not be blank")
+        return v
+
+    @field_validator("authors")
+    @classmethod
+    def authors_not_empty(cls, v: list[str]) -> list[str]:
+        # Preserve insertion order (author rank matters) while deduplicating.
+        seen: dict[str, None] = {}
+        for a in v:
+            s = a.strip()
+            if s:
+                seen[s] = None
+        if not seen:
+            raise ValueError("at least one author is required")
+        return list(seen)
+
+    @field_validator("summary")
+    @classmethod
+    def summary_strip(cls, v: str) -> str:
+        return v.strip()
+
+    @field_validator("tags")
+    @classmethod
+    def tags_strip_and_dedup(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        cleaned = list(dict.fromkeys(t.strip() for t in v if t.strip()))
+        return cleaned or None
+
+
+# PUT semantics: all required fields are replaced on every call. The editor
+# always submits a complete payload, so partial-update semantics add no value
+# and would require merging logic that can silently drop user edits on race
+# conditions. See docs/adr/0008-repair-endpoint-scope.md.
+@app.put("/api/papers/sfk/{source_fk}")
+def api_repair_paper(source_fk: int, body: PaperRepairBody) -> dict:
+    paper = get_paper_details(Paper(source_fk=source_fk))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    # source_id is intentionally not changeable via this endpoint — it is the
+    # paper's identity key and changing it is an internal import/export operation.
+    # See docs/adr/0008-repair-endpoint-scope.md.
+    meta = PaperMetadata(
+        source_id=paper.source_id,
+        version=paper.version,
+        title=body.title,
+        authors=body.authors,
+        published=body.published,
+        summary=body.summary,
+        category=body.category,
+        doi=body.doi,
+        url=body.url,
+        tags=body.tags,
+        source=paper.source,
+    )
+    try:
+        svc_repair_paper(source_fk, meta)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updated = get_paper_details(Paper(source_fk=source_fk))
+    if not updated:
+        raise HTTPException(status_code=500, detail="Repair failed")
+    return updated.to_dict()
 
 
 @app.get("/api/graph")
@@ -625,6 +710,13 @@ def api_trash_restore(source_id: str) -> dict:
     return {"ok": True, "pdf_path": pdf_path, "project_fks": project_fks}
 
 
+@app.delete("/api/papers/sfk/{source_fk}/projects")
+def api_remove_paper_from_all_projects(source_fk: int) -> dict:
+    """Remove a restored paper from all its projects. Call after restore if user declines project re-linking."""
+    removed = remove_paper_from_all_projects(source_fk)
+    return {"ok": True, "removed_from": removed}
+
+
 @app.delete("/api/trash/{source_id}")
 def api_trash_hard_delete(source_id: str) -> dict:
     hard_delete_paper(Paper(source_id=source_id))
@@ -646,11 +738,6 @@ def api_trash_project_hard_delete(project_id: int) -> dict:
     hard_delete_project(SvcProject(project_fk=project_id))
     return {"ok": True}
 
-
-@app.delete("/api/papers/{source_id}/soft")
-def api_paper_soft_delete(source_id: str) -> dict:
-    soft_delete_paper(Paper(source_id=source_id))
-    return {"ok": True}
 
 
 # ── OpenAlex search ───────────────────────────────────────────────────────────

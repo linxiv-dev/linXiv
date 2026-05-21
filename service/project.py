@@ -4,7 +4,6 @@ from typing import Optional
 
 from service.models.project import ProjectDetails, Status
 from storage.notes import count_project_notes as _count_project_notes
-import storage.db as _db
 from storage.projects import (
     Q,
     Project as _StorageProject,
@@ -13,6 +12,7 @@ from storage.projects import (
     ensure_projects_db as _ensure_projects_db,
     get_project as _get_project,
     filter_projects as _filter_projects,
+    hard_delete_project as _hard_delete_project,
 )
 import storage.tags as _tags_storage
 
@@ -145,12 +145,7 @@ def archive(project: Project) -> None:
 def hard_delete(project: Project) -> None:
     if project.project_fk is None:
         return
-    fk = project.project_fk
-    with _db._connect() as conn:
-        conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ?", (fk,))
-        conn.execute("DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ?", (fk,))
-        conn.execute("UPDATE NOTE SET PROJECT_FK = NULL WHERE PROJECT_FK = ?", (fk,))
-        conn.execute("DELETE FROM PROJECT WHERE PROJECT_FK = ?", (fk,))
+    _hard_delete_project(project.project_fk)
 
 
 def list_deleted() -> list[ProjectDetails]:

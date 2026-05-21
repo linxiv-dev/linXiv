@@ -505,7 +505,7 @@ class SearchPage(QWidget):
             else:
                 paper_svc.save_paper_metadata(paper, tags=tags if tags else None)
         else:
-            paper_svc.delete_paper(paper.source_id)
+            paper_svc.delete(paper_svc.Paper(source_id=paper.source_id))
 
     def _parse_tags(self) -> list[str]:
         raw = self._tag_input.text().strip()
@@ -526,7 +526,7 @@ class SearchPage(QWidget):
                 paper_svc.save_paper(paper, tags=tags if tags else None)
         else:
             paper_id, _ = paper_svc.parse_entry_id(paper.entry_id)
-            paper_svc.delete_paper(paper_id)
+            paper_svc.delete(paper_svc.Paper(source_id=paper_id))
 
     def _show_restore_info(self, source_id: str, pdf_path: str | None, project_fks: list[int]) -> None:
         lines: list[str] = [f'"{source_id}" has been restored from trash.']

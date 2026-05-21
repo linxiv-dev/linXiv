@@ -710,7 +710,7 @@ class SettingsPage(QWidget):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.No:
-                _paper_svc.remove_from_all_projects(deleted_paper.source_fk)
+                pass  # project unlinking removed; restore always keeps membership
 
         if deleted_paper.had_pdf and pdf_path:
             p = Path(pdf_path)

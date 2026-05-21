@@ -335,34 +335,6 @@ class TestListDeletedPapers:
 
 
 # ---------------------------------------------------------------------------
-# DB layer — delete_paper alias still does soft delete
-# ---------------------------------------------------------------------------
-
-@pytest.mark.usefixtures("tmp_db")
-class TestDeletePaperAlias:
-    def test_delete_paper_hides_from_view(self):
-        _save("2204.12985v1")
-        db.delete_paper("2204.12985")
-        assert db.get_paper("2204.12985") is None
-
-    def test_delete_paper_keeps_root_row(self):
-        _save("2204.12985v1")
-        db.delete_paper("2204.12985")
-        with db._connect() as conn:
-            row = conn.execute(
-                "SELECT STATUS FROM PAPER_ROOTS WHERE SOURCE_ID = ?", ("2204.12985",)
-            ).fetchone()
-        assert row is not None
-        assert str(row["STATUS"]) == "deleted"
-
-    def test_delete_paper_shows_in_deleted_list(self):
-        _save("2204.12985v1")
-        db.delete_paper("2204.12985")
-        ids = [r["source_id"] for r in db.list_deleted_papers()]
-        assert "2204.12985" in ids
-
-
-# ---------------------------------------------------------------------------
 # DB layer — re-save restores a soft-deleted paper
 # ---------------------------------------------------------------------------
 
@@ -615,7 +587,7 @@ class TestPaperSvcIsPaperDeleted:
 
 
 # ---------------------------------------------------------------------------
-# Service helpers — set_has_pdf_by_source / remove_from_all_projects
+# Service helpers — set_has_pdf_by_source
 # ---------------------------------------------------------------------------
 
 @pytest.mark.usefixtures("tmp_db")
@@ -641,24 +613,6 @@ class TestPaperSvcHelpers:
         assert row is not None
         assert bool(row["HAS_PDF"]) is False
 
-    def test_remove_from_all_projects_clears_memberships(self):
-        from storage.projects import Project
-        p1 = Project(name="P1")
-        p1.save()
-        p2 = Project(name="P2")
-        p2.save()
-        _save("2204.12985v1")
-        sfk = db.ensure_paper_root("2204.12985")
-        p1.add_paper(sfk)
-        p2.add_paper(sfk)
-
-        paper_svc.remove_from_all_projects(sfk)
-
-        with db._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?", (sfk,)
-            ).fetchall()
-        assert rows == []
 
 
 # ---------------------------------------------------------------------------

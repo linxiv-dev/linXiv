@@ -4,29 +4,24 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getPaperBySfk, getPaperPdfUrl } from "../api/papers";
 import { getNotes, deleteNote } from "../api/notes";
 import { fetchArxiv } from "../api/search";
-import type { Note } from "../types/api";
+import type { Note, Paper } from "../types/api";
 import { Spinner } from "../components/ui/spinner";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { NoteCard } from "../components/notes/NoteCard";
 import { NoteEditor } from "../components/notes/NoteEditor";
-
-function normalizeAuthors(authors: string | string[]): string[] {
-  if (Array.isArray(authors)) return authors;
-  return authors.split(",").map((a) => a.trim()).filter(Boolean);
-}
+import { PaperMetadataEditor } from "../components/papers/PaperMetadataEditor";
+import { normalizeAuthors } from "../lib/papers";
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
-  try {
-    return new Date(dateStr).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return dateStr;
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export default function PaperDetailPage() {
@@ -37,6 +32,7 @@ export default function PaperDetailPage() {
   const [showAddNote, setShowAddNote] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [showPdfViewer, setShowPdfViewer] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
 
   const {
     data: paper,
@@ -81,6 +77,17 @@ export default function PaperDetailPage() {
     deleteNoteMutation.mutate(note.id);
   }
 
+  function handlePaperSaved(updated: Paper) {
+    // source_id is immutable via the repair endpoint (see ADR-0008), so
+    // updated.source_id === paper.source_id is always true here. The notes
+    // cache key is tied to source_id; one invalidation is sufficient.
+    queryClient.setQueryData(["paper", "sfk", sfk], updated);
+    queryClient.invalidateQueries({ queryKey: ["notes", paper?.source_id] });
+    queryClient.invalidateQueries({ queryKey: ["papers"] });
+    queryClient.invalidateQueries({ queryKey: ["graph"] });
+    queryClient.invalidateQueries({ queryKey: ["stats"] });
+  }
+
   if (paperLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -111,15 +118,15 @@ export default function PaperDetailPage() {
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Left column — paper details */}
           <div className="flex-1 min-w-0 space-y-5">
-            {/* Back button */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(-1)}
-              className="mb-1"
-            >
-              ← Library
-            </Button>
+            {/* Back button + Edit */}
+            <div className="flex items-center justify-between mb-1">
+              <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
+                ← Library
+              </Button>
+              <Button variant="muted" size="sm" onClick={() => setShowEditor(true)}>
+                Edit
+              </Button>
+            </div>
 
             {/* Title */}
             <h1 className="text-xl font-semibold text-text leading-snug">
@@ -311,6 +318,14 @@ export default function PaperDetailPage() {
           </div>
         </div>
       </div>
+
+      {showEditor && (
+        <PaperMetadataEditor
+          onClose={() => setShowEditor(false)}
+          paper={paper}
+          onSaved={handlePaperSaved}
+        />
+      )}
     </div>
   );
 }

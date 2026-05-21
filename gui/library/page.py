@@ -1107,6 +1107,6 @@ class LibraryPage(QWidget):
         for sfk in list(self._selected):
             sid = paper_svc.get_source_id(sfk)
             if sid:
-                paper_svc.delete_paper(sid)
+                paper_svc.delete(paper_svc.Paper(source_id=sid))
         self._selected.clear()
         self.refresh()
