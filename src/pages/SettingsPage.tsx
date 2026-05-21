@@ -12,12 +12,14 @@ import {
   type MpcClientStatus,
 } from "../api/integrations";
 import { listTrash, restorePaper, hardDeletePaper, restoreProject, hardDeleteProject, type TrashedPaper, type TrashedProject } from "../api/trash";
+import { removeFromAllProjects } from "../api/papers";
 import { useThemeStore } from "../stores/theme";
 import { PRESETS } from "../lib/theme";
 import type { PresetName, ThemeColors, ThemeMode } from "../lib/theme";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
+import { Dialog } from "../components/ui/dialog";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -359,6 +361,54 @@ function IntegrationsSection() {
 
 // ── Trash section ─────────────────────────────────────────────────────────────
 
+type ProjectPrompt = {
+  paperTitle: string;
+  sourceFk: number;
+  projectFks: number[];
+};
+
+function KeepInProjectsDialog({
+  prompt,
+  removing,
+  removeError,
+  onKeep,
+  onRemove,
+}: {
+  prompt: ProjectPrompt | null;
+  removing: boolean;
+  removeError: string | null;
+  onKeep: () => void;
+  onRemove: () => void;
+}) {
+  const count = prompt?.projectFks.length ?? 0;
+  return (
+    <Dialog open={prompt !== null} onClose={onKeep} title="Project memberships">
+      {prompt && (
+        <>
+          <p className="text-sm text-text mb-1">
+            <span className="font-medium">{prompt.paperTitle}</span> was restored.
+          </p>
+          <p className="text-sm text-muted mb-4">
+            It belonged to {count} project{count !== 1 ? "s" : ""} before deletion.
+            Keep those memberships?
+          </p>
+          {removeError && (
+            <p className="text-xs text-danger mb-4">{removeError}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={onRemove} disabled={removing}>
+              {removing ? <><Spinner size={14} /> Removing…</> : "Remove from all projects"}
+            </Button>
+            <Button variant="primary" size="sm" onClick={onKeep} disabled={removing}>
+              Keep memberships
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
 function TrashRow({
   paper,
   onRestore,
@@ -414,6 +464,7 @@ function TrashRow({
             variant="danger"
             size="sm"
             onClick={handleDeleteClick}
+            onMouseDown={(e) => e.preventDefault()}
             onBlur={() => setConfirmId(null)}
             disabled={isPending}
           >
@@ -445,7 +496,10 @@ function ProjectTrashRow({ project, onRestore, onDelete, restoring, deleting }: 
           <Button variant="ghost" size="sm" onClick={onRestore} disabled={isPending}>Restore</Button>
         )}
         {deleting ? <Spinner size={16} /> : (
-          <Button variant="danger" size="sm" onClick={() => confirm ? onDelete() : setConfirm(true)} onBlur={() => setConfirm(false)} disabled={isPending}>
+          <Button variant="danger" size="sm"
+            onClick={() => confirm ? onDelete() : setConfirm(true)}
+            onMouseDown={(e) => e.preventDefault()}
+            onBlur={() => setConfirm(false)} disabled={isPending}>
             {confirm ? "Confirm?" : "Delete forever"}
           </Button>
         )}
@@ -471,89 +525,161 @@ function TrashSection() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [restoringProjectId, setRestoringProjectId] = useState<number | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<number | null>(null);
+  const [projectPrompt, setProjectPrompt] = useState<ProjectPrompt | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  async function handleRestore(sourceId: string) {
-    setRestoringId(sourceId);
+  function closeProjectPrompt() {
+    if (removing) return;
+    setRemoveError(null);
+    setProjectPrompt(null);
+  }
+
+  async function handleRestore(paper: TrashedPaper) {
+    if (removing) return;
+    setRestoringId(paper.source_id);
+    setActionError(null);
     try {
-      await restorePaper(sourceId);
+      const result = await restorePaper(paper.source_id);
       await qc.invalidateQueries({ queryKey: ["trash"] });
       await qc.invalidateQueries({ queryKey: ["papers"] });
-    } catch (e) { console.error(e); } finally { setRestoringId(null); }
+      const projectFks = result.project_fks ?? [];
+      if (projectFks.length > 0) {
+        setProjectPrompt({
+          paperTitle: paper.title,
+          sourceFk: paper.source_fk,
+          projectFks,
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      setActionError(`Could not restore "${paper.title}". Please try again.`);
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  async function handleRemoveFromProjects() {
+    if (!projectPrompt) return;
+    setRemoving(true);
+    setRemoveError(null);
+    try {
+      await removeFromAllProjects(projectPrompt.sourceFk);
+      await qc.invalidateQueries({ queryKey: ["projects"] });
+      await qc.invalidateQueries({ queryKey: ["papers"] });
+      setProjectPrompt(null);
+    } catch (e) {
+      console.error(e);
+      setRemoveError("Failed to remove from projects. Please try again.");
+    } finally {
+      setRemoving(false);
+    }
   }
 
   async function handleDelete(sourceId: string) {
     setDeletingId(sourceId);
+    setActionError(null);
     try {
       await hardDeletePaper(sourceId);
       await qc.invalidateQueries({ queryKey: ["trash"] });
       await qc.invalidateQueries({ queryKey: ["papers"] });
-    } catch (e) { console.error(e); } finally { setDeletingId(null); }
+    } catch (e) {
+      console.error(e);
+      setActionError("Could not permanently delete the paper. Please try again.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   async function handleRestoreProject(id: number) {
     setRestoringProjectId(id);
+    setActionError(null);
     try {
       await restoreProject(id);
       await qc.invalidateQueries({ queryKey: ["trash"] });
       await qc.invalidateQueries({ queryKey: ["projects"] });
-    } catch (e) { console.error(e); } finally { setRestoringProjectId(null); }
+    } catch (e) {
+      console.error(e);
+      setActionError("Could not restore the project. Please try again.");
+    } finally {
+      setRestoringProjectId(null);
+    }
   }
 
   async function handleDeleteProject(id: number) {
     setDeletingProjectId(id);
+    setActionError(null);
     try {
       await hardDeleteProject(id);
       await qc.invalidateQueries({ queryKey: ["trash"] });
       await qc.invalidateQueries({ queryKey: ["projects"] });
-    } catch (e) { console.error(e); } finally { setDeletingProjectId(null); }
+    } catch (e) {
+      console.error(e);
+      setActionError("Could not permanently delete the project. Please try again.");
+    } finally {
+      setDeletingProjectId(null);
+    }
   }
 
   return (
-    <Section title="Trash">
-      <p className="text-xs text-muted mb-4">
-        Deleted items are kept for 30 days, then permanently removed.
-      </p>
-      {isLoading ? (
-        <div className="flex items-center gap-2 py-3 text-sm text-muted">
-          <Spinner size={14} /> Loading…
-        </div>
-      ) : total === 0 ? (
-        <p className="text-sm text-muted py-2">Trash is empty</p>
-      ) : (
-        <>
-          {projects.length > 0 && (
-            <>
-              <p className="text-xs font-semibold text-muted mb-1 mt-2">Projects</p>
-              {projects.map((p) => (
-                <ProjectTrashRow
-                  key={p.id}
-                  project={p}
-                  onRestore={() => handleRestoreProject(p.id)}
-                  onDelete={() => handleDeleteProject(p.id)}
-                  restoring={restoringProjectId === p.id}
-                  deleting={deletingProjectId === p.id}
-                />
-              ))}
-            </>
-          )}
-          {papers.length > 0 && (
-            <>
-              <p className="text-xs font-semibold text-muted mb-1 mt-2">Papers</p>
-              {papers.map((paper) => (
-                <TrashRow
-                  key={paper.source_id}
-                  paper={paper}
-                  onRestore={() => handleRestore(paper.source_id)}
-                  onDelete={() => handleDelete(paper.source_id)}
-                  restoring={restoringId === paper.source_id}
-                  deleting={deletingId === paper.source_id}
-                />
-              ))}
-            </>
-          )}
-        </>
-      )}
-    </Section>
+    <>
+      <KeepInProjectsDialog
+        prompt={projectPrompt}
+        removing={removing}
+        removeError={removeError}
+        onKeep={closeProjectPrompt}
+        onRemove={handleRemoveFromProjects}
+      />
+      <Section title="Trash">
+        <p className="text-xs text-muted mb-4">
+          Deleted items are kept for 30 days, then permanently removed.
+        </p>
+        {actionError && (
+          <p className="text-xs text-danger mb-3">{actionError}</p>
+        )}
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted">
+            <Spinner size={14} /> Loading…
+          </div>
+        ) : total === 0 ? (
+          <p className="text-sm text-muted py-2">Trash is empty</p>
+        ) : (
+          <>
+            {projects.length > 0 && (
+              <>
+                <p className="text-xs font-semibold text-muted mb-1 mt-2">Projects</p>
+                {projects.map((p) => (
+                  <ProjectTrashRow
+                    key={p.id}
+                    project={p}
+                    onRestore={() => handleRestoreProject(p.id)}
+                    onDelete={() => handleDeleteProject(p.id)}
+                    restoring={restoringProjectId === p.id}
+                    deleting={deletingProjectId === p.id}
+                  />
+                ))}
+              </>
+            )}
+            {papers.length > 0 && (
+              <>
+                <p className="text-xs font-semibold text-muted mb-1 mt-2">Papers</p>
+                {papers.map((paper) => (
+                  <TrashRow
+                    key={paper.source_id}
+                    paper={paper}
+                    onRestore={() => handleRestore(paper)}
+                    onDelete={() => handleDelete(paper.source_id)}
+                    restoring={restoringId === paper.source_id}
+                    deleting={deletingId === paper.source_id}
+                  />
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </Section>
+    </>
   );
 }
 

@@ -18,11 +18,16 @@ export interface TrashedProject {
 }
 
 export async function listTrash(): Promise<{ papers: TrashedPaper[]; projects: TrashedProject[] }> {
-  return apiFetch("/api/trash");
+  return apiFetch<{ papers: TrashedPaper[]; projects: TrashedProject[] }>("/api/trash");
 }
 
-export async function restorePaper(sourceId: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/trash/${encodeURIComponent(sourceId)}/restore`, { method: "POST" });
+export interface RestorePaperResult {
+  pdf_path: string | null;
+  project_fks: number[];
+}
+
+export async function restorePaper(sourceId: string): Promise<RestorePaperResult> {
+  return apiFetch<RestorePaperResult>(`/api/trash/${encodeURIComponent(sourceId)}/restore`, { method: "POST" });
 }
 
 export async function hardDeletePaper(sourceId: string): Promise<{ ok: boolean }> {
