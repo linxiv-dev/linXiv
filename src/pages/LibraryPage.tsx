@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useRef, useMemo, useDeferredValue, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Upload } from "lucide-react";
 import { listPapers, deletePaper } from "../api/papers";
 import { listProjects, addPaperToProject } from "../api/projects";
 import { useSelectionStore } from "../stores/selection";
 import type { Paper } from "../types/api";
+import { normalizeAuthors } from "../lib/papers";
 import { Spinner } from "../components/ui/spinner";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
@@ -16,10 +18,17 @@ import { ImportDialog } from "../components/import/ImportDialog";
 
 type FilterMode = "all" | "has_pdf" | "no_pdf";
 
-function normalizeAuthors(authors: string | string[]): string[] {
-  if (Array.isArray(authors)) return authors;
-  return authors.split(",").map((a) => a.trim()).filter(Boolean);
-}
+const PAPER_FETCH_LIMIT = 5000;
+const VIRTUALIZER_ESTIMATE_HEIGHT = 120;
+const VIRTUALIZER_OVERSCAN = 5;
+const ROW_GAP_PX = "12px";
+const TRASH_RETENTION_DAYS = 30;
+
+const FILTER_LABELS: { mode: FilterMode; label: string }[] = [
+  { mode: "all", label: "All" },
+  { mode: "has_pdf", label: "Has PDF" },
+  { mode: "no_pdf", label: "No PDF" },
+];
 
 function matchesPaper(paper: Paper, query: string): boolean {
   if (!query.trim()) return true;
@@ -34,12 +43,18 @@ export default function LibraryPage() {
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectPickerError, setProjectPickerError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const { selectedIds, clear } = useSelectionStore();
+  const selectedIds = useSelectionStore((s) => s.selectedIds);
+  const clear = useSelectionStore((s) => s.clear);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const {
     data: papersData,
@@ -47,10 +62,13 @@ export default function LibraryPage() {
     error,
   } = useQuery({
     queryKey: ["papers"],
-    queryFn: () => listPapers(500, 0),
+    queryFn: () => listPapers(PAPER_FETCH_LIMIT, 0),
   });
 
-  const { data: projectsData } = useQuery({
+  const {
+    data: projectsData,
+    isLoading: projectsLoading,
+  } = useQuery({
     queryKey: ["projects"],
     queryFn: () => listProjects(),
     enabled: projectPickerOpen,
@@ -58,12 +76,24 @@ export default function LibraryPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      await Promise.all(ids.map((id) => deletePaper(id)));
+      for (const id of ids) {
+        await deletePaper(id);
+      }
     },
-    onSuccess: () => {
+    onMutate: () => {
+      setDeleteError(null);
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["papers"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
+    },
+    onSuccess: () => {
       clear();
+    },
+    onError: (err) => {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete papers"
+      );
     },
   });
 
@@ -75,12 +105,14 @@ export default function LibraryPage() {
       projectId: number;
       sourceIds: string[];
     }) => {
-      await Promise.all(
-        sourceIds.map((id) => addPaperToProject(projectId, id))
-      );
+      for (const id of sourceIds) {
+        await addPaperToProject(projectId, id);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
       setProjectPickerOpen(false);
       setProjectPickerError(null);
       clear();
@@ -94,29 +126,57 @@ export default function LibraryPage() {
 
   const allPapers = papersData?.papers ?? [];
 
-  const filtered = allPapers.filter((paper) => {
-    if (!matchesPaper(paper, search)) return false;
-    if (filterMode === "has_pdf") return paper.has_pdf;
-    if (filterMode === "no_pdf") return !paper.has_pdf;
-    return true;
+  const filtered = useMemo(
+    () =>
+      allPapers.filter((paper) => {
+        if (!matchesPaper(paper, deferredSearch)) return false;
+        if (filterMode === "has_pdf") return paper.has_pdf;
+        if (filterMode === "no_pdf") return !paper.has_pdf;
+        return true;
+      }),
+    [allPapers, deferredSearch, filterMode]
+  );
+
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => VIRTUALIZER_ESTIMATE_HEIGHT,
+    getItemKey: (i) => filtered[i].source_id,
+    overscan: VIRTUALIZER_OVERSCAN,
   });
 
-  function handleDelete() {
-    const ids = Array.from(selectedIds);
+  const handleNavigate = useCallback(
+    (sfk: number) => navigate(`/library/${sfk}`),
+    [navigate]
+  );
+
+  function handleDeleteRequest() {
+    if (deleteMutation.isPending) return;
+    const visibleIds = new Set(filtered.map((p) => p.source_id));
+    const ids = Array.from(selectedIds).filter((id) => visibleIds.has(id));
     if (ids.length === 0) return;
-    deleteMutation.mutate(ids);
+    setPendingDeleteIds(ids);
+  }
+
+  function handleDeleteConfirm() {
+    if (pendingDeleteIds.length > 0) deleteMutation.mutate(pendingDeleteIds);
+    setPendingDeleteIds([]);
   }
 
   function handleAddToProject(projectId: number) {
+    if (addToProjectMutation.isPending) return;
     const ids = Array.from(selectedIds);
     addToProjectMutation.mutate({ projectId, sourceIds: ids });
   }
 
-  const filterLabels: { mode: FilterMode; label: string }[] = [
-    { mode: "all", label: "All" },
-    { mode: "has_pdf", label: "Has PDF" },
-    { mode: "no_pdf", label: "No PDF" },
-  ];
+  const paperCountLabel = useMemo(() => {
+    const total = allPapers.length;
+    const shown = filtered.length;
+    const limitReached = total >= PAPER_FETCH_LIMIT;
+    const totalStr = `${total}${limitReached ? "+" : ""}`;
+    if (shown !== total) return `${shown} of ${totalStr} paper${total !== 1 ? "s" : ""}`;
+    return `${totalStr} paper${total !== 1 ? "s" : ""}`;
+  }, [allPapers.length, filtered.length]);
 
   if (isLoading) {
     return (
@@ -147,19 +207,28 @@ export default function LibraryPage() {
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-sm"
           />
-          <span className="text-muted text-sm shrink-0">
-            {filtered.length} paper{filtered.length !== 1 ? "s" : ""}
-          </span>
-          <div className="flex-1" />
-          <Button variant="muted" size="sm" onClick={() => setImportOpen(true)}>
+          <span className="text-muted text-sm shrink-0">{paperCountLabel}</span>
+          <Button
+            variant="muted"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setImportOpen(true)}
+          >
             <Upload size={13} className="mr-1" />Import
           </Button>
         </div>
+        {deleteError && (
+          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+            {deleteError}
+          </p>
+        )}
         <div className="flex items-center gap-2">
-          {filterLabels.map(({ mode, label }) => (
+          {FILTER_LABELS.map(({ mode, label }) => (
             <button
+              type="button"
               key={mode}
               onClick={() => setFilterMode(mode)}
+              aria-pressed={filterMode === mode}
               className={[
                 "px-3 py-1 rounded-full text-xs font-medium transition-colors border",
                 filterMode === mode
@@ -173,10 +242,10 @@ export default function LibraryPage() {
         </div>
       </div>
 
-      {/* Paper list */}
+      {/* Paper list — always mounted so the virtualizer retains scroll position */}
       <div
-        className="flex-1 overflow-y-auto px-6 py-4 space-y-3"
-        style={{ paddingBottom: selectedIds.size > 0 ? "80px" : undefined }}
+        ref={scrollRef}
+        className={`flex-1 overflow-y-auto px-6 pt-4 ${selectedIds.size > 0 ? "pb-20" : "pb-4"}`}
       >
         {filtered.length === 0 ? (
           <div className="flex items-center justify-center py-20">
@@ -187,14 +256,35 @@ export default function LibraryPage() {
             </p>
           </div>
         ) : (
-          filtered.map((paper) => (
-            <PaperCard
-              key={paper.source_id}
-              paper={paper}
-              showCheckbox
-              onNavigate={(sfk) => navigate(`/library/${sfk}`)}
-            />
-          ))
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((vItem) => (
+              <div
+                key={vItem.key}
+                data-index={vItem.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  transform: `translateY(${vItem.start}px)`,
+                  paddingBottom: ROW_GAP_PX,
+                }}
+              >
+                <PaperCard
+                  paper={filtered[vItem.index]}
+                  showCheckbox
+                  onNavigate={handleNavigate}
+                />
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -202,9 +292,40 @@ export default function LibraryPage() {
       <SelectionBar
         count={selectedIds.size}
         onAddToProject={() => setProjectPickerOpen(true)}
-        onDelete={handleDelete}
+        onDelete={handleDeleteRequest}
         onClear={clear}
       />
+
+      {/* Delete confirmation dialog */}
+      <Dialog
+        open={pendingDeleteIds.length > 0}
+        onClose={() => setPendingDeleteIds([])}
+        title="Delete Papers"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text">
+            Send {pendingDeleteIds.length} paper{pendingDeleteIds.length !== 1 ? "s" : ""} to trash?
+            They can be restored from Settings within {TRASH_RETENTION_DAYS} days.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPendingDeleteIds([])}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       {/* Import dialog */}
       <ImportDialog
@@ -234,12 +355,17 @@ export default function LibraryPage() {
               {projectPickerError}
             </p>
           )}
-          {!projectsData?.projects?.length ? (
+          {projectsLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Spinner size={20} />
+            </div>
+          ) : !projectsData?.projects?.length ? (
             <p className="text-muted text-sm">No projects found.</p>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {projectsData.projects.map((project) => (
                 <button
+                  type="button"
                   key={project.id}
                   onClick={() => handleAddToProject(project.id)}
                   disabled={addToProjectMutation.isPending}
