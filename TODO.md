@@ -44,6 +44,7 @@ Items flagged during design review. Grouped by area.
 
 ## Bugs
 - [x] Dialog component (`src/components/ui/dialog.tsx`): content overflows the modal boundary, clipping buttons at the right edge — affects all dialogs with the backdrop-blur overlay
+- [ ] Project tags not persisting — tags entered via TagInput on ProjectDetailPage are not saved (TAG table and PROJECT_TO_TAG remain empty)
 
 ## Integrations & Import/Export
 - [ x ] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
