@@ -148,6 +148,14 @@ export const PRESETS = {
 
 export type PresetName = keyof typeof PRESETS;
 
+// Exported so components can share a single source of truth for hex validation.
+export const VALID_HEX = /^#[0-9a-fA-F]{6}$/;
+
+// Glass blur and saturation constants (Cupertino preset at 100% intensity).
+const GLASS_BLUR_MAX = 24;
+const GLASS_BLUR_SM_MAX = 20;
+const GLASS_SAT_RANGE = 0.8; // saturation goes from 1.0 to (1.0 + GLASS_SAT_RANGE)
+
 export function getColors(
   preset: PresetName,
   mode: ThemeMode,
@@ -156,11 +164,20 @@ export function getColors(
   return { ...PRESETS[preset][mode], ...overrides } as ThemeColors;
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
+}
+
 export function applyTheme(
   preset: PresetName,
   mode: ThemeMode,
   overrides: Partial<ThemeColors> = {},
-  glassEffects = true
+  glassIntensity = 100,
+  glassTintColor = "",
+  glassTintAlpha = 15
 ): void {
   const colors = getColors(preset, mode, overrides);
   const root = document.documentElement;
@@ -174,14 +191,28 @@ export function applyTheme(
   root.style.setProperty("--color-muted", colors.muted);
   root.style.setProperty("--color-success", colors.success);
   root.style.setProperty("--color-danger", colors.danger);
-  const wantsGlass = preset === "Cupertino" && glassEffects;
-  root.style.setProperty(
-    "--panel-blur",
-    wantsGlass ? "blur(24px) saturate(1.8)" : "none"
-  );
-  if (wantsGlass) {
-    root.setAttribute("data-glass", "true");
+
+  if (preset === "Cupertino") {
+    const t = glassIntensity / 100;
+    root.style.setProperty("--glass-blur", `${Math.round(t * GLASS_BLUR_MAX)}px`);
+    root.style.setProperty("--glass-blur-sm", `${Math.round(t * GLASS_BLUR_SM_MAX)}px`);
+    root.style.setProperty("--glass-sat", `${(1 + t * GLASS_SAT_RANGE).toFixed(2)}`);
+    // Tint applies independently from blur intensity.
+    const tint = VALID_HEX.test(glassTintColor)
+      ? hexToRgba(glassTintColor, glassTintAlpha / 100)
+      : "transparent";
+    root.style.setProperty("--glass-tint", tint);
+    // data-glass gates backdrop-filter rules; tint CSS applies regardless.
+    if (glassIntensity > 0) {
+      root.setAttribute("data-glass", "true");
+    } else {
+      root.removeAttribute("data-glass");
+    }
   } else {
+    root.style.setProperty("--glass-blur", "0px");
+    root.style.setProperty("--glass-blur-sm", "0px");
+    root.style.setProperty("--glass-sat", "1");
+    root.style.setProperty("--glass-tint", "transparent");
     root.removeAttribute("data-glass");
   }
 }

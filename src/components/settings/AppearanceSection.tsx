@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useId, useState, useRef, useEffect } from "react";
 import { useThemeStore } from "../../stores/theme";
-import { PRESETS } from "../../lib/theme";
+import { PRESETS, VALID_HEX } from "../../lib/theme";
 import type { PresetName, ThemeColors, ThemeMode } from "../../lib/theme";
 import { updateSettings } from "../../api/settings";
 import { Input } from "../ui/input";
@@ -17,7 +17,108 @@ const COLOR_OVERRIDE_KEYS: { key: keyof ThemeColors; label: string }[] = [
   { key: "muted",   label: "Muted"      },
 ];
 
-const VALID_HEX = /^#[0-9a-fA-F]{6}$/;
+// Default tint color seeded into the picker when user first clicks the empty tint swatch.
+const DEFAULT_TINT = "#7fb3f0";
+
+interface HexColorInputProps {
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  ariaLabel?: string;
+  /** When true, clicking the swatch with no color seeds DEFAULT_TINT immediately. */
+  seedOnEmpty?: boolean;
+}
+
+function HexColorInput({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  seedOnEmpty = false,
+}: HexColorInputProps) {
+  const errorId = useId();
+  const [local, setLocal] = useState(value);
+  const pickerRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Guard prevents clobbering a partially typed value if the parent re-renders
+    // with the same external value.
+    setLocal((prev) => (prev !== value ? value : prev));
+  }, [value]);
+
+  function handleText(val: string) {
+    setLocal(val);
+    if (val === "" || VALID_HEX.test(val)) {
+      onChange(val);
+    }
+  }
+
+  function handlePicker(val: string) {
+    setLocal(val);
+    onChange(val);
+  }
+
+  const hasSwatch = VALID_HEX.test(local);
+  const swatchColor = hasSwatch ? local : "#888888";
+  const isInvalid = local !== "" && !VALID_HEX.test(local);
+
+  function openPicker() {
+    const picker = pickerRef.current;
+    if (!picker) return;
+    if (seedOnEmpty && !hasSwatch) {
+      // Set DOM value imperatively before click so the OS picker opens with the
+      // seeded color, not the gray fallback from the previous render cycle.
+      picker.value = DEFAULT_TINT;
+      setLocal(DEFAULT_TINT);
+      onChange(DEFAULT_TINT);
+    }
+    picker.click();
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="relative inline-flex flex-shrink-0">
+        <button
+          type="button"
+          aria-label={ariaLabel ?? "Choose color"}
+          className="rounded-full border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+          style={{
+            width: 20,
+            height: 20,
+            background: hasSwatch ? swatchColor : "transparent",
+            padding: 0,
+          }}
+          onClick={openPicker}
+        />
+        <input
+          ref={pickerRef}
+          type="color"
+          value={swatchColor}
+          onChange={(e) => handlePicker(e.target.value)}
+          aria-hidden="true"
+          className="opacity-0 absolute w-0 h-0 pointer-events-none"
+          tabIndex={-1}
+        />
+      </span>
+      <Input
+        type="text"
+        value={local}
+        placeholder={placeholder}
+        onChange={(e) => handleText(e.target.value)}
+        style={{ width: 90, flexShrink: 0 }}
+        spellCheck={false}
+        aria-invalid={isInvalid}
+        aria-describedby={isInvalid ? errorId : undefined}
+        className={isInvalid ? "border-[var(--color-danger)]" : ""}
+      />
+      {isInvalid && (
+        <span id={errorId} className="sr-only">
+          Enter a 6-character hex color like #ff0000
+        </span>
+      )}
+    </div>
+  );
+}
 
 function ColorRow({
   label,
@@ -30,24 +131,18 @@ function ColorRow({
   currentValue: string;
   onChangeDebounced: () => void;
 }) {
-  const [localVal, setLocalVal] = useState(currentValue);
   const setOverride = useThemeStore((s) => s.setOverride);
-  const colorInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setLocalVal(currentValue);
-  }, [currentValue]);
+  const removeOverride = useThemeStore((s) => s.removeOverride);
 
   function handleChange(val: string) {
-    setLocalVal(val);
-    if (VALID_HEX.test(val)) {
+    if (val === "") {
+      removeOverride(colorKey);
+      onChangeDebounced();
+    } else if (VALID_HEX.test(val)) {
       setOverride(colorKey, val);
       onChangeDebounced();
     }
   }
-
-  const swatchColor = VALID_HEX.test(localVal) ? localVal : currentValue;
-  const isInvalid = localVal !== "" && !VALID_HEX.test(localVal);
 
   return (
     <div className="flex items-center gap-3 mb-3">
@@ -57,39 +152,106 @@ function ColorRow({
       >
         {label}
       </span>
-      <span className="relative inline-flex flex-shrink-0">
-        <button
-          type="button"
-          aria-label={`Choose ${label} color`}
-          className="rounded-full border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
-          style={{ width: 20, height: 20, background: swatchColor, padding: 0 }}
-          onClick={() => colorInputRef.current?.click()}
-        />
-        <input
-          ref={colorInputRef}
-          type="color"
-          value={swatchColor}
-          onChange={(e) => handleChange(e.target.value)}
-          className="opacity-0 absolute w-0 h-0 pointer-events-none"
-          tabIndex={-1}
-        />
-      </span>
-      <Input
-        type="text"
-        value={localVal}
-        onChange={(e) => handleChange(e.target.value)}
-        style={{ width: 90, flexShrink: 0 }}
-        spellCheck={false}
-        aria-invalid={isInvalid}
-        className={isInvalid ? "border-[var(--color-danger)]" : ""}
+      <HexColorInput
+        value={currentValue}
+        onChange={handleChange}
+        ariaLabel={`Choose ${label} color`}
       />
     </div>
   );
 }
 
+// Self-subscribed so slider drags only re-render this component.
+function GlassControls() {
+  const {
+    glassIntensity, glassTintColor, glassTintAlpha,
+    setGlassIntensity, setGlassTintColor, setGlassTintAlpha,
+  } = useThemeStore();
+
+  const hasTint = VALID_HEX.test(glassTintColor);
+
+  return (
+    <div className="py-2 mb-2 border-t border-border">
+      <span className="text-sm text-text font-medium">Glass effects</span>
+      <p className="text-xs text-muted mt-0.5 mb-3">
+        Blur and vibrancy on panels (Cupertino only). Tint applies even at 0% blur.
+      </p>
+
+      <div className="flex items-center gap-3 mb-3">
+        <span
+          className="text-sm text-muted font-medium"
+          style={{ width: "7rem", flexShrink: 0 }}
+        >
+          Blur intensity
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={glassIntensity}
+          onChange={(e) => setGlassIntensity(Number(e.target.value))}
+          className="flex-1"
+          style={{ accentColor: "var(--color-accent)" }}
+        />
+        <span
+          className="text-sm text-muted tabular-nums"
+          style={{ width: "2.5rem", textAlign: "right", flexShrink: 0 }}
+        >
+          {glassIntensity}%
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 mb-2">
+        <span
+          className="text-sm text-muted font-medium"
+          style={{ width: "7rem", flexShrink: 0 }}
+        >
+          Tint color
+        </span>
+        <HexColorInput
+          value={glassTintColor}
+          onChange={setGlassTintColor}
+          placeholder="none"
+          ariaLabel="Choose glass tint color"
+          seedOnEmpty
+        />
+      </div>
+
+      {hasTint && (
+        <div className="flex items-center gap-3">
+          <span
+            className="text-sm text-muted font-medium"
+            style={{ width: "7rem", flexShrink: 0 }}
+          >
+            Tint opacity
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={glassTintAlpha}
+            onChange={(e) => setGlassTintAlpha(Number(e.target.value))}
+            className="flex-1"
+            style={{ accentColor: "var(--color-accent)" }}
+          />
+          <span
+            className="text-sm text-muted tabular-nums"
+            style={{ width: "2.5rem", textAlign: "right", flexShrink: 0 }}
+          >
+            {glassTintAlpha}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AppearanceSection() {
-  const { preset, mode, overrides, glassEffects, setPreset, setMode, setGlassEffects } =
-    useThemeStore();
+  const preset     = useThemeStore((s) => s.preset);
+  const mode       = useThemeStore((s) => s.mode);
+  const overrides  = useThemeStore((s) => s.overrides);
+  const setPreset  = useThemeStore((s) => s.setPreset);
+  const setMode    = useThemeStore((s) => s.setMode);
   const [overridesOpen, setOverridesOpen] = useState(false);
 
   // Reads overrides at fire time (not capture time) so rapid multi-key edits
@@ -156,29 +318,7 @@ export function AppearanceSection() {
         ))}
       </div>
 
-      {preset === "Cupertino" && (
-        <div className="flex items-center justify-between py-2 mb-2 border-t border-border">
-          <div>
-            <span className="text-sm text-text font-medium">Glass effects</span>
-            <p className="text-xs text-muted mt-0.5">Blur and vibrancy on panels (Cupertino only)</p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={glassEffects}
-            onClick={() => setGlassEffects(!glassEffects)}
-            className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors"
-            style={{
-              background: glassEffects ? "var(--color-accent)" : "var(--color-border)",
-            }}
-          >
-            <span
-              className="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform"
-              style={{ transform: glassEffects ? "translateX(20px)" : "translateX(0)" }}
-            />
-          </button>
-        </div>
-      )}
+      {preset === "Cupertino" && <GlassControls />}
 
       <button
         type="button"

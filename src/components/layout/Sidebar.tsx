@@ -43,6 +43,7 @@ export function Sidebar() {
 
   return (
     <aside
+      className="app-sidebar"
       style={{
         width: w,
         minWidth: w,
