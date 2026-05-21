@@ -26,7 +26,7 @@ export function Dialog({ open, onClose, title, children, size = "md" }: DialogPr
           className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-in fade-in"
         />
         <RadixDialog.Content
-          className={`fixed left-1/2 top-1/2 z-50 w-full ${maxW} -translate-x-1/2 -translate-y-1/2 rounded-xl p-6 shadow-2xl animate-in fade-in zoom-in-95`}
+          className={`fixed left-1/2 top-1/2 z-50 w-full ${maxW} -translate-x-1/2 -translate-y-1/2 rounded-xl p-6 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95`}
           style={{
             backgroundColor: "var(--color-panel)",
             border: "1px solid var(--color-border)",
