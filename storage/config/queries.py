@@ -17,6 +17,7 @@ import sqlite3
 from typing import Iterable, Optional
 
 from .core import DB_PATH
+from service.models.project import Status as _ProjectStatus
 
 
 def _connect(db_path: str | None = None) -> sqlite3.Connection:
@@ -285,6 +286,74 @@ def count_project_papers(project_fk: int) -> int:
 def list_projects_for_paper(source_fk: int) -> list[sqlite3.Row]:
     with _connect() as conn:
         return conn.execute(_LIST_PROJECTS_FOR_PAPER_SQL, (source_fk,)).fetchall()
+
+
+_PROJECT_TAGS_BULK_BASE_SQL = """
+SELECT DISTINCT ptt.PROJECT_FK, t.TAG
+FROM TAG t
+JOIN PROJECT_TO_TAG ptt ON ptt.TAG_FK = t.TAG_FK
+"""
+
+_PROJECT_SOURCE_IDS_BULK_BASE_SQL = """
+SELECT p2p.PROJECT_FK, pr.SOURCE_ID
+FROM PROJECT_TO_PAPER p2p
+JOIN PAPER_ROOTS pr ON pr.SOURCE_FK = p2p.SOURCE_FK
+"""
+
+def list_project_tags_bulk(
+    project_fks: list[int] | None = None,
+) -> dict[int, list[str]]:
+    """Return {project_fk: [tag, ...]} for all (or the given) projects in one query.
+
+    Pass project_fks=None to fetch for all projects. Pass an empty list to get {}.
+    SQLite's SQLITE_LIMIT_VARIABLE_NUMBER caps IN-list size at ~999; callers are
+    expected to stay well below that (project counts in the hundreds at most).
+    """
+    if project_fks is not None and not project_fks:
+        return {}
+    q = _in("ptt.PROJECT_FK", project_fks) if project_fks is not None else None
+    where = f"WHERE {q.sql} " if q else ""
+    params: tuple = q.params if q else ()
+    with _connect() as conn:
+        rows = conn.execute(
+            _PROJECT_TAGS_BULK_BASE_SQL + where + "ORDER BY ptt.PROJECT_FK, t.TAG",
+            params,
+        ).fetchall()
+    result: dict[int, list[str]] = {}
+    for row in rows:
+        result.setdefault(int(row["PROJECT_FK"]), []).append(str(row["TAG"]))
+    return result
+
+
+def list_project_source_ids_bulk(
+    project_fks: list[int] | None = None,
+) -> dict[int, list[str]]:
+    """Return {project_fk: [source_id, ...]} for all (or the given) projects in one query.
+
+    Only active papers (PAPER_ROOTS.STATUS = 'active') are included, consistent
+    with the per-project filter in storage.projects._load_source_fks.
+    Ordering within each project follows PROJECT_TO_PAPER_FK (approximates insertion
+    order; no AUTOINCREMENT so strict monotonicity is not engine-guaranteed).
+
+    Pass project_fks=None to fetch for all projects. Pass an empty list to get {}.
+    SQLite's SQLITE_LIMIT_VARIABLE_NUMBER caps IN-list size at ~999; callers are
+    expected to stay well below that (project counts in the hundreds at most).
+    """
+    if project_fks is not None and not project_fks:
+        return {}
+    q: Q = Q("pr.STATUS = ?", _ProjectStatus.ACTIVE.value)
+    if project_fks is not None:
+        q = q & _in("p2p.PROJECT_FK", project_fks)
+    with _connect() as conn:
+        rows = conn.execute(
+            _PROJECT_SOURCE_IDS_BULK_BASE_SQL
+            + f"WHERE {q.sql} ORDER BY p2p.PROJECT_FK, p2p.PROJECT_TO_PAPER_FK",
+            q.params,
+        ).fetchall()
+    result: dict[int, list[str]] = {}
+    for row in rows:
+        result.setdefault(int(row["PROJECT_FK"]), []).append(str(row["SOURCE_ID"]))
+    return result
 
 
 # ---------------------------------------------------------------------------

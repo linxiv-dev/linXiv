@@ -73,6 +73,7 @@ from service.project import (
     restore as restore_project_svc,
 )
 from storage.tags import get_project_tags
+from storage.config.queries import Q, list_project_tags_bulk, list_project_source_ids_bulk
 import storage.search_history as _search_history
 import storage.search_state as _search_state
 
@@ -307,25 +308,28 @@ def api_tags() -> dict:
 
 @app.get("/api/projects")
 def api_projects(status: str = "active") -> dict:
-    projects = filter_projects()
-    if status != "all":
-        projects = [p for p in projects if p.status.value == status]
-    out = []
-    for p in projects:
-        if p.id is None:
-            continue
-        out.append(
-            {
-                "id": p.id,
-                "name": p.name,
-                "description": p.description or "",
-                "color_hex": color_to_hex(p.color) if p.color else None,
-                "project_tags": get_project_tags(p.id),
-                "source_ids": sfks_to_source_ids(p.source_fks),
-                "status": p.status.value,
-                "paper_count": p.paper_count,
-            }
-        )
+    condition = Q("STATUS = ?", status) if status != "all" else None
+    projects = filter_projects(condition, load_sources=False)
+    valid = [(p, p.id) for p in projects if p.id is not None]
+    null_count = len(projects) - len(valid)
+    if null_count:
+        print(f"[linxiv] api_projects: {null_count} project(s) with null id excluded (data integrity error)")
+    project_ids = [pid for _, pid in valid]
+    tags_by_project = list_project_tags_bulk(project_ids)
+    source_ids_by_project = list_project_source_ids_bulk(project_ids)
+    out = [
+        {
+            "id": pid,
+            "name": p.name,
+            "description": p.description,
+            "color_hex": color_to_hex(p.color) if p.color is not None else None,
+            "project_tags": tags_by_project.get(pid, []),
+            "source_ids": source_ids_by_project.get(pid, []),
+            "status": p.status.value,
+            "paper_count": len(source_ids_by_project.get(pid, [])),
+        }
+        for p, pid in valid
+    ]
     return {"projects": out}
 
 
@@ -367,7 +371,7 @@ def api_project_get(project_id: int) -> dict:
         "id": p.id,
         "name": p.name,
         "description": p.description or "",
-        "color_hex": color_to_hex(p.color) if p.color else None,
+        "color_hex": color_to_hex(p.color) if p.color is not None else None,
         "project_tags": get_project_tags(p.id) if p.id else [],
         "source_ids": sfks_to_source_ids(p.source_fks),
         "status": p.status.value,
