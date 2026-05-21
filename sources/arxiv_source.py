@@ -39,6 +39,14 @@ def _result_to_metadata(result: arxiv.Result) -> PaperMetadata:
     )
 
 
+_SORT_MAP: dict[str, tuple[arxiv.SortCriterion, arxiv.SortOrder]] = {
+    "relevance":   (arxiv.SortCriterion.Relevance,       arxiv.SortOrder.Descending),
+    "newest":      (arxiv.SortCriterion.SubmittedDate,   arxiv.SortOrder.Descending),
+    "oldest":      (arxiv.SortCriterion.SubmittedDate,   arxiv.SortOrder.Ascending),
+    "lastUpdated": (arxiv.SortCriterion.LastUpdatedDate, arxiv.SortOrder.Descending),
+}
+
+
 class ArxivSource(PaperSource):
     """Paper source backed by the arXiv API."""
 
@@ -50,12 +58,20 @@ class ArxivSource(PaperSource):
     def __init__(self) -> None:
         self._client = arxiv.Client(num_retries=1, delay_seconds=7.0)
 
-    def search(self, query: str, max_results: int = 10) -> list[PaperMetadata]:
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        sort: str = "relevance",
+    ) -> list[PaperMetadata]:
+        if sort not in _SORT_MAP:
+            raise ValueError(f"unknown sort {sort!r}; valid: {sorted(_SORT_MAP)}")
+        sort_by, sort_order = _SORT_MAP[sort]
         search = arxiv.Search(
             query=query,
             max_results=max_results,
-            sort_by=arxiv.SortCriterion.Relevance,
-            sort_order=arxiv.SortOrder.Descending,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
         _check_ratelimit()
         try:

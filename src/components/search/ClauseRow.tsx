@@ -9,6 +9,7 @@ interface ClauseRowProps {
   onRemove: () => void;
   onSubmit: () => void;
   isFirst: boolean;
+  showFieldSelector?: boolean;
   suggestions?: string[];
   onSuggestionQuery?: (prefix: string) => void;
 }
@@ -34,6 +35,7 @@ export function ClauseRow({
   onRemove,
   onSubmit,
   isFirst,
+  showFieldSelector = true,
   suggestions = [],
   onSuggestionQuery,
 }: ClauseRowProps) {
@@ -77,10 +79,10 @@ export function ClauseRow({
         ))}
       </select>
 
-      {/* Field selector */}
+      {/* Field selector — only meaningful for arXiv; hidden for other sources */}
       <select
         className={selectBase}
-        style={{ width: 120 }}
+        style={{ width: 120, visibility: showFieldSelector ? "visible" : "hidden" }}
         value={clause.field}
         onChange={(e) =>
           onChange({ ...clause, field: e.target.value as Clause["field"] })

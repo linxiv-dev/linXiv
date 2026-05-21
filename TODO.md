@@ -3,13 +3,13 @@
 Items flagged during design review. Grouped by area.
 
 ## Search
-- [ ] Per-source sort options (arXiv: relevance / date / last-updated; OpenAlex: its own sort fields)
+- [x] Per-source sort options (arXiv: relevance / date / last-updated; OpenAlex: its own sort fields)
 - [x] `+` append button adjacent to Search button (adds to working set instead of replacing)
 - [x] `search_history` table + autocomplete dropdown on clause input (shows matches after 1 char)
 - [x] `search_results` persistence table; Search page restores from it on mount
 - [x] Remove Search from keep-alive in AppShell once db restore is in place
 - [ ] TeX rendering in result titles and abstracts (library choice TBD — see Deferred)
-- [ ] Query builder like in original gui
+- [x] Query builder like in original gui
 ## Library
 - [ ] Virtual scrolling for paper list (expected scale: thousands of papers)
 - [x] Paper Metadata Editor — shared create/edit form; port field set from PyQt, do not redesign
@@ -20,7 +20,7 @@ Items flagged during design review. Grouped by area.
 - [ ] In-app PDF viewer tab (currently only "Open PDF" external link + download)
 - [ ] Version selector in header (switch between stored versions; diff view between any two)
 - [ ] Subtle version-awareness indicators in GUI: library badge, new-version nudge, fetch-missing action
-- [ ] Notes tab: markdown editor, project scope picker defaulting to navigation context, optional version pin
+- [ ] Notes tab: markdown editor, project scope picker defaulting to navigation context, optional version pin. Blocked by choice of latex renderer
 
 ## Graph
 - [ ] postMessage bridge: selected node IDs → parent app → Export flow

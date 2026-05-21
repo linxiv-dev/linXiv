@@ -91,4 +91,5 @@ export interface Clause {
   operator: "AND" | "OR" | "AND NOT";
   field: "all" | "ti" | "au" | "abs";
   value: string;
+  uid: string;
 }

@@ -78,6 +78,12 @@ def _migrate_paper_meta_provider(conn: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_search_state_sort_json(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(SEARCH_STATE)")}
+    if "SORT_JSON" not in cols:
+        conn.execute("ALTER TABLE SEARCH_STATE ADD COLUMN SORT_JSON TEXT")
+
+
 def apply_sql_schema(conn: sqlite3.Connection) -> None:
     """Create bundled tables (and optional views/indexes) from ``sql/tables``."""
     conn.execute("PRAGMA foreign_keys = ON")
@@ -87,6 +93,7 @@ def apply_sql_schema(conn: sqlite3.Connection) -> None:
             conn.executescript(script)
     _migrate_paper_roots_soft_delete(conn)
     _migrate_paper_meta_provider(conn)
+    _migrate_search_state_sort_json(conn)
     _apply_views(conn)
     _apply_indices(conn)
 

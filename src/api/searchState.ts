@@ -7,6 +7,7 @@ export interface SearchState {
   max_results: number;
   results: SearchResult[];
   saved_ids: string[];
+  sort_prefs: Record<string, string> | null;
   updated_at: string;
 }
 
@@ -27,6 +28,7 @@ export async function saveSearchState(
   maxResults: number,
   results: SearchResult[],
   savedIds: string[],
+  sortPrefs: Record<string, string> | null = null,
 ): Promise<void> {
   await apiFetch("/api/search/state", {
     method: "POST",
@@ -36,6 +38,7 @@ export async function saveSearchState(
       max_results: maxResults,
       results,
       saved_ids: savedIds,
+      sort_prefs: sortPrefs,
     }),
   });
 }

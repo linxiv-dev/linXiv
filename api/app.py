@@ -8,6 +8,7 @@ import os
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
+from typing import Literal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,12 +31,13 @@ from storage.db import (
     init_db,
     parse_entry_id,
     save_paper,
-    save_papers,
     save_paper_metadata,
+    save_papers_metadata,
 )
-from sources import resolve_doi, fetch_paper_metadata, search_papers
+from sources import resolve_doi, fetch_paper_metadata
 from sources.base import PaperMetadata
 from sources.pdf_metadata import resolve_pdf_metadata
+from sources.arxiv_source import ArxivSource
 from sources.openalex_source import OpenAlexSource
 from formats.bibtex import BibTeXFormat
 from formats.markdown import ObsidianFormat
@@ -78,6 +80,25 @@ import storage.search_history as _search_history
 import storage.search_state as _search_state
 
 PDF_DIR = data_dir() / "pdfs"
+
+_arxiv_source = ArxivSource()
+_openalex = OpenAlexSource()
+
+
+def _metadata_to_search_result(meta: PaperMetadata) -> dict:
+    """Serialize a PaperMetadata to the SearchResult shape the frontend expects."""
+    bare_id = meta.source_id.split(":", 1)[-1]
+    return {
+        "source_id": bare_id,
+        "version": meta.version,
+        "title": meta.title,
+        "summary": meta.summary or "",
+        "authors": meta.authors,
+        "published": "" if meta.published == datetime.date.min else meta.published.isoformat(),
+        "pdf_url": meta.url or "",
+        "primary_category": meta.category or "",
+        "entry_id": meta.source_id,
+    }
 
 
 def _cors_config() -> tuple[list[str], bool]:
@@ -476,19 +497,24 @@ class ArxivSearchBody(BaseModel):
     query: str = Field(min_length=1)
     max_results: int = Field(default=25, ge=1, le=100)
     save: bool = False
+    sort: Literal["relevance", "newest", "oldest", "lastUpdated"] = "relevance"
 
 
 @app.post("/api/arxiv/search")
 def api_arxiv_search(body: ArxivSearchBody) -> dict:
     try:
-        results = search_papers(body.query.strip(), max_results=body.max_results)
+        results = _arxiv_source.search(
+            body.query.strip(),
+            max_results=body.max_results,
+            sort=body.sort,
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    summaries = [_arxiv_result_summary(p) for p in results]
+    summaries = [_metadata_to_search_result(m) for m in results]
     saved: list[str] = []
     if body.save and results:
-        save_papers(results)
-        saved = [parse_entry_id(p.entry_id)[0] for p in results]
+        pairs = save_papers_metadata(results, tags=None)
+        saved = [sid.split(":", 1)[-1] for sid, _ in pairs]
     return {"results": summaries, "saved_source_ids": saved if body.save else []}
 
 
@@ -506,6 +532,7 @@ class SearchStateBody(BaseModel):
     max_results: int = Field(default=25)
     results: list[dict] = Field(default_factory=list)
     saved_ids: list[str] = Field(default_factory=list)
+    sort_prefs: dict[str, str] | None = None
 
 
 @app.get("/api/search/state")
@@ -529,6 +556,7 @@ def api_search_state_save(body: SearchStateBody) -> dict:
         max_results=body.max_results,
         results=body.results,
         saved_ids=body.saved_ids,
+        sort_prefs=body.sort_prefs,
     )
     return {"ok": True}
 
@@ -776,13 +804,18 @@ def api_trash_project_hard_delete(project_id: int) -> dict:
 
 class OpenAlexSearchBody(BaseModel):
     query: str = Field(min_length=1)
-    max_results: int = Field(default=25, ge=1, le=100)
+    max_results: int = Field(default=25, ge=1, le=100)  # OpenAlex supports up to 200 per_page
+    sort: Literal["relevance", "newest", "oldest", "citations"] = "relevance"
 
 
 @app.post("/api/openalex/search")
 def api_openalex_search(body: OpenAlexSearchBody) -> dict:
     try:
-        results = OpenAlexSource().search(body.query.strip(), max_results=body.max_results)
+        results = _openalex.search(
+            body.query.strip(),
+            max_results=body.max_results,
+            sort=body.sort,
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return {
@@ -791,12 +824,11 @@ def api_openalex_search(body: OpenAlexSearchBody) -> dict:
                 "source_id": m.source_id,
                 "version": m.version,
                 "title": m.title,
-                "summary": m.summary,
+                "summary": m.summary or "",
                 "authors": m.authors,
-                "published": m.published.isoformat() if m.published else None,
-                "doi": m.doi,
-                "url": m.url,
-                "primary_category": m.category,
+                "published": "" if m.published == datetime.date.min else m.published.isoformat(),
+                "pdf_url": m.url or "",
+                "primary_category": m.category or "",
                 "entry_id": m.source_id,
             }
             for m in results
@@ -1023,7 +1055,7 @@ class OpenAlexSaveBody(BaseModel):
 @app.post("/api/openalex/save")
 def api_openalex_save(body: OpenAlexSaveBody) -> dict:
     try:
-        meta = OpenAlexSource().fetch_by_id(body.source_id.strip())
+        meta = _openalex.fetch_by_id(body.source_id.strip())
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     save_paper_metadata(meta)
