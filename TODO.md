@@ -16,7 +16,7 @@ Items flagged during design review. Grouped by area.
 - [ ] postMessage bridge: selected PaperCard source_fks → parent app → Add to Project flow
 
 ## Paper Detail
-- [ ] Restore-from-trash "keep in projects?" prompt — **API complete** (`POST /api/trash/{source_id}/restore` returns `project_fks`; `DELETE /api/papers/sfk/{source_fk}/projects` removes all memberships). Frontend dialog still needed (see ADR-0009)
+- [x] Restore-from-trash "keep in projects?" prompt — API + frontend dialog complete (`KeepInProjectsDialog` in SettingsPage, `removeFromAllProjects` wired)
 - [ ] In-app PDF viewer tab (currently only "Open PDF" external link + download)
 - [ ] Version selector in header (switch between stored versions; diff view between any two)
 - [ ] Subtle version-awareness indicators in GUI: library badge, new-version nudge, fetch-missing action
@@ -42,6 +42,9 @@ Items flagged during design review. Grouped by area.
 ## Sidebar
 - [ x ] Configurable optional page toggles in Settings (Graph, Search, DOI Lookup on by default; Tags, Notes Editor off by default)
 
+## Bugs
+- [x] Dialog component (`src/components/ui/dialog.tsx`): content overflows the modal boundary, clipping buttons at the right edge — affects all dialogs with the backdrop-blur overlay
+
 ## Integrations & Import/Export
 - [ x ] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
 - [ ] PDF import: make async with progress indicator (currently synchronous / blocking). Note: `exportImport.ts` also bypasses `apiFetch` entirely and duplicates BASE_URL/isTauri detection — fix the infrastructure seam when touching this module.
@@ -58,7 +61,7 @@ Items flagged during design review. Grouped by area.
 - [x] **[HIGH PRIORITY] Service layer punches through storage seam** — `service/paper.py` has three functions (`_get_paper_project_fks`, `set_has_pdf_by_source`, `remove_from_all_projects`) that call `db._connect()` directly and write raw SQL. Add proper `storage/db.*` functions for these three and remove the internal-access violations.
 - [x] **Paper dispatch logging** — `service/paper.py:Paper` dataclass dispatch uses `if paper.source_fk:` (falsy check, wrong for id=0) and silently resolves to the first populated key with no validation that exactly one is set. Add verbose logging at dispatch time and fix checks to `is not None`.
 - [ ] **SettingsPage decomposition** — `src/pages/SettingsPage.tsx` is 910 lines across 10+ concerns (Appearance, API Keys, Storage, CrossRef, Search, Sidebar, Integrations, Trash). Extract each section into `src/components/settings/`.
-- [ ] **N+1 query in project listing** — `api/app.py` project list endpoint calls `get_project_tags` and `sfks_to_source_ids` per project, one DB query per paper per project. Replace with a single JOIN query; use the `Q` class in `storage/config/queries.py` to compose the WHERE predicates so the query stays readable and composable rather than raw f-strings.
+- [x] **N+1 query in project listing** — resolved via `list_project_tags_bulk` and `list_project_source_ids_bulk` in `storage/config/queries.py`; project list endpoint now fetches tags and source_ids in two queries total regardless of project count.
 
 ## Deferred
 - [ ] TeX rendering library decision (KaTeX vs MathJax — must be compatible with future Notes Editor)
