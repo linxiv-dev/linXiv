@@ -52,8 +52,7 @@ Items flagged during design review. Grouped by area.
 - [ ] Export methods toggle in Settings (show only enabled targets; prune candidates before release)
 
 ## Appearance / Theming
-- [ ] Custom palettes: save named color configurations; appear alongside built-in presets in Settings; Changing of pallette selection ui to be slightly more usable will be important.
-- [ ] Glass effect: replace boolean toggle with percentage intensity input + hex color tint input
+- [ ] Custom palettes: save named color configurations; appear alongside built-in presets in Settings; Changing of pallette selection ui to be slightly more usable will be important. Allow tinting to be available on each setting. Each setting should be an rgb comlumn and an a column, instead of the "cupertino only thing we got going on"
 - [x] Right now overrides always override genuinely even if you try to switch to old theme. We should make it so that the overrides are only changing before you switch to another a set theme. and then that theme takes over the overrides, right now you can never return to the defaults.
 
 ## Architecture & Backend Integrity
