@@ -51,58 +51,8 @@ export const PaperCard = memo(function PaperCard({
             className="mt-0.5 accent-[var(--color-accent)] cursor-pointer"
             aria-label={`Select ${paper.title}`}
           />
-        )}
-        <span className="flex-1 font-medium text-text leading-snug line-clamp-2">
-          {paper.title}
-        </span>
-        {paper.has_pdf && (
-          <Badge
-            className="shrink-0 ml-1"
-            style={{
-              borderColor: "var(--color-success)",
-              color: "var(--color-success)",
-              backgroundColor: "color-mix(in srgb, var(--color-success) 15%, transparent)",
-            }}
-          >
-            PDF
-          </Badge>
-        )}
-      </div>
-
-      {/* Row 2: authors + date */}
-      <div className="flex items-center gap-2 mt-1.5 text-muted text-sm">
-        <span className="truncate">
-          {displayAuthors.join(", ")}
-          {hasMoreAuthors && " et al."}
-        </span>
-        {publishedYear && (
-          <>
-            <span className="text-border">·</span>
-            <span className="shrink-0">{publishedYear}</span>
-          </>
-        )}
-      </div>
-
-      {/* Row 3: category + tags */}
-      {(paper.category || displayTags.length > 0) && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {paper.category && (
-            <Badge
-              style={{
-                borderColor: "var(--color-accent)",
-                color: "var(--color-accent)",
-                backgroundColor: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-              }}
-            >
-              {paper.category}
-            </Badge>
-          )}
-          {displayTags.map((tag) => (
-            <TagBadge key={tag} label={tag} />
-          ))}
         </div>
       )}
-
       <button
         type="button"
         aria-label={`Open ${paper.title}`}

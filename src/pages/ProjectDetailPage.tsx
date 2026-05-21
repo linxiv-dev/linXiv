@@ -671,22 +671,22 @@ export default function ProjectDetailPage() {
   return (
     <div className="flex flex-col gap-6 p-8 overflow-y-auto">
       {/* Back nav */}
-      <Link
-        to="/projects"
+      <button
+        onClick={() => window.history.length > 1 ? navigate(-1) : navigate("/projects")}
         className="inline-flex items-center gap-1.5 text-sm w-fit transition-colors"
         style={{ color: "var(--color-muted)" }}
         onMouseEnter={(e) =>
-          ((e.currentTarget as HTMLAnchorElement).style.color =
+          ((e.currentTarget as HTMLButtonElement).style.color =
             "var(--color-text)")
         }
         onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLAnchorElement).style.color =
+          ((e.currentTarget as HTMLButtonElement).style.color =
             "var(--color-muted)")
         }
       >
         <ArrowLeft size={14} />
-        Projects
-      </Link>
+        Back
+      </button>
 
       {/* Header */}
       <div className="flex flex-col gap-3">

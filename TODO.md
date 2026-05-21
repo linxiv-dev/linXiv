@@ -11,7 +11,7 @@ Items flagged during design review. Grouped by area.
 - [ ] TeX rendering in result titles and abstracts (library choice TBD — see Deferred)
 - [x] Query builder like in original gui
 ## Library
-- [ ] Virtual scrolling for paper list (expected scale: thousands of papers)
+- [x] Virtual scrolling for paper list (expected scale: thousands of papers)
 - [x] Paper Metadata Editor — shared create/edit form; port field set from PyQt, do not redesign
 - [ ] postMessage bridge: selected PaperCard source_fks → parent app → Add to Project flow
 
@@ -30,24 +30,24 @@ Items flagged during design review. Grouped by area.
 - [x] Project status UI: active / archived / deleted (three-state, not two)
 - [x] Archived projects view (hidden from main list, accessible separately)
 - [x] Deleted projects surfaced in Settings trash panel alongside deleted papers (30-day auto-purge on startup)
-- [ ] Project tags UI (create, assign, display)
+- [x] Project tags UI (create, assign, display)
 - [x] ProjectCard (ProjectsPage list): Archive and Delete are first-class card buttons 
 - [x] move into `···` **context menu** or right-click context menu (same treatment applied to ProjectDetailPage header)
 
 ## Tags
-- [ ] Clickable tag links everywhere they appear (paper cards, project cards, graph nodes)
-- [ ] Tag View page: papers tagged directly + projects tagged + papers in those projects
-- [ ] Tags sidebar entry (off by default, togglable in Settings)
+- [x] Clickable tag links everywhere they appear (paper cards, project cards, graph nodes)
+- [x] Tag View page: papers tagged directly + projects tagged + papers in those projects
+- [x] Tags sidebar entry (off by default, togglable in Settings)
 
 ## Sidebar
-- [ x ] Configurable optional page toggles in Settings (Graph, Search, DOI Lookup on by default; Tags, Notes Editor off by default)
+- [x] Configurable optional page toggles in Settings (Graph, Search, DOI Lookup on by default; Tags, Notes Editor off by default)
 
 ## Bugs
 - [x] Dialog component (`src/components/ui/dialog.tsx`): content overflows the modal boundary, clipping buttons at the right edge — affects all dialogs with the backdrop-blur overlay
 - [x] Project tags not persisting — tags entered via TagInput on ProjectDetailPage are not saved (TAG table and PROJECT_TO_TAG remain empty)
 
 ## Integrations & Import/Export
-- [ x ] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
+- [x] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
 - [ ] PDF import: make async with progress indicator (currently synchronous / blocking). Note: `exportImport.ts` also bypasses `apiFetch` entirely and duplicates BASE_URL/isTauri detection — fix the infrastructure seam when touching this module.
 - [ ] Export methods toggle in Settings (show only enabled targets; prune candidates before release)
 
@@ -60,7 +60,7 @@ Items flagged during design review. Grouped by area.
 - [x] **[HIGH PRIORITY] Delete alias time-bomb** — `storage/db.py:delete_paper` is an alias for `soft_delete_paper` but reads as a hard delete. Two endpoints call different paths to the same operation. Remove the alias, route all deletes through the service layer. Prevents a future "fix" silently bifurcating soft/hard delete behavior across endpoints.
 - [x] **[HIGH PRIORITY] Service layer punches through storage seam** — `service/paper.py` has three functions (`_get_paper_project_fks`, `set_has_pdf_by_source`, `remove_from_all_projects`) that call `db._connect()` directly and write raw SQL. Add proper `storage/db.*` functions for these three and remove the internal-access violations.
 - [x] **Paper dispatch logging** — `service/paper.py:Paper` dataclass dispatch uses `if paper.source_fk:` (falsy check, wrong for id=0) and silently resolves to the first populated key with no validation that exactly one is set. Add verbose logging at dispatch time and fix checks to `is not None`.
-- [ ] **SettingsPage decomposition** — `src/pages/SettingsPage.tsx` is 910 lines across 10+ concerns (Appearance, API Keys, Storage, CrossRef, Search, Sidebar, Integrations, Trash). Extract each section into `src/components/settings/`.
+- [x] **SettingsPage decomposition** — `src/pages/SettingsPage.tsx` is 910 lines across 10+ concerns (Appearance, API Keys, Storage, CrossRef, Search, Sidebar, Integrations, Trash). Extract each section into `src/components/settings/`.
 - [x] **N+1 query in project listing** — resolved via `list_project_tags_bulk` and `list_project_source_ids_bulk` in `storage/config/queries.py`; project list endpoint now fetches tags and source_ids in two queries total regardless of project count.
 - [x] **Non-atomic multi-connection tag writes** — `storage/tags.py:add_project_tags` opens a separate connection per `create_tag` call then a third for the INSERT loop; `_sync_project_tags` in `api/app.py` calls remove and add as two separate operations. A crash mid-sequence leaves orphaned TAG rows or a partial tag set with no rollback. Consolidate into single-transaction helpers.
 
