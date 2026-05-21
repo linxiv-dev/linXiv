@@ -185,7 +185,7 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
       onClose={() => { if (!running) { reset(); onClose(); } }}
       title="Import"
     >
-      <div className="flex flex-col gap-4" style={{ minWidth: 380 }}>
+      <div className="flex flex-col gap-4">
         {/* File picker */}
         <div>
           <input
