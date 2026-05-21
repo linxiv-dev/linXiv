@@ -299,6 +299,36 @@ class TestProjects:
         tagged = next(p for p in projects if p["id"] == pid)
         assert tagged["project_tags"] == ["graph"]
 
+    def test_patch_project_tags_persists(self, client):
+        pid = client.post("/api/projects", json={"name": "Tagged"}).json()["project"]["id"]
+        r = client.patch(f"/api/projects/{pid}", json={"project_tags": ["ml", "nlp"]})
+        assert r.status_code == 200
+        assert set(client.get(f"/api/projects/{pid}").json()["project_tags"]) == {"ml", "nlp"}
+
+    def test_patch_project_tags_replaces_existing(self, client):
+        pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
+        r1 = client.patch(f"/api/projects/{pid}", json={"project_tags": ["old"]})
+        assert r1.status_code == 200
+        client.patch(f"/api/projects/{pid}", json={"project_tags": ["new"]})
+        assert set(client.get(f"/api/projects/{pid}").json()["project_tags"]) == {"new"}
+
+    def test_patch_project_tags_empty_clears_all(self, client):
+        pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
+        client.patch(f"/api/projects/{pid}", json={"project_tags": ["ml"]})
+        assert set(client.get(f"/api/projects/{pid}").json()["project_tags"]) == {"ml"}
+        client.patch(f"/api/projects/{pid}", json={"project_tags": []})
+        assert client.get(f"/api/projects/{pid}").json()["project_tags"] == []
+
+    def test_patch_project_tags_normalized_to_lowercase(self, client):
+        pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
+        client.patch(f"/api/projects/{pid}", json={"project_tags": ["ML", "NLP"]})
+        assert set(client.get(f"/api/projects/{pid}").json()["project_tags"]) == {"ml", "nlp"}
+
+    def test_patch_project_tags_api_normalizes_and_deduplicates(self, client):
+        pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
+        client.patch(f"/api/projects/{pid}", json={"project_tags": ["ml", "ml", "ML"]})
+        assert set(client.get(f"/api/projects/{pid}").json()["project_tags"]) == {"ml"}
+
     def test_patch_nonexistent_returns_404(self, client):
         r = client.patch("/api/projects/999", json={"name": "X"})
         assert r.status_code == 404

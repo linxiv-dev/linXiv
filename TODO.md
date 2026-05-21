@@ -44,7 +44,7 @@ Items flagged during design review. Grouped by area.
 
 ## Bugs
 - [x] Dialog component (`src/components/ui/dialog.tsx`): content overflows the modal boundary, clipping buttons at the right edge — affects all dialogs with the backdrop-blur overlay
-- [ ] Project tags not persisting — tags entered via TagInput on ProjectDetailPage are not saved (TAG table and PROJECT_TO_TAG remain empty)
+- [x] Project tags not persisting — tags entered via TagInput on ProjectDetailPage are not saved (TAG table and PROJECT_TO_TAG remain empty)
 
 ## Integrations & Import/Export
 - [ x ] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
@@ -63,7 +63,7 @@ Items flagged during design review. Grouped by area.
 - [x] **Paper dispatch logging** — `service/paper.py:Paper` dataclass dispatch uses `if paper.source_fk:` (falsy check, wrong for id=0) and silently resolves to the first populated key with no validation that exactly one is set. Add verbose logging at dispatch time and fix checks to `is not None`.
 - [ ] **SettingsPage decomposition** — `src/pages/SettingsPage.tsx` is 910 lines across 10+ concerns (Appearance, API Keys, Storage, CrossRef, Search, Sidebar, Integrations, Trash). Extract each section into `src/components/settings/`.
 - [x] **N+1 query in project listing** — resolved via `list_project_tags_bulk` and `list_project_source_ids_bulk` in `storage/config/queries.py`; project list endpoint now fetches tags and source_ids in two queries total regardless of project count.
-- [ ] **Non-atomic multi-connection tag writes** — `storage/tags.py:add_project_tags` opens a separate connection per `create_tag` call then a third for the INSERT loop; `_sync_project_tags` in `api/app.py` calls remove and add as two separate operations. A crash mid-sequence leaves orphaned TAG rows or a partial tag set with no rollback. Consolidate into single-transaction helpers.
+- [x] **Non-atomic multi-connection tag writes** — `storage/tags.py:add_project_tags` opens a separate connection per `create_tag` call then a third for the INSERT loop; `_sync_project_tags` in `api/app.py` calls remove and add as two separate operations. A crash mid-sequence leaves orphaned TAG rows or a partial tag set with no rollback. Consolidate into single-transaction helpers.
 
 ## Deferred
 - [ ] TeX rendering library decision (KaTeX vs MathJax — must be compatible with future Notes Editor)
