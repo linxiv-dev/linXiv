@@ -14,13 +14,20 @@ Run with venv:
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 import uvicorn
 
 
 def run() -> None:
     # reload=True requires the source tree — disabled in frozen PyInstaller builds
-    reload = not getattr(sys, "frozen", False)
-    uvicorn.run("api.app:app", host="127.0.0.1", port=8000, reload=reload)
+    should_reload = not getattr(sys, "frozen", False)
+    uvicorn.run(
+        "api.app:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=should_reload,
+        reload_dirs=[str(Path(__file__).resolve().parent.parent)] if should_reload else None,
+    )
 
 
 if __name__ == "__main__":

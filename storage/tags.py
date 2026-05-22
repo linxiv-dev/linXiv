@@ -66,14 +66,27 @@ def get_project_tags(project_id: int) -> list[str]:
 
 
 def add_project_tags(project_id: int, tags: list[str]) -> list[str]:
-    tag_fks = [create_tag(label) for label in tags]
     with _connect() as conn:
+        tag_fks: list[int] = []
+        seen: set[str] = set()
+        for label in tags:
+            label = label.strip()
+            if not label or label.lower() in seen:
+                continue
+            seen.add(label.lower())
+            # INSERT OR IGNORE + re-SELECT: safe under the UNIQUE INDEX on TAG(TAG COLLATE NOCASE).
+            # A concurrent insert for the same label causes the IGNORE; the re-SELECT then
+            # finds the row committed by the other writer.
+            conn.execute("INSERT OR IGNORE INTO TAG (TAG) VALUES (?)", (label,))
+            row = conn.execute(_TAG_FK_BY_LABEL_SQL, (label,)).fetchone()
+            if row is None:
+                raise RuntimeError(f"Could not get or create TAG for label {label!r}")
+            tag_fks.append(int(row["TAG_FK"]))
         for tag_fk in tag_fks:
-            if tag_fk:
-                conn.execute(
-                    "INSERT OR IGNORE INTO PROJECT_TO_TAG (PROJECT_FK, TAG_FK) VALUES (?, ?)",
-                    (project_id, tag_fk),
-                )
+            conn.execute(
+                "INSERT OR IGNORE INTO PROJECT_TO_TAG (PROJECT_FK, TAG_FK) VALUES (?, ?)",
+                (project_id, tag_fk),
+            )
     return get_project_tags(project_id)
 
 

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import os
+import re
+import sqlite3
 import uuid
 from contextlib import asynccontextmanager
+from typing import Literal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -15,30 +19,33 @@ load_dotenv(ENV_PATH)
 
 import arxiv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
 from storage.db import (
-    delete_paper,
     get_categories,
     get_tags,
     init_db,
     parse_entry_id,
     save_paper,
-    save_papers,
     save_paper_metadata,
+    save_papers_metadata,
 )
-from sources import resolve_doi, fetch_paper_metadata, search_papers
+from sources import resolve_doi, fetch_paper_metadata
+from sources.base import PaperMetadata
 from sources.pdf_metadata import resolve_pdf_metadata
+from sources.arxiv_source import ArxivSource
 from sources.openalex_source import OpenAlexSource
 from formats.bibtex import BibTeXFormat
 from formats.markdown import ObsidianFormat
 from service.paper import (
     set_has_pdf_by_source,
+    set_pdf_path,
     Paper,
     ensure_paper_root,
     get as get_paper_details,
@@ -48,7 +55,9 @@ from service.paper import (
     delete as soft_delete_paper,
     restore as restore_paper,
     hard_delete as hard_delete_paper,
+    repair_paper as svc_repair_paper,
     sfks_to_source_ids,
+    get_papers_by_tag,
 )
 import user_settings
 from storage.notes import Note, ensure_notes_db, get_note, get_notes
@@ -60,10 +69,40 @@ from storage.projects import (
     ensure_projects_db,
     filter_projects,
     get_project,
+    remove_paper_from_all_projects,
 )
-from storage.tags import get_project_tags
+from service.project import (
+    Project as SvcProject,
+    hard_delete as hard_delete_project,
+    list_deleted as list_deleted_projects,
+    purge_old as purge_old_projects,
+    restore as restore_project_svc,
+)
+from storage.tags import add_project_tags, get_project_tags, remove_project_tags
+from storage.config.queries import Q, list_project_tags_bulk, list_project_source_ids_bulk, list_projects_by_tag, get_tag_by_label
+import storage.search_history as _search_history
+import storage.search_state as _search_state
 
 PDF_DIR = data_dir() / "pdfs"
+
+_arxiv_source = ArxivSource()
+_openalex = OpenAlexSource()
+
+
+def _metadata_to_search_result(meta: PaperMetadata) -> dict:
+    """Serialize a PaperMetadata to the SearchResult shape the frontend expects."""
+    bare_id = meta.source_id.split(":", 1)[-1]
+    return {
+        "source_id": bare_id,
+        "version": meta.version,
+        "title": meta.title,
+        "summary": meta.summary or "",
+        "authors": meta.authors,
+        "published": "" if meta.published == datetime.date.min else meta.published.isoformat(),
+        "pdf_url": meta.url or "",
+        "primary_category": meta.category or "",
+        "entry_id": meta.source_id,
+    }
 
 
 def _cors_config() -> tuple[list[str], bool]:
@@ -110,6 +149,13 @@ async def _lifespan(_: FastAPI):
     ensure_projects_db()
     ensure_notes_db()
     PDF_DIR.mkdir(parents=True, exist_ok=True)
+    async def _purge():
+        try:
+            await asyncio.to_thread(purge_old_projects, 30)
+        except Exception as exc:
+            print(f"[linxiv] purge_old_projects failed: {exc}")
+
+    asyncio.create_task(_purge())
     yield
 
 
@@ -184,8 +230,90 @@ def api_delete_paper(source_id: str) -> dict:
     paper = get_paper_details(Paper(source_id=source_id))
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    delete_paper(source_id)
+    soft_delete_paper(Paper(source_id=source_id))
     return {"deleted": source_id}
+
+
+class PaperRepairBody(BaseModel):
+    title: str
+    authors: list[str]
+    published: datetime.date
+    summary: str = ""
+    category: str | None = None
+    # min_length=1 on Optional[str]: Pydantic v2 skips the constraint when the
+    # value is None, so null/omitted → None (valid) but "" → validation error.
+    doi: str | None = Field(default=None, min_length=1)
+    url: str | None = None
+    tags: list[str] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("title must not be blank")
+        return v
+
+    @field_validator("authors")
+    @classmethod
+    def authors_not_empty(cls, v: list[str]) -> list[str]:
+        # Preserve insertion order (author rank matters) while deduplicating.
+        seen: dict[str, None] = {}
+        for a in v:
+            s = a.strip()
+            if s:
+                seen[s] = None
+        if not seen:
+            raise ValueError("at least one author is required")
+        return list(seen)
+
+    @field_validator("summary")
+    @classmethod
+    def summary_strip(cls, v: str) -> str:
+        return v.strip()
+
+    @field_validator("tags")
+    @classmethod
+    def tags_strip_and_dedup(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        cleaned = list(dict.fromkeys(t.strip() for t in v if t.strip()))
+        return cleaned or None
+
+
+# PUT semantics: all required fields are replaced on every call. The editor
+# always submits a complete payload, so partial-update semantics add no value
+# and would require merging logic that can silently drop user edits on race
+# conditions. See docs/adr/0008-repair-endpoint-scope.md.
+@app.put("/api/papers/sfk/{source_fk}")
+def api_repair_paper(source_fk: int, body: PaperRepairBody) -> dict:
+    paper = get_paper_details(Paper(source_fk=source_fk))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    # source_id is intentionally not changeable via this endpoint — it is the
+    # paper's identity key and changing it is an internal import/export operation.
+    # See docs/adr/0008-repair-endpoint-scope.md.
+    meta = PaperMetadata(
+        source_id=paper.source_id,
+        version=paper.version,
+        title=body.title,
+        authors=body.authors,
+        published=body.published,
+        summary=body.summary,
+        category=body.category,
+        doi=body.doi,
+        url=body.url,
+        tags=body.tags,
+        source=paper.source,
+    )
+    try:
+        svc_repair_paper(source_fk, meta)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updated = get_paper_details(Paper(source_fk=source_fk))
+    if not updated:
+        raise HTTPException(status_code=500, detail="Repair failed")
+    return updated.to_dict()
 
 
 @app.get("/api/graph")
@@ -203,25 +331,63 @@ def api_tags() -> dict:
     return {"tags": get_tags()}
 
 
+@app.get("/api/tags/{label}")
+def api_tag_detail(label: str) -> dict:
+    papers = get_papers_by_tag(label)
+
+    tag_row = get_tag_by_label(label)
+    canonical_label = tag_row["TAG"] if tag_row else label
+    projects: list[dict] = []
+    if tag_row is not None:
+        tag_fk = int(tag_row["TAG_FK"])
+        proj_rows = list_projects_by_tag(tag_fk)
+        project_ids = [r["PROJECT_FK"] for r in proj_rows]
+        tags_by_proj = list_project_tags_bulk(project_ids)
+        source_ids_by_proj = list_project_source_ids_bulk(project_ids)
+        for row in proj_rows:
+            pid = int(row["PROJECT_FK"])
+            projects.append({
+                "id": pid,
+                "name": row["NAME"],
+                "description": row["DESCRIPTION"] or "",
+                "color_hex": color_to_hex(row["COLOR"]) if row["COLOR"] is not None else None,
+                "project_tags": tags_by_proj.get(pid, []),
+                "source_ids": source_ids_by_proj.get(pid, []),
+                "status": row["STATUS"],
+                "paper_count": len(source_ids_by_proj.get(pid, [])),
+            })
+
+    return {
+        "label": canonical_label,
+        "papers": [p.to_dict() for p in papers],
+        "projects": projects,
+    }
+
+
 @app.get("/api/projects")
-def api_projects() -> dict:
-    projects = filter_projects()
-    out = []
-    for p in projects:
-        if p.id is None:
-            continue
-        out.append(
-            {
-                "id": p.id,
-                "name": p.name,
-                "description": p.description or "",
-                "color_hex": color_to_hex(p.color) if p.color else None,
-                "project_tags": get_project_tags(p.id),
-                "source_ids": sfks_to_source_ids(p.source_fks),
-                "status": p.status.value,
-                "paper_count": p.paper_count,
-            }
-        )
+def api_projects(status: str = "active") -> dict:
+    condition = Q("STATUS = ?", status) if status != "all" else None
+    projects = filter_projects(condition, load_sources=False)
+    valid = [(p, p.id) for p in projects if p.id is not None]
+    null_count = len(projects) - len(valid)
+    if null_count:
+        print(f"[linxiv] api_projects: {null_count} project(s) with null id excluded (data integrity error)")
+    project_ids = [pid for _, pid in valid]
+    tags_by_project = list_project_tags_bulk(project_ids)
+    source_ids_by_project = list_project_source_ids_bulk(project_ids)
+    out = [
+        {
+            "id": pid,
+            "name": p.name,
+            "description": p.description,
+            "color_hex": color_to_hex(p.color) if p.color is not None else None,
+            "project_tags": tags_by_project.get(pid, []),
+            "source_ids": source_ids_by_project.get(pid, []),
+            "status": p.status.value,
+            "paper_count": len(source_ids_by_project.get(pid, [])),
+        }
+        for p, pid in valid
+    ]
     return {"projects": out}
 
 
@@ -230,12 +396,35 @@ def api_graph_project_options() -> dict:
     return {"projects": project_filter_options()}
 
 
-# TODO: add tags: list[str] = [] to ProjectCreate and ProjectUpdate, then call
-#       storage.tags.add_project_tags / remove+add in api_project_create and api_project_patch
+def _normalize_tags(tags: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for t in tags:
+        label = t.strip().lower()
+        if label and label not in seen:
+            seen.add(label)
+            result.append(label)
+    return result
+
+
+def _sync_project_tags(project_id: int, new_tags: list[str]) -> None:
+    normalized = _normalize_tags(new_tags)
+    current = get_project_tags(project_id)
+    current_lower = {t.lower() for t in current}
+    new_lower = {t.lower() for t in normalized}
+    to_remove = [t for t in current if t.lower() not in new_lower]
+    to_add = [t for t in normalized if t.lower() not in current_lower]
+    if to_remove:
+        remove_project_tags(project_id, to_remove)
+    if to_add:
+        add_project_tags(project_id, to_add)
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
     color_hex: str | None = None
+    project_tags: list[str] = []
 
 
 class ProjectUpdate(BaseModel):
@@ -243,6 +432,7 @@ class ProjectUpdate(BaseModel):
     description: str | None = None
     color_hex: str | None = None
     status: str | None = None
+    project_tags: list[str] | None = None
 
 
 @app.post("/api/projects")
@@ -251,6 +441,8 @@ def api_project_create(body: ProjectCreate) -> dict:
     p = Project(name=body.name.strip(), description=body.description.strip(), color=color)
     p.save()
     assert p.id
+    if body.project_tags:
+        add_project_tags(p.id, _normalize_tags(body.project_tags))
     return {"project": {"id": p.id, "name": p.name}}
 
 
@@ -263,7 +455,7 @@ def api_project_get(project_id: int) -> dict:
         "id": p.id,
         "name": p.name,
         "description": p.description or "",
-        "color_hex": color_to_hex(p.color) if p.color else None,
+        "color_hex": color_to_hex(p.color) if p.color is not None else None,
         "project_tags": get_project_tags(p.id) if p.id else [],
         "source_ids": sfks_to_source_ids(p.source_fks),
         "status": p.status.value,
@@ -281,11 +473,22 @@ def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
         p.description = body.description
     if body.color_hex:
         p.color = color_from_hex(body.color_hex)
+    if body.project_tags is not None and p.id is not None:
+        _sync_project_tags(p.id, body.project_tags)
     if body.status:
         try:
-            p.status = Status(body.status)
+            new_status = Status(body.status)
         except ValueError as e:
             raise HTTPException(status_code=400, detail="Invalid status") from e
+        # archive/restore/delete call p.save() internally, which persists ALL
+        # fields on p — including any name/description/color already set above.
+        if new_status == Status.ARCHIVED:
+            p.archive()
+        elif new_status == Status.ACTIVE:
+            p.restore()
+        elif new_status == Status.DELETED:
+            p.delete()
+        return {"ok": True}
     p.save()
     return {"ok": True}
 
@@ -331,20 +534,68 @@ class ArxivSearchBody(BaseModel):
     query: str = Field(min_length=1)
     max_results: int = Field(default=25, ge=1, le=100)
     save: bool = False
+    sort: Literal["relevance", "newest", "oldest", "lastUpdated"] = "relevance"
 
 
 @app.post("/api/arxiv/search")
 def api_arxiv_search(body: ArxivSearchBody) -> dict:
     try:
-        results = search_papers(body.query.strip(), max_results=body.max_results)
+        results = _arxiv_source.search(
+            body.query.strip(),
+            max_results=body.max_results,
+            sort=body.sort,
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    summaries = [_arxiv_result_summary(p) for p in results]
+    summaries = [_metadata_to_search_result(m) for m in results]
     saved: list[str] = []
     if body.save and results:
-        save_papers(results)
-        saved = [parse_entry_id(p.entry_id)[0] for p in results]
+        pairs = save_papers_metadata(results, tags=None)
+        saved = [sid.split(":", 1)[-1] for sid, _ in pairs]
     return {"results": summaries, "saved_source_ids": saved if body.save else []}
+
+
+# ── Search history / state ────────────────────────────────────────────────────
+
+@app.get("/api/search/history")
+def api_search_history(prefix: str = Query(default="", min_length=0), limit: int = Query(default=10, ge=1, le=50)) -> dict:
+    suggestions = _search_history.get_suggestions(prefix, limit)
+    return {"suggestions": suggestions}
+
+
+class SearchStateBody(BaseModel):
+    clauses: list[dict] = Field(default_factory=list)
+    source: str = Field(default="arxiv")
+    max_results: int = Field(default=25)
+    results: list[dict] = Field(default_factory=list)
+    saved_ids: list[str] = Field(default_factory=list)
+    sort_prefs: dict[str, str] | None = None
+
+
+@app.get("/api/search/state")
+def api_search_state_get() -> dict:
+    state = _search_state.load_state()
+    if state is None:
+        return {"state": None}
+    return {"state": state}
+
+
+@app.post("/api/search/state")
+def api_search_state_save(body: SearchStateBody) -> dict:
+    # Record each non-empty clause term to history.
+    for clause in body.clauses:
+        term = clause.get("value", "")
+        if isinstance(term, str) and term.strip():
+            _search_history.add_term(term)
+    _search_state.save_state(
+        clauses=body.clauses,
+        source=body.source,
+        max_results=body.max_results,
+        results=body.results,
+        saved_ids=body.saved_ids,
+        sort_prefs=body.sort_prefs,
+    )
+    return {"ok": True}
 
 #TODO:RECREATE API to be more efficient, use service layer???
 class ArxivFetchBody(BaseModel):
@@ -522,7 +773,8 @@ def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
 
 @app.get("/api/trash")
 def api_trash_list() -> dict:
-    deleted = list_deleted_papers()
+    deleted_papers = list_deleted_papers()
+    deleted_projects = list_deleted_projects()
     return {
         "papers": [
             {
@@ -534,8 +786,18 @@ def api_trash_list() -> dict:
                 "deleted_at": d.deleted_at.isoformat() if d.deleted_at else None,
                 "had_pdf": d.had_pdf,
             }
-            for d in deleted
-        ]
+            for d in deleted_papers
+        ],
+        "projects": [
+            {
+                "id": p.id,
+                "name": p.name,
+                # archived_at is overwritten by delete(), so it holds the deletion timestamp
+                "deleted_at": p.archived_at.isoformat() if p.archived_at else None,
+                "paper_count": len(p.source_fks),
+            }
+            for p in deleted_projects
+        ],
     }
 
 
@@ -545,29 +807,52 @@ def api_trash_restore(source_id: str) -> dict:
     return {"ok": True, "pdf_path": pdf_path, "project_fks": project_fks}
 
 
+@app.delete("/api/papers/sfk/{source_fk}/projects")
+def api_remove_paper_from_all_projects(source_fk: int) -> dict:
+    """Remove a restored paper from all its projects. Call after restore if user declines project re-linking."""
+    removed = remove_paper_from_all_projects(source_fk)
+    return {"ok": True, "removed_from": removed}
+
+
 @app.delete("/api/trash/{source_id}")
 def api_trash_hard_delete(source_id: str) -> dict:
     hard_delete_paper(Paper(source_id=source_id))
     return {"ok": True}
 
 
-@app.delete("/api/papers/{source_id}/soft")
-def api_paper_soft_delete(source_id: str) -> dict:
-    soft_delete_paper(Paper(source_id=source_id))
+@app.post("/api/trash/projects/{project_id}/restore")
+def api_trash_project_restore(project_id: int) -> dict:
+    if get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    restore_project_svc(SvcProject(project_fk=project_id))
     return {"ok": True}
+
+
+@app.delete("/api/trash/projects/{project_id}")
+def api_trash_project_hard_delete(project_id: int) -> dict:
+    if get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    hard_delete_project(SvcProject(project_fk=project_id))
+    return {"ok": True}
+
 
 
 # ── OpenAlex search ───────────────────────────────────────────────────────────
 
 class OpenAlexSearchBody(BaseModel):
     query: str = Field(min_length=1)
-    max_results: int = Field(default=25, ge=1, le=100)
+    max_results: int = Field(default=25, ge=1, le=100)  # OpenAlex supports up to 200 per_page
+    sort: Literal["relevance", "newest", "oldest", "citations"] = "relevance"
 
 
 @app.post("/api/openalex/search")
 def api_openalex_search(body: OpenAlexSearchBody) -> dict:
     try:
-        results = OpenAlexSource().search(body.query.strip(), max_results=body.max_results)
+        results = _openalex.search(
+            body.query.strip(),
+            max_results=body.max_results,
+            sort=body.sort,
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     return {
@@ -576,12 +861,11 @@ def api_openalex_search(body: OpenAlexSearchBody) -> dict:
                 "source_id": m.source_id,
                 "version": m.version,
                 "title": m.title,
-                "summary": m.summary,
+                "summary": m.summary or "",
                 "authors": m.authors,
-                "published": m.published.isoformat() if m.published else None,
-                "doi": m.doi,
-                "url": m.url,
-                "primary_category": m.category,
+                "published": "" if m.published == datetime.date.min else m.published.isoformat(),
+                "pdf_url": m.url or "",
+                "primary_category": m.category or "",
                 "entry_id": m.source_id,
             }
             for m in results
@@ -761,6 +1045,13 @@ async def api_import_bibtex(
 
 # ── PDF import ────────────────────────────────────────────────────────────────
 
+def _write_and_resolve_pdf(content: bytes, tmp_path: Path) -> "PaperMetadata":
+    """Write PDF bytes to disk and resolve metadata. Runs in a thread pool."""
+    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path.write_bytes(content)
+    return resolve_pdf_metadata(str(tmp_path))
+
+
 @app.post("/api/papers/import/pdf")
 async def api_import_pdf(
     file: UploadFile = File(...),
@@ -770,32 +1061,55 @@ async def api_import_pdf(
         raise HTTPException(status_code=400, detail="File must be a PDF")
     content = await file.read()
     tmp_path = PDF_DIR / f"_upload_{uuid.uuid4().hex}.pdf"
-    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    final_path: Path | None = None
+    saved_to_db = False
+    source_id = ""
     try:
-        tmp_path.write_bytes(content)
         try:
-            meta = resolve_pdf_metadata(str(tmp_path))
+            meta = await run_in_threadpool(_write_and_resolve_pdf, content, tmp_path)
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Could not extract PDF metadata: {e}") from e
-        save_paper_metadata(meta)
-        source_id = meta.source_id
+        source_id, _ = save_paper_metadata(meta)
+        saved_to_db = True
         version = meta.version
         title = meta.title
-        final_path = PDF_DIR / f"{source_id}v{version}.pdf"
-        tmp_path.rename(final_path)
+        # Sanitize source_id for use as a filename component — strip all
+        # characters that are illegal in filenames on Windows or Unix, including
+        # slashes that appear in DOI-based source IDs (e.g. "doi:10.1234/abc").
+        filename_safe_id = re.sub(r'[/\\:*?"<>|]', '_', source_id)
+        final_path = PDF_DIR / f"{filename_safe_id}v{version}.pdf"
+        # replace() is atomic and overwrites on all platforms (handles re-import).
+        tmp_path.replace(final_path)
+        set_pdf_path(source_id, str(final_path))
         set_has_pdf_by_source(source_id, True)
-        if project_id:
-            proj = get_project(project_id)
-            if proj:
-                root = get_paper_root(source_id)
-                if root:
-                    proj.add_paper(int(root["SOURCE_FK"]))
     except HTTPException:
+        # Only the 422 from the inner try can reach here; saved_to_db is False
+        # and tmp_path has not been renamed yet.
         tmp_path.unlink(missing_ok=True)
         raise
     except Exception as e:
+        # Clean up: one of these will be a no-op since replace() is atomic.
         tmp_path.unlink(missing_ok=True)
+        if final_path is not None:
+            final_path.unlink(missing_ok=True)
+        # If the DB row was committed but a subsequent step failed, roll it back
+        # to prevent a ghost paper entry with no corresponding file.
+        if saved_to_db:
+            try:
+                hard_delete_paper(Paper(source_id=source_id))
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=str(e)) from e
+    # Project linking is best-effort — paper is already fully saved above.
+    if project_id is not None:
+        try:
+            proj = get_project(project_id)
+            if proj and proj.status == "active":
+                root = get_paper_root(source_id)
+                if root:
+                    proj.add_paper(int(root["SOURCE_FK"]))
+        except Exception:
+            pass
     return {"source_id": source_id, "title": title}
 
 
@@ -808,7 +1122,7 @@ class OpenAlexSaveBody(BaseModel):
 @app.post("/api/openalex/save")
 def api_openalex_save(body: OpenAlexSaveBody) -> dict:
     try:
-        meta = OpenAlexSource().fetch_by_id(body.source_id.strip())
+        meta = _openalex.fetch_by_id(body.source_id.strip())
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     save_paper_metadata(meta)

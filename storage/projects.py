@@ -59,31 +59,33 @@ def _save_source_fks(conn, project_fk: int, source_fks: list[int]) -> None:
 
 @dataclass
 class Project:
-    name:         str
-    description:  str                         = ""
-    color:        Optional[int]               = None
-    project_tags: list[str]                   = field(default_factory=list)
-    source_fks:   list[int]                   = field(default_factory=list)
-    status:       Status                      = Status.ACTIVE
-    id:           Optional[int]               = None
-    created_at:   Optional[datetime.datetime] = None
-    updated_at:   Optional[datetime.datetime] = None
-    archived_at:  Optional[datetime.datetime] = None
+    name:            str
+    description:     str                         = ""
+    color:           Optional[int]               = None
+    project_tags:    list[str]                   = field(default_factory=list)
+    source_fks:      list[int]                   = field(default_factory=list)
+    status:          Status                      = Status.ACTIVE
+    id:              Optional[int]               = None
+    created_at:      Optional[datetime.datetime] = None
+    updated_at:      Optional[datetime.datetime] = None
+    archived_at:     Optional[datetime.datetime] = None
+    _sources_loaded: bool                        = field(default=True, repr=False, compare=False)
 
     @classmethod
-    def from_row(cls, row) -> Project:
+    def from_row(cls, row, load_sources: bool = True) -> Project:
         proj_fk = row["PROJECT_FK"]
-        source_fks = _load_source_fks(proj_fk) if proj_fk else []
+        source_fks = _load_source_fks(proj_fk) if (proj_fk and load_sources) else []
         return cls(
-            id           = proj_fk,
-            name         = row["NAME"],
-            description  = row["DESCRIPTION"] or "",
-            color        = int(row["COLOR"]) if row["COLOR"] else None,
-            source_fks   = source_fks,
-            status       = Status(row["STATUS"]),
-            created_at   = row["CREATED_AT"],
-            updated_at   = row["UPDATED_AT"],
-            archived_at  = row["ARCHIVED_AT"],
+            id              = proj_fk,
+            name            = row["NAME"],
+            description     = row["DESCRIPTION"] or "",
+            color           = int(row["COLOR"]) if row["COLOR"] is not None else None,
+            source_fks      = source_fks,
+            status          = Status(row["STATUS"]),
+            created_at      = row["CREATED_AT"],
+            updated_at      = row["UPDATED_AT"],
+            archived_at     = row["ARCHIVED_AT"],
+            _sources_loaded = load_sources,
         )
 
     def save(self) -> None:
@@ -179,10 +181,13 @@ class Project:
 
     @property
     def paper_count(self) -> int:
+        # Returns 0 when built via from_row(load_sources=False); check
+        # _sources_loaded before trusting this value for display.
         return len(self.source_fks)
 
     def __repr__(self) -> str:
-        return f"<Project id={self.id!r} name={self.name!r} status={self.status!r} papers={self.paper_count}>"
+        papers = len(self.source_fks) if self._sources_loaded else "?"
+        return f"<Project id={self.id!r} name={self.name!r} status={self.status!r} papers={papers}>"
 
 
 # ── Queries ───────────────────────────────────────────────────────────────────
@@ -195,7 +200,7 @@ def get_project(project_id: int) -> Optional[Project]:
     return Project.from_row(row) if row else None
 
 
-def filter_projects(condition: Q | None = None) -> list[Project]:
+def filter_projects(condition: Q | None = None, load_sources: bool = True) -> list[Project]:
     if condition is None:
         sql, params = "SELECT * FROM PROJECT", ()
     else:
@@ -203,4 +208,47 @@ def filter_projects(condition: Q | None = None) -> list[Project]:
         params = condition.params
     with _connect() as conn:
         rows = conn.execute(sql, params).fetchall()
-    return [Project.from_row(row) for row in rows]
+    return [Project.from_row(row, load_sources=load_sources) for row in rows]
+
+
+def get_paper_project_fks(source_fk: int) -> list[int]:
+    """Return PROJECT_FKs of all projects that contain this paper.
+
+    Returns membership regardless of project status (active, archived, deleted).
+    Callers that need only active projects must filter the result.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT PROJECT_FK FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?",
+            (source_fk,),
+        ).fetchall()
+    return [int(r["PROJECT_FK"]) for r in rows]
+
+
+def remove_paper_from_all_projects(source_fk: int) -> list[int]:
+    """Remove a paper from every project. Returns the project FKs it was removed from."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT PROJECT_FK FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?", (source_fk,)
+        ).fetchall()
+        fks = [int(r["PROJECT_FK"]) for r in rows]
+        if fks:
+            conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?", (source_fk,))
+    return fks
+
+
+def hard_delete_project(project_fk: int) -> None:
+    """Permanently remove a project and all its associations in a single transaction.
+
+    Silently no-ops if project_fk does not exist — all four statements succeed as
+    zero-row operations. Callers are responsible for existence checks.
+
+    NOTE rows are not deleted: notes keep their content but lose their project scope.
+    TAG rows are not cleaned up; orphan TAGs are an accepted trade-off.
+    See docs/adr/0009-orphan-row-policy.md.
+    """
+    with _connect() as conn:
+        conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ?", (project_fk,))
+        conn.execute("DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ?", (project_fk,))
+        conn.execute("UPDATE NOTE SET PROJECT_FK = NULL WHERE PROJECT_FK = ?", (project_fk,))
+        conn.execute("DELETE FROM PROJECT WHERE PROJECT_FK = ?", (project_fk,))

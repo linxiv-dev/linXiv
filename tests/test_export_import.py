@@ -178,7 +178,7 @@ class TestCommitImportPapers:
         proj_fk = _make_project("New Paper Project", [sfk])
         archive = ei.export_project(proj_fk, tmp_path / "export")
 
-        _paper.delete_paper("2204.00007")
+        _paper.delete(_paper.Paper(source_id="2204.00007"))
 
         new_fk = ei.commit_import(archive)
 
@@ -241,7 +241,7 @@ class TestCommitImportPapers:
         archive = ei.export_project(proj_fk, tmp_path / "export")
 
         # Delete and re-import so the paper exists in DB for the overwrite branch
-        _paper.delete_paper("2204.00010")
+        _paper.delete(_paper.Paper(source_id="2204.00010"))
         ei.commit_import(archive, on_conflict="merge")
         _paper.add_paper_tags("2204.00010", ["db-tag"])
 
@@ -449,7 +449,7 @@ class TestCommitImportPdfs:
         dest_dir = tmp_path / "imported_pdfs"
         monkeypatch.setattr(ei, "pdf_dir", lambda: dest_dir)
 
-        _paper.delete_paper("2204.00005")
+        _paper.delete(_paper.Paper(source_id="2204.00005"))
         new_fk = ei.commit_import(archive)
 
         assert any(dest_dir.iterdir())

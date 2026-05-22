@@ -1,10 +1,9 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from service.models.project import ProjectDetails, Status
 from storage.notes import count_project_notes as _count_project_notes
-import storage.db as _db
 from storage.projects import (
     Q,
     Project as _StorageProject,
@@ -13,6 +12,7 @@ from storage.projects import (
     ensure_projects_db as _ensure_projects_db,
     get_project as _get_project,
     filter_projects as _filter_projects,
+    hard_delete_project as _hard_delete_project,
 )
 import storage.tags as _tags_storage
 
@@ -145,12 +145,27 @@ def archive(project: Project) -> None:
 def hard_delete(project: Project) -> None:
     if project.project_fk is None:
         return
-    fk = project.project_fk
-    with _db._connect() as conn:
-        conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE PROJECT_FK = ?", (fk,))
-        conn.execute("DELETE FROM PROJECT_TO_TAG WHERE PROJECT_FK = ?", (fk,))
-        conn.execute("UPDATE NOTE SET PROJECT_FK = NULL WHERE PROJECT_FK = ?", (fk,))
-        conn.execute("DELETE FROM PROJECT WHERE PROJECT_FK = ?", (fk,))
+    _hard_delete_project(project.project_fk)
+
+
+def list_deleted() -> list[ProjectDetails]:
+    """Return all soft-deleted projects ordered by deletion time (newest first)."""
+    projects = _filter_projects(Q("STATUS = ?", Status.DELETED.value))
+    # archived_at is stored/read as naive datetimes; datetime.min is also naive, safe to compare.
+    projects.sort(key=lambda p: p.archived_at or datetime.min, reverse=True)
+    return [_to_details(p) for p in projects]
+
+
+def purge_old(days: int = 30) -> int:
+    """Hard-delete projects that have been in the trash for more than `days` days. Returns count."""
+    cutoff = datetime.now() - timedelta(days=days)
+    old = [
+        p for p in _filter_projects(Q("STATUS = ?", Status.DELETED.value))
+        if p.archived_at and p.archived_at < cutoff
+    ]
+    for p in old:
+        hard_delete(Project(project_fk=p.id))
+    return len(old)
 
 
 # ---------------------------------------------------------------------------

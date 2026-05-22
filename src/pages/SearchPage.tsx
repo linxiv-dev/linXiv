@@ -1,36 +1,29 @@
-import { useState, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { Button } from "../components/ui/button";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Spinner } from "../components/ui/spinner";
-import { ClauseRow, type Clause } from "../components/search/ClauseRow";
+import { QueryBuilder, makeClause } from "../components/search/QueryBuilder";
 import { ResultRow } from "../components/search/ResultRow";
-import { searchArxiv, fetchArxiv, searchOpenAlex, saveOpenAlex } from "../api/search";
+import {
+  searchArxiv,
+  fetchArxiv,
+  searchOpenAlex,
+  saveOpenAlex,
+  type ArxivSort,
+  type OpenAlexSort,
+} from "../api/search";
+import { getSearchState, saveSearchState } from "../api/searchState";
+import { getSettings } from "../api/settings";
 import { listPapers } from "../api/papers";
-import type { SearchResult, Paper } from "../types/api";
+import type { Clause, SearchResult, Paper } from "../types/api";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function buildArxivQuery(clauses: Clause[]): string {
-  return clauses
-    .filter((c) => c.value.trim() !== "")
-    .map((c, i) => {
-      const term = c.field === "all" ? c.value.trim() : `${c.field}:${c.value.trim()}`;
-      if (i === 0) return term;
-      const op = c.operator === "AND NOT" ? "ANDNOT" : c.operator;
-      return `${op} ${term}`;
-    })
-    .join(" ");
-}
-
-function paperMatchesQuery(paper: Paper, query: string): boolean {
-  const q = query.toLowerCase();
-  if (!q) return true;
+function paperMatchesText(paper: Paper, query: string): boolean {
+  const q = query.toLowerCase().trim();
+  if (!q) return false;
   const title = paper.title.toLowerCase();
   const summary = (paper.summary ?? "").toLowerCase();
-  const authorsRaw = paper.authors;
-  const authors = (
-    Array.isArray(authorsRaw) ? authorsRaw : [authorsRaw]
-  )
+  const authors = (Array.isArray(paper.authors) ? paper.authors : [paper.authors])
     .join(" ")
     .toLowerCase();
   return title.includes(q) || summary.includes(q) || authors.includes(q);
@@ -52,79 +45,221 @@ function paperToSearchResult(paper: Paper): SearchResult {
   };
 }
 
-// ── default clause ────────────────────────────────────────────────────────────
-
-function makeClause(): Clause {
-  return { operator: "AND", field: "all", value: "" };
+function mergeResults(existing: SearchResult[] | null, incoming: SearchResult[]): SearchResult[] {
+  const seen = new Set((existing ?? []).map((r) => r.source_id));
+  return [...(existing ?? []), ...incoming.filter((r) => !seen.has(r.source_id))];
 }
+
+// ── view sort (client-side, all sources) ─────────────────────────────────────
+
+type ViewSort = "default" | "newest" | "oldest";
+
+function applyViewSort(list: SearchResult[], sort: ViewSort): SearchResult[] {
+  if (sort === "default") return list;
+  // Undated entries use "0000-00-00" so they always sink to the bottom of both orderings.
+  return [...list].sort((a, b) => {
+    const da = a.published || "0000-00-00";
+    const db = b.published || "0000-00-00";
+    if (da === db) return 0;
+    // ISO date strings sort correctly via plain < / > (year-month-day order).
+    return sort === "newest"
+      ? da < db ? 1 : -1
+      : da < db ? -1 : 1;
+  });
+}
+
+// ── sort prefs ────────────────────────────────────────────────────────────────
+
+const ARXIV_SORT_VALUES = ["relevance", "newest", "oldest", "lastUpdated"] as const;
+const OPENALEX_SORT_VALUES = ["relevance", "newest", "oldest", "citations"] as const;
+
+interface SortPrefs extends Record<string, string> {
+  arxivSort: ArxivSort;
+  openAlexSort: OpenAlexSort;
+}
+
+const SORT_DEFAULTS: SortPrefs = {
+  arxivSort: "relevance",
+  openAlexSort: "relevance",
+};
+
+function parseSortPrefs(raw: Record<string, string> | null | undefined): SortPrefs {
+  if (!raw) return SORT_DEFAULTS;
+  return {
+    arxivSort: (ARXIV_SORT_VALUES as readonly string[]).includes(raw["arxivSort"] ?? "")
+      ? (raw["arxivSort"] as ArxivSort)
+      : SORT_DEFAULTS.arxivSort,
+    openAlexSort: (OPENALEX_SORT_VALUES as readonly string[]).includes(raw["openAlexSort"] ?? "")
+      ? (raw["openAlexSort"] as OpenAlexSort)
+      : SORT_DEFAULTS.openAlexSort,
+  };
+}
+
+// ── constants ────────────────────────────────────────────────────────────────
+
+const LOCAL_SEARCH_PAPER_LIMIT = 500;
+const SOURCES = ["arxiv", "openalex", "local"] as const;
+type Source = (typeof SOURCES)[number];
+const MAX_RESULT_OPTIONS = [10, 25, 50, 100] as const;
 
 // ── component ────────────────────────────────────────────────────────────────
 
-type Source = "arxiv" | "openalex" | "local";
-
-const MAX_RESULT_OPTIONS = [10, 25, 50, 100] as const;
-
 export default function SearchPage() {
-  const [clauses, setClauses] = useState<Clause[]>([makeClause()]);
+  const [queryText, setQueryText] = useState("");
   const [source, setSource] = useState<Source>("arxiv");
   const [maxResults, setMaxResults] = useState<number>(25);
+  const [sortPrefs, setSortPrefs] = useState<SortPrefs>(SORT_DEFAULTS);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advClauses, setAdvClauses] = useState<Clause[]>([makeClause()]);
 
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [isAppending, setIsAppending] = useState(false);
+  const [viewSort, setViewSort] = useState<ViewSort>("default");
+
+  const displayedResults = useMemo(
+    () => (results ? applyViewSort(results, viewSort) : null),
+    [results, viewSort],
+  );
+
+const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettings });
+  const historyEnabled = settings?.search_history_enabled !== false;
+
+  // Restore search state from db on first mount.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    getSearchState()
+      .then((state) => {
+        if (state) {
+          // Restore query text from first persisted clause
+          const firstClause = state.clauses?.[0];
+          if (firstClause?.value) setQueryText(firstClause.value);
+          if (SOURCES.includes(state.source as Source)) setSource(state.source as Source);
+          setMaxResults(state.max_results);
+          setResults(state.results);
+          setSavedIds(new Set(state.saved_ids));
+          setSortPrefs(parseSortPrefs(state.sort_prefs));
+        }
+      })
+      .catch((err) => console.warn("Failed to restore search state:", err))
+      .finally(() => setRestored(true));
+  }, []);
 
   // arXiv search mutation
   const arxivSearch = useMutation({
-    mutationFn: (query: string) => searchArxiv(query, maxResults, false),
-    onSuccess: (data) => {
-      setResults(data.results);
-      setSavedIds(new Set(data.saved_source_ids));
-    },
+    mutationFn: ({ query, sort }: { query: string; sort: ArxivSort }) =>
+      searchArxiv(query, maxResults, false, sort),
   });
 
   // OpenAlex search mutation
   const openAlexSearch = useMutation({
-    mutationFn: (query: string) => searchOpenAlex(query, maxResults),
-    onSuccess: (data) => {
-      setResults(data.results);
-      setSavedIds(new Set());
-    },
+    mutationFn: ({ query, sort }: { query: string; sort: OpenAlexSort }) =>
+      searchOpenAlex(query, maxResults, sort),
   });
 
   // Local search mutation
   const localSearch = useMutation({
     mutationFn: async (query: string) => {
-      const { papers } = await listPapers(500);
-      const matched = papers
-        .filter((p) => paperMatchesQuery(p, query))
+      const { papers } = await listPapers(LOCAL_SEARCH_PAPER_LIMIT);
+      return papers
+        .filter((p) => paperMatchesText(p, query))
         .map(paperToSearchResult);
-      return matched;
-    },
-    onSuccess: (data) => {
-      setResults(data);
-      // All local papers are already saved
-      setSavedIds(new Set(data.map((r) => r.source_id)));
     },
   });
 
   const isLoading = arxivSearch.isPending || openAlexSearch.isPending || localSearch.isPending;
+  const isReplacing = isLoading && !isAppending;
   const error =
     (arxivSearch.error as Error | null)?.message ??
     (openAlexSearch.error as Error | null)?.message ??
     (localSearch.error as Error | null)?.message ??
     null;
 
-  const handleSearch = useCallback(() => {
-    const query = buildArxivQuery(clauses);
+  function persistState(
+    query: string,
+    src: Source,
+    max: number,
+    res: SearchResult[],
+    saved: string[],
+    prefs: SortPrefs,
+  ) {
+    const clause = [{ operator: "AND" as const, field: "all" as const, value: query, uid: "persisted" }];
+    saveSearchState(clause, src, max, res, saved, prefs).catch(() => {});
+  }
+
+  // Core search runner — accepts explicit prefs so sort-change re-search works without waiting for state.
+  function runSearch(mode: "replace" | "append", overridePrefs?: SortPrefs) {
+    const query = queryText.trim();
     if (!query) return;
-    setResults(null);
-    if (source === "arxiv") {
-      arxivSearch.mutate(query);
-    } else if (source === "openalex") {
-      openAlexSearch.mutate(query);
+    const prefs = overridePrefs ?? sortPrefs;
+
+    if (mode === "replace") {
+      setResults(null);
+      setIsAppending(false);
+      setViewSort("default");
     } else {
-      localSearch.mutate(query);
+      setIsAppending(true);
     }
-  }, [clauses, source, arxivSearch, openAlexSearch, localSearch]);
+
+    const base = results ?? [];
+    const baseSaved = savedIds;
+
+    if (source === "arxiv") {
+      arxivSearch.mutate({ query, sort: prefs.arxivSort }, {
+        onSuccess: (data) => {
+          const merged = mode === "append" ? mergeResults(base, data.results) : data.results;
+          const mergedSaved = mode === "append"
+            ? new Set([...baseSaved, ...data.saved_source_ids])
+            : new Set(data.saved_source_ids);
+          setResults(merged);
+          setSavedIds(mergedSaved);
+          persistState(query, source, maxResults, merged, [...mergedSaved], prefs);
+        },
+        onSettled: () => { if (mode === "append") setIsAppending(false); },
+      });
+    } else if (source === "openalex") {
+      openAlexSearch.mutate({ query, sort: prefs.openAlexSort }, {
+        onSuccess: (data) => {
+          const merged = mode === "append" ? mergeResults(base, data.results) : data.results;
+          const newIds = new Set(data.results.map((r) => r.source_id));
+          const mergedSaved = mode === "append"
+            ? new Set(baseSaved)
+            : new Set([...baseSaved].filter((id) => newIds.has(id)));
+          setResults(merged);
+          setSavedIds(mergedSaved);
+          persistState(query, source, maxResults, merged, [...mergedSaved], prefs);
+        },
+        onSettled: () => { if (mode === "append") setIsAppending(false); },
+      });
+    } else {
+      localSearch.mutate(query, {
+        onSuccess: (data) => {
+          const merged = mode === "append" ? mergeResults(base, data) : data;
+          const mergedSaved = mode === "append"
+            ? new Set([...baseSaved, ...data.map((r) => r.source_id)])
+            : new Set(data.map((r) => r.source_id));
+          setResults(merged);
+          setSavedIds(mergedSaved);
+          persistState(query, source, maxResults, merged, [...mergedSaved], prefs);
+        },
+        onSettled: () => { if (mode === "append") setIsAppending(false); },
+      });
+    }
+  }
+
+  const handleSearch = () => runSearch("replace");
+  const handleAppend = () => runSearch("append");
+
+  function handleClear() {
+    setResults(null);
+    setSavedIds(new Set());
+    setIsAppending(false);
+    persistState(queryText, source, maxResults, [], [], sortPrefs);
+  }
+
+  function handleSortChange(field: "arxivSort" | "openAlexSort", value: string) {
+    setSortPrefs((p) => ({ ...p, [field]: value } as SortPrefs));
+  }
 
   const handleSavePaper = useCallback(async (sourceId: string) => {
     if (sourceId.startsWith("openalex:")) {
@@ -133,19 +268,17 @@ export default function SearchPage() {
       await fetchArxiv(sourceId, true);
     }
     setSavedIds((prev) => new Set([...prev, sourceId]));
-  }, [results]);
+  }, []);
 
-  function addClause() {
-    setClauses((prev) => [...prev, makeClause()]);
+  if (!restored) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center text-[var(--color-muted)]">
+        <Spinner size={28} />
+      </div>
+    );
   }
 
-  function updateClause(index: number, clause: Clause) {
-    setClauses((prev) => prev.map((c, i) => (i === index ? clause : c)));
-  }
-
-  function removeClause(index: number) {
-    setClauses((prev) => prev.filter((_, i) => i !== index));
-  }
+  const hasQuery = queryText.trim().length > 0;
 
   return (
     <div className="flex flex-col h-full">
@@ -158,43 +291,21 @@ export default function SearchPage() {
           Search Papers
         </h1>
 
-        {/* Clause builder */}
-        <div className="flex flex-col gap-2 mb-3">
-          {clauses.map((clause, i) => (
-            <ClauseRow
-              key={i}
-              clause={clause}
-              isFirst={i === 0}
-              onChange={(c) => updateClause(i, c)}
-              onRemove={() => removeClause(i)}
-              onSubmit={handleSearch}
-            />
-          ))}
-        </div>
-
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={addClause}
-          className="mb-4"
-        >
-          + Add clause
-        </Button>
-
-        {/* Source + options + search row */}
-        <div className="flex items-center gap-3 flex-wrap">
+        {/* Row 1: source + search input + advanced toggle */}
+        <div className="flex items-center gap-2 mb-2">
           {/* Source segmented control */}
-          <div
-            className="flex rounded-md border border-border overflow-hidden text-sm shrink-0"
-          >
-            {(["arxiv", "openalex", "local"] as Source[]).map((s) => (
+          <div className="flex rounded-md border border-border overflow-hidden text-sm shrink-0">
+            {SOURCES.map((s) => (
               <button
                 key={s}
                 type="button"
-                onClick={() => setSource(s)}
+                onClick={() => {
+                  setSource(s);
+                  if (s !== "arxiv") setAdvancedOpen(false);
+                }}
+                disabled={isLoading}
                 className={[
-                  "px-3 py-1.5 transition-colors",
+                  "px-3 py-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                   source === s
                     ? "bg-accent text-white font-medium"
                     : "bg-panel text-muted hover:text-text",
@@ -205,85 +316,207 @@ export default function SearchPage() {
             ))}
           </div>
 
-          {/* Max results — only relevant for arXiv and OpenAlex */}
+          {/* Main search text input */}
+          <input
+            type="text"
+            className="flex-1 h-[34px] rounded-md px-3 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50"
+            placeholder={
+              source === "arxiv"
+                ? "Search arXiv…"
+                : source === "openalex"
+                ? "Search OpenAlex…"
+                : "Search local library…"
+            }
+            value={queryText}
+            onChange={(e) => setQueryText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+            disabled={isLoading}
+          />
+
+          {/* Advanced toggle — arXiv only */}
+          {source === "arxiv" && (
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className="shrink-0 h-[34px] px-3 text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] text-[var(--color-text)] hover:opacity-80 transition-opacity"
+            >
+              Advanced {advancedOpen ? "▴" : "▾"}
+            </button>
+          )}
+        </div>
+
+        {/* Advanced panel — arXiv only */}
+        {source === "arxiv" && advancedOpen && (
+          <div
+            className="mb-3 p-3 rounded-md border border-[var(--color-border)]"
+            style={{ background: "var(--color-panel)" }}
+          >
+            <QueryBuilder
+              clauses={advClauses}
+              onChange={setAdvClauses}
+              onInsert={(q) => { setQueryText(q); setAdvancedOpen(false); }}
+              historyEnabled={historyEnabled}
+            />
+          </div>
+        )}
+
+        {/* Row 2: options + search buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Max results */}
           {source !== "local" && (
             <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
               <span>Max</span>
               <select
-                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)]"
+                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
                 value={maxResults}
                 onChange={(e) => setMaxResults(Number(e.target.value))}
+                disabled={isLoading}
                 aria-label="Maximum results"
               >
                 {MAX_RESULT_OPTIONS.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
+                  <option key={n} value={n}>{n}</option>
                 ))}
               </select>
-              <span>results</span>
+            </div>
+          )}
+
+          {/* Sort — per source, auto-re-searches on change */}
+          {source === "arxiv" && (
+            <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
+              <span>Sort</span>
+              <select
+                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
+                value={sortPrefs.arxivSort}
+                onChange={(e) => handleSortChange("arxivSort", e.target.value)}
+                disabled={isLoading}
+                aria-label="Sort by"
+              >
+                <option value="relevance">Relevance</option>
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="lastUpdated">Last Updated</option>
+              </select>
+            </div>
+          )}
+
+          {source === "openalex" && (
+            <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
+              <span>Sort</span>
+              <select
+                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
+                value={sortPrefs.openAlexSort}
+                onChange={(e) => handleSortChange("openAlexSort", e.target.value)}
+                disabled={isLoading}
+                aria-label="Sort by"
+              >
+                <option value="relevance">Relevance</option>
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="citations">Most Cited</option>
+              </select>
             </div>
           )}
 
           <div className="flex-1" />
 
-          <Button
-            type="button"
-            variant="primary"
-            size="md"
-            onClick={handleSearch}
-            disabled={isLoading || clauses.every((c) => !c.value.trim())}
-          >
-            {isLoading && <Spinner size={14} />}
-            {isLoading ? "Searching…" : "Search"}
-          </Button>
+          {/* +/Search/− button group */}
+          <div className="flex rounded-md overflow-hidden shrink-0 border border-[var(--color-border)]">
+            <button
+              type="button"
+              onClick={handleAppend}
+              disabled={isLoading || results === null || !hasQuery}
+              title="Append to current results"
+              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
+              style={{ background: "var(--color-success)", color: "var(--color-bg)" }}
+            >
+              {isAppending ? <Spinner size={11} /> : "+"}
+            </button>
+            <button
+              type="button"
+              onClick={handleSearch}
+              disabled={isLoading || !hasQuery}
+              className="flex items-center justify-center gap-1 px-4 py-1 text-xs font-semibold tracking-wide transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none border-x border-black/20"
+              style={{ background: "var(--color-accent)", color: "var(--color-bg)" }}
+            >
+              {isReplacing && <Spinner size={11} />}
+              {isReplacing ? "Searching…" : "Search"}
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              disabled={isLoading || results === null}
+              title="Clear results"
+              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
+              style={{ background: "var(--color-danger)", color: "white" }}
+            >
+              −
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ── Scrollable results area ──────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-        {/* Error */}
         {error && (
           <p className="px-6 py-4 text-sm" style={{ color: "var(--color-danger)" }}>
             {error}
           </p>
         )}
 
-        {/* Loading */}
-        {isLoading && (
+        {isReplacing && (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
             <Spinner size={28} />
             <span className="text-sm">Searching…</span>
           </div>
         )}
 
-        {/* Empty state */}
-        {!isLoading && results !== null && results.length === 0 && (
+        {!isReplacing && results !== null && results.length === 0 && (
           <p className="px-6 py-8 text-sm text-[var(--color-muted)] text-center">
             No results found.
           </p>
         )}
 
-        {/* Results */}
-        {!isLoading && results && results.length > 0 && (
+        {!isReplacing && displayedResults && displayedResults.length > 0 && (
           <div>
-            <p className="px-6 py-2 text-xs text-[var(--color-muted)] border-b border-[var(--color-border)]">
-              {results.length} result{results.length !== 1 ? "s" : ""}
-            </p>
-            {results.map((result) => (
+            {/* Results header: count + view sort */}
+            <div className="flex items-center gap-3 px-6 py-2 border-b border-[var(--color-border)]">
+              <span className="text-xs text-[var(--color-muted)]">
+                {results!.length} result{results!.length !== 1 ? "s" : ""}
+                {isAppending && <span className="ml-2 text-[var(--color-accent)]">appending…</span>}
+              </span>
+              <div className="flex-1" />
+              <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+                <span>Sort</span>
+                <select
+                  className="h-[26px] rounded px-1.5 text-xs bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)]"
+                  value={viewSort}
+                  onChange={(e) => setViewSort(e.target.value as ViewSort)}
+                  aria-label="Sort results"
+                >
+                  <option value="default">Default</option>
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </div>
+            </div>
+            {displayedResults.map((result) => (
               <ResultRow
                 key={result.source_id}
                 result={result}
                 saved={savedIds.has(result.source_id)}
-
                 onSave={handleSavePaper}
               />
             ))}
+            {isAppending && (
+              <div className="flex items-center gap-2 px-6 py-3 text-xs border-t border-[var(--color-border)]" style={{ color: "var(--color-muted)" }}>
+                <Spinner size={12} />
+                <span>Fetching more…</span>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Idle prompt */}
-        {!isLoading && results === null && !error && (
+        {!isReplacing && results === null && !error && (
           <p className="px-6 py-8 text-sm text-[var(--color-muted)] text-center">
             Enter search terms above and press Search.
           </p>

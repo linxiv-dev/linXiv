@@ -9,6 +9,14 @@ from sources.base import PaperMetadata, PaperSource
 _BASE_URL = "https://api.openalex.org"
 _USER_AGENT = "linXiv/1.0 (mailto:contact@example.com)"
 
+# Maps the UI sort key to the OpenAlex sort query parameter value.
+_SORT_PARAM: dict[str, str] = {
+    "relevance": "relevance_score:desc",
+    "newest":    "publication_date:desc",
+    "oldest":    "publication_date:asc",
+    "citations": "cited_by_count:desc",
+}
+
 
 def _work_to_metadata(work: dict) -> PaperMetadata:
     """Convert an OpenAlex Work object to PaperMetadata."""
@@ -28,9 +36,9 @@ def _work_to_metadata(work: dict) -> PaperMetadata:
     # Published date
     pub_str = work.get("publication_date", "")
     try:
-        published = datetime.date.fromisoformat(pub_str) if pub_str else datetime.date.today()
+        published = datetime.date.fromisoformat(pub_str) if pub_str else datetime.date.min
     except ValueError:
-        published = datetime.date.today()
+        published = datetime.date.min
 
     # Category — use the primary topic's subfield if available
     primary_topic = work.get("primary_topic") or {}
@@ -84,17 +92,23 @@ class OpenAlexSource(PaperSource):
             timeout=30.0,
         )
 
-    def search(self, query: str, max_results: int = 10) -> list[PaperMetadata]:
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        sort: str = "relevance",
+    ) -> list[PaperMetadata]:
+        if sort not in _SORT_PARAM:
+            raise ValueError(f"unknown sort {sort!r}; valid: {sorted(_SORT_PARAM)}")
+        params: dict[str, str | int] = {
+            "search": query,
+            "per_page": max_results,
+            "select": "id,title,authorships,publication_date,doi,"
+                      "primary_topic,abstract_inverted_index",
+        }
+        params["sort"] = _SORT_PARAM[sort]
         try:
-            response = self._http.get(
-                "/works",
-                params={
-                    "search": query,
-                    "per_page": max_results,
-                    "select": "id,title,authorships,publication_date,doi,"
-                              "primary_topic,abstract_inverted_index",
-                },
-            )
+            response = self._http.get("/works", params=params)
             response.raise_for_status()
         except Exception as e:
             raise ValueError(f"OpenAlex search failed: {e}") from e

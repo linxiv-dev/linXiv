@@ -396,42 +396,6 @@ class TestSetPdfPath:
 
 
 # ---------------------------------------------------------------------------
-# delete_paper
-# ---------------------------------------------------------------------------
-
-@pytest.mark.usefixtures("tmp_db")
-class TestDeletePaper:
-    def test_delete_removes_paper(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.delete_paper("2204.12985")
-        assert db.get_paper("2204.12985") is None
-
-    def test_delete_removes_all_versions(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.save_paper(_make_result("2204.12985v2"))
-        db.save_paper(_make_result("2204.12985v3"))
-        db.delete_paper("2204.12985")
-        assert db.get_all_versions("2204.12985") == []
-
-    def test_delete_only_affects_target_paper(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.save_paper(_make_result("2301.00001v1"))
-        db.delete_paper("2204.12985")
-        assert db.get_paper("2301.00001")
-
-    def test_delete_nonexistent_is_noop(self):
-        # Should not raise
-        db.delete_paper("0000.00000")
-
-    def test_delete_removes_from_list(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.delete_paper("2204.12985")
-        rows = db.list_papers()
-        ids = [r["source_id"] for r in rows]
-        assert "2204.12985" not in ids
-
-
-# ---------------------------------------------------------------------------
 # get_all_versions
 # ---------------------------------------------------------------------------
 

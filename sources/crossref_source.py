@@ -111,11 +111,16 @@ class CrossRefSource(PaperSource):
     def source_name(self) -> str:
         return "crossref"
 
-    def search(self, query: str, max_results: int = 10) -> list[PaperMetadata]:
-        results = search_by_title(query, limit=max_results)
-        if results is None:
-            raise ValueError("CrossRef search failed")
-        return results
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        sort: str = "relevance",
+    ) -> list[PaperMetadata]:
+        # ``sort`` is accepted to satisfy the PaperSource protocol; CrossRef title search
+        # returns results in relevance order regardless.
+        del sort
+        return search_by_title(query, limit=max_results)
 
     def fetch_by_id(self, source_id: str) -> PaperMetadata:
         meta = fetch_by_doi(source_id.removeprefix("doi:"))

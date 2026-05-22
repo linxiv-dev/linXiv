@@ -3,10 +3,10 @@
  * in browser dev Vite proxies /api → http://127.0.0.1:8000, so we use
  * an empty base URL and let the proxy handle it.
  */
-const BASE_URL =
-  typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined
-    ? "http://127.0.0.1:8000"
-    : "";
+export const isTauri =
+  typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
+
+export const BASE_URL = isTauri ? "http://127.0.0.1:8000" : "";
 
 export class ApiError extends Error {
   constructor(
@@ -23,9 +23,12 @@ export async function apiFetch<T>(
   init?: RequestInit
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
+  const isFormData = init?.body instanceof FormData;
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
     ...init,
+    headers: isFormData
+      ? init?.headers
+      : { "Content-Type": "application/json", ...init?.headers },
   });
 
   if (!response.ok) {

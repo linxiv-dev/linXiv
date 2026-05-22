@@ -85,3 +85,12 @@ Notes attach to the paper at the `source_fk` level (not version-specific) by def
 ## Source
 
 The origin of a paper record: `arxiv`, `openalex`, `doi`, `pdf` (PDF import), or `local` (manually entered). Determines which fields are available and how the paper was fetched.
+
+## Storage Query Convention
+
+All storage-layer queries live in `storage/config/queries.py` and follow two patterns:
+
+- **Simple lookups** use the `Q` class — a lightweight composable WHERE-clause builder (`&`, `|`, `~`) — passed to the `_fetch_one`, `_fetch_all`, or `_count` runners. No raw SQL strings for single-table queries.
+- **JOIN queries** (multi-table) are written as named SQL string constants (e.g. `_LIST_PROJECT_PAPERS_SQL`) stored above their section header. The connection is acquired inline and the constant is passed directly to `conn.execute`. No f-strings; no per-row Python loops.
+
+Callers outside `queries.py` must not call `_connect()` directly. The storage seam is the public functions in `queries.py`; the connection and SQL are implementation details.

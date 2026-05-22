@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 import storage.db as db
+import storage.projects as _proj_storage
 from service.models.paper import PaperDetails, PaperDetailsAll
 from sources.base import PaperMetadata
 
 if TYPE_CHECKING:
     import arxiv
+
+_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +122,33 @@ def _row_to_paper_details(row: sqlite3.Row) -> PaperDetails:
 
 
 # ---------------------------------------------------------------------------
+# Dispatch helpers
+# ---------------------------------------------------------------------------
+
+def _warn_multi_key(paper: Paper, caller: str) -> None:
+    """Warn when more than one identifying key is set on a Paper.
+
+    Each dispatch site has its own priority order; the log includes the
+    caller name so readers know which priority was applied.
+    """
+    keys_set = [
+        name
+        for name, val in (
+            ("paper_id", paper.paper_id),
+            ("source_fk", paper.source_fk),
+            ("source_id", paper.source_id),
+        )
+        if val is not None
+    ]
+    if len(keys_set) > 1:
+        _log.warning(
+            "%s: multiple keys set %s — resolution order is documented in the function's docstring",
+            caller,
+            keys_set,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Master getter — dispatches on whichever Paper field is populated
 # ---------------------------------------------------------------------------
 
@@ -129,13 +160,24 @@ def get(paper: Paper) -> PaperDetails | None:
       source_fk  → latest version for this PAPER_ROOTS row
       source_id  → latest version, or pinned version if Paper.version is set
     """
-    if paper.paper_id:
+    _warn_multi_key(paper, "paper.get")
+    if paper.paper_id is not None:
+        if paper.version is not None:
+            _log.debug("paper.get: dispatching on paper_id=%r (version=%r ignored)", paper.paper_id, paper.version)
+        else:
+            _log.debug("paper.get: dispatching on paper_id=%r", paper.paper_id)
         row = db.get_paper_by_id(paper.paper_id)
-    elif paper.source_fk:
+    elif paper.source_fk is not None:
+        if paper.version is not None:
+            _log.debug("paper.get: dispatching on source_fk=%r (version=%r ignored)", paper.source_fk, paper.version)
+        else:
+            _log.debug("paper.get: dispatching on source_fk=%r", paper.source_fk)
         row = db.get_paper_by_source_fk(paper.source_fk)
-    elif paper.source_id:
+    elif paper.source_id is not None:
+        _log.debug("paper.get: dispatching on source_id=%r version=%r", paper.source_id, paper.version)
         row = db.get_paper(paper.source_id, paper.version)
     else:
+        _log.debug("paper.get: no key set, returning None")
         return None
     if row is None:
         return None
@@ -145,21 +187,29 @@ def get(paper: Paper) -> PaperDetails | None:
 def get_all(paper: Paper) -> PaperDetailsAll | None:
     """Fetch all stored versions of a paper, display fields from the latest.
 
-    Accepts the same Paper key variants as get().
+    Resolution order (differs from get()):
+      source_id  → all versions for this paper ID
+      paper_id   → resolve source_id via the PAPER row, then fetch all versions
+      source_fk  → resolve source_id via PAPER_ROOTS, then fetch all versions
     """
-    if paper.source_id:
+    _warn_multi_key(paper, "paper.get_all")
+    if paper.source_id is not None:
+        _log.debug("paper.get_all: dispatching on source_id=%r (all versions)", paper.source_id)
         source_id = paper.source_id
-    elif paper.paper_id:
+    elif paper.paper_id is not None:
+        _log.debug("paper.get_all: dispatching on paper_id=%r", paper.paper_id)
         row = db.get_paper_by_id(paper.paper_id)
         if row is None:
             return None
         source_id = row["source_id"]
-    elif paper.source_fk:
+    elif paper.source_fk is not None:
+        _log.debug("paper.get_all: dispatching on source_fk=%r", paper.source_fk)
         row = db.get_paper_by_source_fk(paper.source_fk)
         if row is None:
             return None
         source_id = row["source_id"]
     else:
+        _log.debug("paper.get_all: no key set, returning None")
         return None
 
     rows = db.get_all_versions(source_id)
@@ -309,6 +359,11 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
 def get_categories() -> list[str]:
     return db.get_categories()
 
+def get_papers_by_tag(label: str) -> list[PaperDetails]:
+    """Return all latest papers whose tags include the given label (case-insensitive)."""
+    rows = db.get_papers_by_json_tag(label)
+    return [_row_to_paper_details(r) for r in rows]
+
 
 # ---------------------------------------------------------------------------
 # Write / mutate
@@ -335,40 +390,41 @@ def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
 # ---------------------------------------------------------------------------
 
 def _resolve_source_id(paper: Paper) -> str | None:
-    if paper.source_id:
+    """Resolve a Paper to its text source_id.
+
+    Resolution order:
+      source_id  → returned directly (no DB roundtrip)
+      source_fk  → looked up via PAPER_ROOTS
+      paper_id   → looked up via PAPER, then source_id extracted
+
+    Called by delete, restore, and hard_delete. _warn_multi_key must be
+    called by each of those callers before delegating here.
+    """
+    if paper.source_id is not None:
+        _log.debug("paper._resolve_source_id: using source_id=%r directly", paper.source_id)
         return paper.source_id
-    if paper.source_fk:
+    if paper.source_fk is not None:
+        _log.debug("paper._resolve_source_id: looking up source_fk=%r", paper.source_fk)
         return db.get_source_id(paper.source_fk)
-    if paper.paper_id:
+    if paper.paper_id is not None:
+        _log.debug("paper._resolve_source_id: looking up paper_id=%r", paper.paper_id)
         row = db.get_paper_by_id(paper.paper_id)
-        return str(row["source_id"]) if row else None
+        return row["source_id"] if row else None
+    _log.debug("paper._resolve_source_id: no key set, returning None")
     return None
-
-
-def _get_paper_project_fks(source_fk: int) -> list[int]:
-    """Return PROJECT_FKs of all projects that contain this paper (including deleted-paper rows)."""
-    with db._connect() as conn:
-        rows = conn.execute(
-            "SELECT PROJECT_FK FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?",
-            (source_fk,),
-        ).fetchall()
-    return [int(r["PROJECT_FK"]) for r in rows]
 
 
 def set_has_pdf_by_source(source_id: str, has: bool) -> None:
     """Set has_pdf flag for all versions of a paper by source_id."""
-    with db._connect() as conn:
-        conn.execute("UPDATE PAPER SET HAS_PDF = ? WHERE SOURCE_ID = ?", (has, source_id))
-
-
-def remove_from_all_projects(source_fk: int) -> None:
-    """Remove a paper from every project (clears PROJECT_TO_PAPER rows for this paper)."""
-    with db._connect() as conn:
-        conn.execute("DELETE FROM PROJECT_TO_PAPER WHERE SOURCE_FK = ?", (source_fk,))
+    db.set_has_pdf_all_versions(source_id, has)
 
 
 def delete(paper: Paper) -> str | None:
-    """Soft-delete a paper. Returns the stored pdf_path (or None) for caller reference."""
+    """Soft-delete a paper. Returns the stored pdf_path (or None) for caller reference.
+
+    Resolution order: see _resolve_source_id.
+    """
+    _warn_multi_key(paper, "paper.delete")
     source_id = _resolve_source_id(paper)
     if source_id is None:
         return None
@@ -378,24 +434,41 @@ def delete(paper: Paper) -> str | None:
 def restore(paper: Paper) -> tuple[str | None, list[int]]:
     """Restore a soft-deleted paper.
 
+    Precondition: paper must currently be in soft-deleted state; calling this
+    on an active paper is a silent no-op (restore_paper is idempotent).
+
     Returns (pdf_path, project_fks) where:
       pdf_path    — the stored pdf path (may not exist on disk anymore)
-      project_fks — the projects this paper was in before deletion
+      project_fks — the projects this paper belongs to
+
+    Resolution order: see _resolve_source_id.
     """
+    _warn_multi_key(paper, "paper.restore")
     source_id = _resolve_source_id(paper)
     if source_id is None:
         return None, []
-    # Get project memberships before restoring (they survive soft-delete in DB)
+    # SOURCE_FK is an immutable PK column — reading it in a separate connection
+    # before the restore write is safe; no TOCTOU risk on an immutable value.
     root = db.get_paper_root(source_id)
+    pdf_path = db.restore_paper(source_id)
     project_fks: list[int] = []
     if root:
-        project_fks = _get_paper_project_fks(int(root["SOURCE_FK"]))
-    pdf_path = db.restore_paper(source_id)
+        project_fks = _proj_storage.get_paper_project_fks(root["SOURCE_FK"])
+    else:
+        _log.warning(
+            "paper.restore: no PAPER_ROOTS row found for source_id=%r after successful resolve; "
+            "project_fks will be empty",
+            source_id,
+        )
     return pdf_path, project_fks
 
 
 def hard_delete(paper: Paper) -> None:
-    """Permanently remove a paper from the database."""
+    """Permanently remove a paper from the database.
+
+    Resolution order: see _resolve_source_id.
+    """
+    _warn_multi_key(paper, "paper.hard_delete")
     source_id = _resolve_source_id(paper)
     if source_id is None:
         return
@@ -408,7 +481,7 @@ def list_deleted() -> list[DeletedPaperDetails]:
     result: list[DeletedPaperDetails] = []
     for row in rows:
         source_fk = int(row["source_fk"])
-        project_fks = _get_paper_project_fks(source_fk)
+        project_fks = _proj_storage.get_paper_project_fks(source_fk)
         authors = row["authors"]
         if isinstance(authors, str):
             try:
@@ -432,10 +505,6 @@ def list_deleted() -> list[DeletedPaperDetails]:
 def is_paper_deleted(source_id: str) -> bool:
     """Return True if the paper exists in soft-deleted state."""
     return db.is_paper_deleted(source_id)
-
-
-def delete_paper(source_id: str) -> None:
-    db.delete_paper(source_id)
 
 
 # ---------------------------------------------------------------------------

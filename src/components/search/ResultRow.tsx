@@ -12,7 +12,9 @@ interface ResultRowProps {
 export function ResultRow({ result, saved, onSave }: ResultRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [isSaved, setIsSaved] = useState(saved);
+  const [localSaved, setLocalSaved] = useState(false);
+  // Derive saved state from both the parent prop (updated by searches/appends) and local optimistic save.
+  const isSaved = saved || localSaved;
 
   const displayAuthors = result.authors.slice(0, 3);
   const moreAuthors = result.authors.length - 3;
@@ -26,7 +28,7 @@ export function ResultRow({ result, saved, onSave }: ResultRowProps) {
     setSaving(true);
     try {
       await onSave(result.source_id);
-      setIsSaved(true);
+      setLocalSaved(true);
     } finally {
       setSaving(false);
     }

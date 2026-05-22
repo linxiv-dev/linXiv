@@ -9,6 +9,7 @@ export default function GraphPage() {
   const preset = useThemeStore(s => s.preset);
   const mode = useThemeStore(s => s.mode);
   const overrides = useThemeStore(s => s.overrides);
+  const overrideAlphas = useThemeStore(s => s.overrideAlphas);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -24,9 +25,9 @@ export default function GraphPage() {
   const sendTheme = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe?.contentWindow) return;
-    const colors = getColors(preset, mode, overrides);
+    const colors = getColors(preset, mode, overrides, overrideAlphas);
     iframe.contentWindow.postMessage({ type: "theme_update", colors }, "*");
-  }, [preset, mode, overrides]);
+  }, [preset, mode, overrides, overrideAlphas]);
 
   useEffect(() => {
     sendTheme();

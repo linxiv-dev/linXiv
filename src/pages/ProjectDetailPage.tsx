@@ -1,32 +1,32 @@
-import { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useNavigate, useNavigationType, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Upload } from "lucide-react";
-import { getProject, updateProject, addPaperToProject, removePaperFromProject } from "../api/projects";
+import { useUiStore, type ExportFormatKey } from "../stores/ui";
+import {
+  getProject,
+  updateProject,
+  addPaperToProject,
+  removePaperFromProject,
+  archiveProject,
+  restoreProject,
+  deleteProject,
+} from "../api/projects";
 import { listPapers } from "../api/papers";
 import { exportProject, exportBibtex, exportObsidian } from "../api/exportImport";
 import { ImportDialog } from "../components/import/ImportDialog";
 import type { Paper } from "../types/api";
 import { useSelectionStore } from "../stores/selection";
 import { ColorSwatch } from "../components/projects/ColorSwatch";
+import { PRESET_COLORS } from "../components/projects/constants";
+import { TagInput, type TagInputHandle } from "../components/projects/TagInput";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import { TagBadge } from "../components/tags/TagBadge";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
-
-// ---------------------------------------------------------------------------
-// Preset swatches (same as create dialog)
-// ---------------------------------------------------------------------------
-const PRESET_COLORS = [
-  "#5b8dee",
-  "#4caf88",
-  "#e8912d",
-  "#748ffc",
-  "#e05c6c",
-  "#51cf66",
-];
 
 // ---------------------------------------------------------------------------
 // Edit Project Dialog
@@ -38,6 +38,7 @@ interface EditProjectDialogProps {
   initialName: string;
   initialDescription: string;
   initialColor: string | null;
+  initialTags: string[];
 }
 
 function EditProjectDialog({
@@ -47,23 +48,32 @@ function EditProjectDialog({
   initialName,
   initialDescription,
   initialColor,
+  initialTags,
 }: EditProjectDialogProps) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
   const [color, setColor] = useState<string | null>(initialColor);
+  const [tags, setTags] = useState<string[]>(initialTags);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const tagInputRef = useRef<TagInputHandle>(null);
 
-  // Re-seed from props each time dialog opens
+  // Keep a mutable ref so the effect below always reads the latest props
+  // without listing them as dependencies (prevents background refetches from
+  // wiping the user's in-progress edits while the dialog is open).
+  const seedRef = useRef({ initialName, initialDescription, initialColor, initialTags });
+  seedRef.current = { initialName, initialDescription, initialColor, initialTags };
+
   useEffect(() => {
-    if (open) {
-      setName(initialName);
-      setDescription(initialDescription);
-      setColor(initialColor);
-      setError(null);
-    }
-  }, [open, initialName, initialDescription, initialColor]);
+    if (!open) return;
+    setName(seedRef.current.initialName);
+    setDescription(seedRef.current.initialDescription);
+    setColor(seedRef.current.initialColor);
+    setTags(seedRef.current.initialTags);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -71,14 +81,20 @@ function EditProjectDialog({
     setSubmitting(true);
     setError(null);
     try {
+      // Read via imperative handle to capture any uncommitted draft text
+      // (typed but not yet Enter'd — stale closure on tags state is unsafe here).
+      const currentTags = tagInputRef.current?.getTagsWithDraft() ?? tags;
       await updateProject(projectId, {
         name: name.trim(),
         description: description.trim(),
         color_hex: color,
+        project_tags: currentTags,
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["project", String(projectId)] }),
+        queryClient.invalidateQueries({ queryKey: ["tags"] }),
+        queryClient.invalidateQueries({ queryKey: ["tag"] }),
       ]);
       onClose();
     } catch (err) {
@@ -141,6 +157,20 @@ function EditProjectDialog({
               />
             ))}
           </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label
+            htmlFor="edit-proj-tags"
+            className="text-xs font-medium"
+            style={{ color: "var(--color-muted)" }}
+          >
+            Tags
+          </label>
+          <TagInput ref={tagInputRef} id="edit-proj-tags" value={tags} onChange={setTags} />
+          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+            Press Enter to add a tag. Backspace removes the last tag.
+          </p>
         </div>
 
         {error && (
@@ -227,15 +257,16 @@ function AddPapersDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         [...selectedIds].map((id) => addPaperToProject(projectId, id))
       );
-      await queryClient.invalidateQueries({
-        queryKey: ["project", String(projectId)],
-      });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add papers");
+      await queryClient.invalidateQueries({ queryKey: ["project", String(projectId)] });
+      const failed = results.filter((r) => r.status === "rejected");
+      if (failed.length > 0) {
+        setError(`Failed to add ${failed.length} paper${failed.length !== 1 ? "s" : ""}`);
+      } else {
+        onClose();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -391,15 +422,19 @@ function ExportDialog({
   projectId: number;
   projectName?: string;
 }) {
+  const exportMethods = useUiStore((s) => s.exportMethods);
   const [includePdfs, setIncludePdfs] = useState(false);
-  const [busy, setBusy] = useState<"lxproj" | "bibtex" | "obsidian" | null>(null);
+  const [busy, setBusy] = useState<ExportFormatKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) setError(null);
+    if (open) {
+      setError(null);
+      setIncludePdfs(false);
+    }
   }, [open]);
 
-  async function handleExport(format: "lxproj" | "bibtex" | "obsidian") {
+  async function handleExport(format: ExportFormatKey) {
     setBusy(format);
     setError(null);
     try {
@@ -407,35 +442,49 @@ function ExportDialog({
         await exportProject(projectId, includePdfs, projectName);
       } else if (format === "bibtex") {
         await exportBibtex(projectId, projectName);
-      } else {
+      } else if (format === "obsidian") {
         await exportObsidian(projectId, projectName);
+      } else {
+        format satisfies never;
       }
       onClose();
     } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") return;
+      if (e instanceof Error && e.name === "AbortError") return; // file-picker cancelled — keep dialog open, show nothing
       setError(e instanceof Error ? e.message : "Export failed");
     } finally {
       setBusy(null);
     }
   }
 
+  const anyEnabled = Object.values(exportMethods).some(Boolean);
+
   return (
     <Dialog open={open} onClose={onClose} title="Export Project">
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3">
-          <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: "var(--color-text)" }}>
-            <input
-              type="checkbox"
-              checked={includePdfs}
-              onChange={(e) => setIncludePdfs(e.target.checked)}
-              className="accent-[var(--color-accent)]"
-            />
-            Include PDFs in .lxproj archive
-          </label>
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-            BibTeX and Obsidian exports include paper metadata only.
+        {exportMethods.lxproj && (
+          <div className="flex flex-col gap-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: "var(--color-text)" }}>
+              <input
+                type="checkbox"
+                checked={includePdfs}
+                onChange={(e) => setIncludePdfs(e.target.checked)}
+                className="accent-[var(--color-accent)]"
+              />
+              Include PDFs in .lxproj archive
+            </label>
+            {(exportMethods.bibtex || exportMethods.obsidian) && (
+              <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+                BibTeX and Obsidian exports include paper metadata only.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!anyEnabled && (
+          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+            No export formats are enabled. Enable them in Settings → Export Methods.
           </p>
-        </div>
+        )}
 
         {error && (
           <p className="text-xs" style={{ color: "var(--color-danger)" }}>{error}</p>
@@ -443,15 +492,21 @@ function ExportDialog({
 
         <div className="flex gap-2 justify-end pt-1 flex-wrap">
           <Button variant="muted" onClick={onClose}>Cancel</Button>
-          <Button variant="muted" onClick={() => handleExport("bibtex")} disabled={!!busy}>
-            {busy === "bibtex" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />BibTeX</>}
-          </Button>
-          <Button variant="muted" onClick={() => handleExport("obsidian")} disabled={!!busy}>
-            {busy === "obsidian" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />Obsidian</>}
-          </Button>
-          <Button onClick={() => handleExport("lxproj")} disabled={!!busy}>
-            {busy === "lxproj" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />.lxproj</>}
-          </Button>
+          {exportMethods.bibtex && (
+            <Button variant="muted" onClick={() => handleExport("bibtex")} disabled={!!busy}>
+              {busy === "bibtex" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />BibTeX</>}
+            </Button>
+          )}
+          {exportMethods.obsidian && (
+            <Button variant="muted" onClick={() => handleExport("obsidian")} disabled={!!busy}>
+              {busy === "obsidian" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />Obsidian</>}
+            </Button>
+          )}
+          {exportMethods.lxproj && (
+            <Button onClick={() => handleExport("lxproj")} disabled={!!busy}>
+              {busy === "lxproj" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />.lxproj</>}
+            </Button>
+          )}
         </div>
       </div>
     </Dialog>
@@ -464,9 +519,10 @@ function ExportDialog({
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const navType = useNavigationType();
   const queryClient = useQueryClient();
 
-  const { selectedIds, toggle, clear } = useSelectionStore();
+  const { selectedIds, toggle, clear, selectAll } = useSelectionStore();
 
   // Clear selection on mount/unmount to avoid leaking state to other pages
   useEffect(() => {
@@ -477,11 +533,35 @@ export default function ProjectDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [addPapersOpen, setAddPapersOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
+        setMoreOpen(false);
+        setConfirmDelete(false);
+      }
+    }
+    function handleEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") { setMoreOpen(false); setConfirmDelete(false); }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEsc);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEsc);
+    };
+  }, [moreOpen]);
+
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
-  const projectId = Number(id);
+  const projectId = id && /^\d+$/.test(id) ? parseInt(id, 10) : NaN;
 
   const {
     data: project,
@@ -491,7 +571,7 @@ export default function ProjectDetailPage() {
   } = useQuery({
     queryKey: ["project", id],
     queryFn: () => getProject(projectId),
-    enabled: Boolean(id),
+    enabled: !isNaN(projectId),
   });
 
   const {
@@ -514,19 +594,69 @@ export default function ProjectDetailPage() {
     setRemoving(true);
     setRemoveError(null);
     try {
-      await Promise.all(
-        [...selectedIds].map((sid) => removePaperFromProject(projectId, sid))
+      const idsArray = [...selectedIds];
+      const results = await Promise.allSettled(
+        idsArray.map((sid) => removePaperFromProject(projectId, sid))
       );
-      await queryClient.invalidateQueries({
-        queryKey: ["project", id],
-      });
-      clear();
-    } catch (err) {
-      setRemoveError(
-        err instanceof Error ? err.message : "Failed to remove papers"
-      );
+      const failedCount = results.filter((r) => r.status === "rejected").length;
+      if (failedCount > 0) {
+        selectAll(idsArray.filter((_, i) => results[i].status === "rejected"));
+        setRemoveError(`Failed to remove ${failedCount} paper${failedCount !== 1 ? "s" : ""}`);
+      } else {
+        clear();
+      }
+      await queryClient.invalidateQueries({ queryKey: ["project", id] });
     } finally {
       setRemoving(false);
+    }
+  }
+
+  async function handleArchive() {
+    setStatusBusy(true);
+    setStatusError(null);
+    try {
+      await archiveProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigate("/projects");
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to archive project");
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function handleRestore() {
+    setStatusBusy(true);
+    setStatusError(null);
+    try {
+      await restoreProject(projectId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project", id] }),
+      ]);
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to restore project");
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setConfirmDelete(false);
+    setStatusBusy(true);
+    setStatusError(null);
+    try {
+      await deleteProject(projectId);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      navigate("/projects");
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Failed to delete project");
+    } finally {
+      setStatusBusy(false);
     }
   }
 
@@ -561,22 +691,13 @@ export default function ProjectDetailPage() {
   return (
     <div className="flex flex-col gap-6 p-8 overflow-y-auto">
       {/* Back nav */}
-      <Link
-        to="/projects"
-        className="inline-flex items-center gap-1.5 text-sm w-fit transition-colors"
-        style={{ color: "var(--color-muted)" }}
-        onMouseEnter={(e) =>
-          ((e.currentTarget as HTMLAnchorElement).style.color =
-            "var(--color-text)")
-        }
-        onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLAnchorElement).style.color =
-            "var(--color-muted)")
-        }
+      <button
+        onClick={() => navType !== "POP" ? navigate(-1) : navigate("/projects")}
+        className="inline-flex items-center gap-1.5 text-sm w-fit transition-colors text-muted hover:text-text"
       >
         <ArrowLeft size={14} />
-        Projects
-      </Link>
+        Back
+      </button>
 
       {/* Header */}
       <div className="flex flex-col gap-3">
@@ -590,7 +711,7 @@ export default function ProjectDetailPage() {
               {project.name}
             </h1>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Button variant="muted" size="sm" onClick={() => setImportOpen(true)}>
               <Upload size={13} className="mr-1" />Import
             </Button>
@@ -600,6 +721,58 @@ export default function ProjectDetailPage() {
             <Button variant="muted" size="sm" onClick={() => setEditOpen(true)}>
               Edit
             </Button>
+            <div className="relative" ref={moreRef}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setMoreOpen((v) => !v); setConfirmDelete(false); }}
+                aria-label="More actions"
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+              >
+                ···
+              </Button>
+              {moreOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-1 z-50 rounded-md border border-border shadow-lg py-1 min-w-28"
+                  style={{ background: "var(--color-panel)" }}
+                >
+                  {project.status === "active" && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
+                      onClick={() => { setMoreOpen(false); handleArchive(); }}
+                      disabled={statusBusy}
+                    >
+                      {statusBusy ? <Spinner size={12} /> : "Archive"}
+                    </button>
+                  )}
+                  {project.status === "archived" && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
+                      onClick={() => { setMoreOpen(false); handleRestore(); }}
+                      disabled={statusBusy}
+                    >
+                      {statusBusy ? <Spinner size={12} /> : "Restore"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] disabled:opacity-40"
+                    style={{ color: "var(--color-danger)" }}
+                    onClick={handleDelete}
+                    disabled={statusBusy}
+                  >
+                    {confirmDelete ? "Confirm delete?" : "Delete"}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -609,10 +782,16 @@ export default function ProjectDetailPage() {
           </p>
         )}
 
+        {statusError && (
+          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+            {statusError}
+          </p>
+        )}
+
         {project.project_tags.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             {project.project_tags.map((tag) => (
-              <Badge key={tag}>{tag}</Badge>
+              <TagBadge key={tag} label={tag} />
             ))}
           </div>
         )}
@@ -716,6 +895,7 @@ export default function ProjectDetailPage() {
             initialName={project.name}
             initialDescription={project.description}
             initialColor={project.color_hex}
+            initialTags={project.project_tags}
           />
           <AddPapersDialog
             open={addPapersOpen}

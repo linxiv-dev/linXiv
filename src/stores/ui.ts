@@ -13,11 +13,23 @@ const DEFAULT_SIDEBAR_PAGES: SidebarPages = {
   notes: false,
 };
 
+export type ExportFormatKey = "lxproj" | "bibtex" | "obsidian";
+
+export type ExportMethods = Record<ExportFormatKey, boolean>;
+
+const DEFAULT_EXPORT_METHODS: ExportMethods = {
+  lxproj: true,
+  bibtex: true,
+  obsidian: true,
+};
+
 interface UiState {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   sidebarPages: SidebarPages;
   setSidebarPage: (page: SidebarPageKey, enabled: boolean) => void;
+  exportMethods: ExportMethods;
+  setExportMethod: (format: ExportFormatKey, enabled: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -25,6 +37,7 @@ export const useUiStore = create<UiState>()(
     (set) => ({
       sidebarCollapsed: false,
       sidebarPages: DEFAULT_SIDEBAR_PAGES,
+      exportMethods: DEFAULT_EXPORT_METHODS,
 
       toggleSidebar() {
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
@@ -35,14 +48,23 @@ export const useUiStore = create<UiState>()(
           sidebarPages: { ...state.sidebarPages, [page]: enabled },
         }));
       },
+
+      setExportMethod(format, enabled) {
+        set((state) => ({
+          exportMethods: { ...state.exportMethods, [format]: enabled },
+        }));
+      },
     }),
     {
       name: "linxiv-ui",
-      version: 1,
+      version: 2,
       migrate(persisted, fromVersion) {
         const state = (persisted ?? {}) as Partial<UiState>;
         if (fromVersion < 1) {
           state.sidebarPages = { ...DEFAULT_SIDEBAR_PAGES, ...state.sidebarPages };
+        }
+        if (fromVersion < 2) {
+          state.exportMethods = { ...DEFAULT_EXPORT_METHODS, ...state.exportMethods };
         }
         return state;
       },

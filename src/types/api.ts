@@ -1,3 +1,5 @@
+import type { ThemeColors, ColorAlphas } from "../lib/theme";
+
 export interface Stats {
   paper_count: number;
   tag_count: number;
@@ -81,6 +83,16 @@ export interface SearchResult {
 
 export interface Settings {
   pdf_save_limit_mb: number;
-  theme_overrides: Record<string, string>;
+  theme_overrides: Partial<ThemeColors>;
+  theme_override_alphas: ColorAlphas;
+  search_history_enabled?: boolean;
+  search_history_max?: number;
   [key: string]: unknown;
+}
+
+export interface Clause {
+  operator: "AND" | "OR" | "AND NOT";
+  field: "all" | "ti" | "au" | "abs";
+  value: string;
+  uid: string;
 }

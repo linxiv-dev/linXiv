@@ -6,14 +6,17 @@ export interface ArxivSearchResponse {
   saved_source_ids: string[];
 }
 
+export type ArxivSort = "relevance" | "newest" | "oldest" | "lastUpdated";
+
 export async function searchArxiv(
   query: string,
   maxResults = 25,
-  save = false
+  save = false,
+  sort: ArxivSort = "relevance",
 ): Promise<ArxivSearchResponse> {
   return apiFetch<ArxivSearchResponse>("/api/arxiv/search", {
     method: "POST",
-    body: JSON.stringify({ query, max_results: maxResults, save }),
+    body: JSON.stringify({ query, max_results: maxResults, save, sort }),
   });
 }
 
@@ -59,13 +62,16 @@ export interface OpenAlexSearchResponse {
   results: SearchResult[];
 }
 
+export type OpenAlexSort = "relevance" | "newest" | "oldest" | "citations";
+
 export async function searchOpenAlex(
   query: string,
   maxResults = 25,
+  sort: OpenAlexSort = "relevance",
 ): Promise<OpenAlexSearchResponse> {
   return apiFetch<OpenAlexSearchResponse>("/api/openalex/search", {
     method: "POST",
-    body: JSON.stringify({ query, max_results: maxResults }),
+    body: JSON.stringify({ query, max_results: maxResults, sort }),
   });
 }
 
