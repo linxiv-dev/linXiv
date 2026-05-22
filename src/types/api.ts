@@ -90,6 +90,19 @@ export interface Settings {
   [key: string]: unknown;
 }
 
+export interface PaperVersionSummary {
+  version: number;
+  published: string | null;
+  updated: string | null;
+  has_pdf: boolean;
+}
+
+export interface PaperVersionsResponse {
+  source_id: string;
+  latest_version: number;
+  versions: PaperVersionSummary[];
+}
+
 export interface Clause {
   operator: "AND" | "OR" | "AND NOT";
   field: "all" | "ti" | "au" | "abs";

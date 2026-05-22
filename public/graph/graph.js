@@ -269,14 +269,14 @@ function _applyFilter() {
 
 // ── Called from Python to populate filter datalists ──────────────────────────
 
+function _escAttr(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function setFilterOptions(categories, tags, projects) {
-    // Category datalist
-    $('categoryList').innerHTML = categories.map(c => `<option value="${c}">`).join('');
+    $('categoryList').innerHTML = categories.map(c => `<option value="${_escAttr(c)}">`).join('');
+    $('tagList').innerHTML = tags.map(t => `<option value="${_escAttr(t)}">`).join('');
 
-    // Tag datalist for the logic builder input
-    $('tagList').innerHTML = tags.map(t => `<option value="${t}">`).join('');
-
-    // Project datalist + project-tag datalist
     _projectMap.clear();
     const allProjTags = new Set();
     (projects || []).forEach(proj => {
@@ -284,10 +284,10 @@ function setFilterOptions(categories, tags, projects) {
         (proj.tags || []).forEach(t => allProjTags.add(t));
     });
     $('projectList').innerHTML = [..._projectMap.values()]
-        .map(p => `<option value="${p.name.replace(/"/g, '&quot;')}">`)
+        .map(p => `<option value="${_escAttr(p.name)}">`)
         .join('');
     $('projectTagList').innerHTML = [...allProjTags].sort()
-        .map(t => `<option value="${t.replace(/"/g, '&quot;')}">`)
+        .map(t => `<option value="${_escAttr(t)}">`)
         .join('');
 }
 
@@ -337,6 +337,7 @@ function loadGraph(data) {
                 group: 'nodes',
                 data: {
                     id:          String(n.id),
+                    source_id:   n.source_id   || null,
                     label:       n.label,
                     type:        n.type,
                     category:    n.category    || null,
@@ -392,11 +393,9 @@ function loadGraph(data) {
             _toggleSelection(paper_id);
         } else {
             _selectedIds.clear();
-            _selectedIds.add(paper_id);
             _applyAllStyles();
-            _notifySelectionChanged();
             console.log('GRAPHVIEW_PAPER_CLICKED:' + paper_id);
-            window.parent.postMessage({ type: 'paper_clicked', id: paper_id }, '*');
+            window.parent.postMessage({ type: 'paper_clicked', id: paper_id }, window.location.origin);
         }
     });
 
@@ -746,13 +745,21 @@ function _toggleSelection(paperId) {
 }
 
 function _notifySelectionChanged() {
-    console.log('GRAPHVIEW_SELECTION_COUNT:' + _selectedIds.size);
+    const sourceIds = [];
+    if (cy) {
+        _selectedIds.forEach(nid => {
+            const sid = cy.getElementById(nid).data('source_id');
+            if (sid) sourceIds.push(sid);
+        });
+    }
+    window.parent.postMessage({ type: 'selection_changed', sourceIds }, window.location.origin);
 }
 
 function selectAllPapers() {
     if (!cy) return;
+    const visible = _visiblePaperIds;
     cy.nodes('[type = "paper"]').forEach(n => {
-        if (parseFloat(n.style('opacity')) > DIM_OPACITY) {
+        if (visible === null || visible.has(n.id())) {
             _selectedIds.add(n.id());
         }
     });
@@ -811,17 +818,21 @@ window.addEventListener('resize', () => { if (cy) cy.resize(); });
 (function() { PAPER_COLOR = getThemeColors().accent; })();
 
 window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'theme_update') return;
-    const c = e.data.colors;
-    const r = document.documentElement;
-    r.style.setProperty('--color-bg',     c.bg);
-    r.style.setProperty('--color-panel',  c.panel);
-    r.style.setProperty('--color-border', c.border);
-    r.style.setProperty('--color-accent', c.accent);
-    r.style.setProperty('--color-text',   c.text);
-    r.style.setProperty('--color-muted',  c.muted);
-    PAPER_COLOR = c.accent;
-    if (cy) cy.style(cytoscapeStyle()).update();
+    if (!e.data || e.origin !== window.location.origin) return;
+    if (e.data.type === 'theme_update') {
+        const c = e.data.colors;
+        const r = document.documentElement;
+        r.style.setProperty('--color-bg',     c.bg);
+        r.style.setProperty('--color-panel',  c.panel);
+        r.style.setProperty('--color-border', c.border);
+        r.style.setProperty('--color-accent', c.accent);
+        r.style.setProperty('--color-text',   c.text);
+        r.style.setProperty('--color-muted',  c.muted);
+        PAPER_COLOR = c.accent;
+        if (cy) cy.style(cytoscapeStyle()).update();
+    } else if (e.data.type === 'clear_selection') {
+        clearSelection();
+    }
 });
 
 // Bootstrap: http(s) = dev (Vite proxy handles /api), tauri: = production app (backend at 127.0.0.1:8000), file: = Qt bridge (skip).

@@ -1,5 +1,5 @@
 import { apiFetch, BASE_URL } from "./client";
-import type { Paper } from "../types/api";
+import type { Paper, PaperVersionsResponse } from "../types/api";
 
 export async function listPapers(
   limit = 200,
@@ -14,8 +14,13 @@ export async function getPaper(sourceId: string): Promise<Paper> {
   return apiFetch<Paper>(`/api/papers/${encodeURIComponent(sourceId)}`);
 }
 
-export async function getPaperBySfk(sfk: number): Promise<Paper> {
-  return apiFetch<Paper>(`/api/papers/sfk/${sfk}`);
+export async function getPaperBySfk(sfk: number, version?: number): Promise<Paper> {
+  const query = version !== undefined ? `?version=${version}` : "";
+  return apiFetch<Paper>(`/api/papers/sfk/${sfk}${query}`);
+}
+
+export async function getPaperVersions(sfk: number): Promise<PaperVersionsResponse> {
+  return apiFetch<PaperVersionsResponse>(`/api/papers/sfk/${sfk}/versions`);
 }
 
 export async function deletePaper(sourceId: string): Promise<{ deleted: string }> {
