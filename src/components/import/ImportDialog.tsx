@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { Upload } from "lucide-react";
+import { useImportJobsStore } from "../../stores/importJobs";
 import {
   importBibtex,
   importPdf,
@@ -9,22 +10,21 @@ import {
 } from "../../api/exportImport";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
-import { Spinner } from "../ui/spinner";
+
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type FileKind = "pdf" | "bibtex" | "lxproj" | "unknown";
-type FileStatus = "queued" | "processing" | "done" | "error";
+type KnownFileKind = Exclude<FileKind, "unknown">;
+let _uid = 0;
+function nextUid() { return ++_uid; }
 
 interface QueueEntry {
   uid: number;
   file: File;
-  kind: FileKind;
-  status: FileStatus;
+  kind: KnownFileKind;
   preview?: ImportPreview;
   onConflict: "merge" | "overwrite";
-  result?: string;
-  error?: string;
 }
 
 function detectKind(f: File): FileKind {
@@ -36,25 +36,6 @@ function detectKind(f: File): FileKind {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-const STATUS_ICON: Record<Exclude<FileStatus, "processing">, { char: string; color: string }> = {
-  queued: { char: "○", color: "var(--color-muted)"   },
-  done:   { char: "✓", color: "var(--color-success)" },
-  error:  { char: "✗", color: "var(--color-danger)"  },
-};
-
-function StatusMark({ status }: { status: FileStatus }) {
-  if (status === "processing") return <Spinner size={12} />;
-  const { char, color } = STATUS_ICON[status];
-  return <span style={{ color, fontFamily: "monospace", width: 14, display: "inline-block", textAlign: "center" }}>{char}</span>;
-}
-
-function processingLabel(kind: FileKind): string {
-  if (kind === "pdf") return "Resolving metadata…";
-  if (kind === "bibtex") return "Parsing BibTeX…";
-  if (kind === "lxproj") return "Importing…";
-  return "Processing…";
-}
 
 function LxprojPreview({
   entry,
@@ -110,26 +91,30 @@ export interface ImportDialogProps {
 
 export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const uidRef = useRef(0);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const [running, setRunning] = useState(false);
+  const [rejectedFilenames, setRejectedFilenames] = useState<string[]>([]);
+  const addJobs = useImportJobsStore((s) => s.addJobs);
+  const updateStoreJob = useImportJobsStore((s) => s.updateJob);
+  // Keep onDone stable across the async loop even if parent re-renders or unmounts.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
   function updateEntry(uid: number, patch: Partial<QueueEntry>) {
     setQueue((prev) => prev.map((e) => (e.uid === uid ? { ...e, ...patch } : e)));
   }
 
   async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const withKind = Array.from(e.target.files ?? [])
-      .map((f) => ({ f, kind: detectKind(f) }))
-      .filter(({ kind }) => kind !== "unknown");
+    const all = Array.from(e.target.files ?? []).map((f) => ({ f, kind: detectKind(f) }));
     e.target.value = "";
-    if (!withKind.length) return;
+    if (!all.length) return; // picker cancelled — don't clear the existing rejection warning
+    const withKind = all.filter((x): x is { f: File; kind: KnownFileKind } => x.kind !== "unknown");
+    const rejected = all.filter(({ kind }) => kind === "unknown").map(({ f }) => f.name);
+    setRejectedFilenames(rejected); // per-batch: clears on next non-empty pick
 
     const newEntries: QueueEntry[] = withKind.map(({ f, kind }) => ({
-      uid: uidRef.current++,
+      uid: nextUid(),
       file: f,
       kind,
-      status: "queued",
       onConflict: "merge",
     }));
     setQueue((prev) => [...prev, ...newEntries]);
@@ -149,13 +134,19 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
   }
 
   async function handleImport() {
-    if (running) return;
-    setRunning(true);
-    const newProjectIds: number[] = [];
+    const toProcess = [...queue];
+    if (!toProcess.length) return;
 
-    for (const entry of queue) {
-      if (entry.status !== "queued") continue;
-      updateEntry(entry.uid, { status: "processing" });
+    // Register jobs in the global store so the sidebar can track them,
+    // then close the dialog immediately — upload continues in the background.
+    // Append to any existing jobs so concurrent batches don't clobber each other.
+    addJobs(toProcess.map((e) => ({ uid: e.uid, filename: e.file.name })));
+    reset();
+    onClose();
+
+    const newProjectIds: number[] = [];
+    // Sequential intentionally: avoids saturating the backend with concurrent uploads.
+    for (const entry of toProcess) {
       try {
         const { file, kind, onConflict } = entry;
         let result = "";
@@ -169,32 +160,33 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
           const r = await commitImport(file, onConflict);
           newProjectIds.push(r.project_id);
           result = `Project imported`;
+        } else {
+          const _exhaustive: never = kind;
+          throw new Error(`Unhandled file kind: ${_exhaustive}`);
         }
-        updateEntry(entry.uid, { status: "done", result });
+        updateStoreJob(entry.uid, { status: "done", result });
       } catch (err) {
-        updateEntry(entry.uid, {
+        updateStoreJob(entry.uid, {
           status: "error",
-          error: err instanceof Error ? err.message : "Failed",
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     }
 
-    setRunning(false);
-    onDone(newProjectIds);
+    onDoneRef.current(newProjectIds);
   }
 
   function reset() {
     setQueue([]);
-    setRunning(false);
+    setRejectedFilenames([]);
   }
 
-  const queued = queue.filter((e) => e.status === "queued").length;
-  const allSettled = queue.length > 0 && queue.every((e) => e.status === "done" || e.status === "error");
+  const queued = queue.length;
 
   return (
     <Dialog
       open={open}
-      onClose={() => { if (!running) { reset(); onClose(); } }}
+      onClose={() => { reset(); onClose(); }}
       title="Import"
     >
       <div className="flex flex-col gap-4">
@@ -208,7 +200,7 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
             onChange={handleFilePick}
             className="hidden"
           />
-          <Button variant="muted" size="sm" onClick={() => fileRef.current?.click()} disabled={running}>
+          <Button variant="muted" size="sm" onClick={() => fileRef.current?.click()}>
             <Upload size={13} className="mr-1.5" />
             Add files…
           </Button>
@@ -217,6 +209,13 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
             {projectId ? " · files linked to this project" : ""}
           </p>
         </div>
+
+        {/* Unsupported file warning */}
+        {rejectedFilenames.length > 0 && (
+          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+            Unsupported format, skipped: {rejectedFilenames.join(", ")}
+          </p>
+        )}
 
         {/* Queue */}
         {queue.length > 0 && (
@@ -227,44 +226,23 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
             {queue.map((entry) => (
               <div key={entry.uid} className="border-b border-border last:border-0">
                 <div className="flex items-center gap-2 px-3 py-2 text-sm">
-                  <StatusMark status={entry.status} />
+                  <span className="w-3.5 shrink-0 inline-block text-center font-mono" style={{ color: "var(--color-muted)" }}>○</span>
                   <span className="flex-1 truncate" style={{ color: "var(--color-text)" }}>
                     {entry.file.name}
                   </span>
                   <span className="text-xs shrink-0" style={{ color: "var(--color-muted)" }}>
                     {entry.kind === "pdf" ? "PDF" : entry.kind === "bibtex" ? "BibTeX" : ".lxproj"}
                   </span>
-                  {entry.status === "processing" && (
-                    <span className="text-xs shrink-0" style={{ color: "var(--color-muted)" }}>
-                      {processingLabel(entry.kind)}
-                    </span>
-                  )}
-                  {entry.result && (
-                    <span className="text-xs shrink-0" style={{ color: "var(--color-success)" }}>
-                      {entry.result}
-                    </span>
-                  )}
-                  {entry.error && (
-                    <span
-                      className="text-xs shrink-0 max-w-36 truncate"
-                      style={{ color: "var(--color-danger)" }}
-                      title={entry.error}
-                    >
-                      {entry.error}
-                    </span>
-                  )}
-                  {entry.status === "queued" && (
-                    <button
-                      type="button"
-                      className="text-sm shrink-0 leading-none"
-                      style={{ color: "var(--color-muted)" }}
-                      onClick={() => setQueue((prev) => prev.filter((e) => e.uid !== entry.uid))}
-                    >
-                      ×
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="text-sm shrink-0 leading-none"
+                    style={{ color: "var(--color-muted)" }}
+                    onClick={() => setQueue((prev) => prev.filter((e) => e.uid !== entry.uid))}
+                  >
+                    ×
+                  </button>
                 </div>
-                {entry.kind === "lxproj" && entry.status === "queued" && (
+                {entry.kind === "lxproj" && (
                   <div className="px-3 pb-2">
                     <LxprojPreview entry={entry} onChange={(patch) => updateEntry(entry.uid, patch)} />
                   </div>
@@ -277,27 +255,15 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
         {/* Footer */}
         <div className="flex items-center justify-between pt-1">
           <span className="text-xs" style={{ color: "var(--color-muted)" }}>
-            {running
-              ? "Importing…"
-              : queued > 0
-              ? `${queued} file${queued !== 1 ? "s" : ""} queued`
-              : allSettled
-              ? "All done"
-              : ""}
+            {queued > 0 ? `${queued} file${queued !== 1 ? "s" : ""} queued` : ""}
           </span>
           <div className="flex gap-2">
-            <Button
-              variant="muted"
-              onClick={() => { reset(); onClose(); }}
-              disabled={running}
-            >
-              {allSettled ? "Close" : "Cancel"}
+            <Button variant="muted" onClick={() => { reset(); onClose(); }}>
+              Cancel
             </Button>
-            {!allSettled && (
-              <Button onClick={handleImport} disabled={running || queued === 0}>
-                {running ? <Spinner size={14} /> : `Import${queued > 0 ? ` (${queued})` : ""}`}
-              </Button>
-            )}
+            <Button onClick={handleImport} disabled={queued === 0}>
+              {`Import${queued > 0 ? ` (${queued})` : ""}`}
+            </Button>
           </div>
         </div>
       </div>
