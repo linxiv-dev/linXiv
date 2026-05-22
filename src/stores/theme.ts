@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { applyTheme } from "../lib/theme";
+import { applyTheme, VALID_HEX } from "../lib/theme";
 import type { ColorAlphas, PresetName, ThemeColors, ThemeMode } from "../lib/theme";
 
 const STORAGE_KEY = "linxiv-theme";
@@ -12,9 +12,6 @@ export interface CustomPalette {
   mode?: ThemeMode;
   overrides: Partial<ThemeColors>;
   overrideAlphas: ColorAlphas;
-  glassIntensity: number;
-  glassTintColor: string;
-  glassTintAlpha: number;
 }
 
 interface ThemeState {
@@ -22,18 +19,13 @@ interface ThemeState {
   mode: ThemeMode;
   overrides: Partial<ThemeColors>;
   overrideAlphas: ColorAlphas;
-  glassIntensity: number;
-  glassTintColor: string;
-  glassTintAlpha: number;
   customPalettes: CustomPalette[];
   setPreset: (p: PresetName) => void;
   setMode: (m: ThemeMode) => void;
   setOverride: (key: keyof ThemeColors, val: string) => void;
   removeOverride: (key: keyof ThemeColors) => void;
   setOverrideAlpha: (key: keyof ThemeColors, alpha: number) => void;
-  setGlassIntensity: (v: number) => void;
-  setGlassTintColor: (v: string) => void;
-  setGlassTintAlpha: (v: number) => void;
+  setOverrideWithAlpha: (key: keyof ThemeColors, hex: string, alpha: number) => void;
   saveCustomPalette: (name: string) => void;
   deleteCustomPalette: (name: string) => void;
   applyCustomPalette: (palette: CustomPalette) => void;
@@ -51,18 +43,9 @@ export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => {
       function applyAndSet(patch: Partial<ThemeState>) {
-        const s = get();
-        const next = { ...s, ...patch } as ThemeState;
-        applyTheme(
-          next.preset,
-          next.mode,
-          next.overrides,
-          next.overrideAlphas,
-          next.glassIntensity,
-          next.glassTintColor,
-          next.glassTintAlpha
-        );
         set(patch);
+        const next = get();
+        applyTheme(next.preset, next.mode, next.overrides, next.overrideAlphas);
       }
 
       return {
@@ -70,9 +53,6 @@ export const useThemeStore = create<ThemeState>()(
         mode: "dark" as ThemeMode,
         overrides: {},
         overrideAlphas: {},
-        glassIntensity: 100,
-        glassTintColor: "",
-        glassTintAlpha: 15,
         customPalettes: [],
 
         setPreset(p) {
@@ -84,11 +64,13 @@ export const useThemeStore = create<ThemeState>()(
         },
 
         setOverride(key, val) {
+          if (!VALID_HEX.test(val)) return;
           const next = { ...get().overrides, [key]: val };
           applyAndSet({ overrides: next });
         },
 
         removeOverride(key) {
+          if (!(key in get().overrides)) return;
           const nextOverrides = { ...get().overrides };
           const nextAlphas = { ...get().overrideAlphas };
           delete nextOverrides[key];
@@ -97,33 +79,26 @@ export const useThemeStore = create<ThemeState>()(
         },
 
         setOverrideAlpha(key, alpha) {
+          if (get().overrides[key] === undefined) return;
           const next = { ...get().overrideAlphas, [key]: clamp(alpha, 0, 100) };
           applyAndSet({ overrideAlphas: next });
         },
 
-        setGlassIntensity(v) {
-          applyAndSet({ glassIntensity: clamp(v, 0, 100) });
-        },
-
-        setGlassTintColor(v) {
-          applyAndSet({ glassTintColor: v });
-        },
-
-        setGlassTintAlpha(v) {
-          applyAndSet({ glassTintAlpha: clamp(v, 0, 100) });
+        setOverrideWithAlpha(key, hex, alpha) {
+          if (!VALID_HEX.test(hex)) return;
+          const nextOverrides = { ...get().overrides, [key]: hex };
+          const nextAlphas = { ...get().overrideAlphas, [key]: clamp(alpha, 0, 100) };
+          applyAndSet({ overrides: nextOverrides, overrideAlphas: nextAlphas });
         },
 
         saveCustomPalette(name) {
-          const { preset, mode, overrides, overrideAlphas, glassIntensity, glassTintColor, glassTintAlpha, customPalettes } = get();
+          const { preset, mode, overrides, overrideAlphas, customPalettes } = get();
           const palette: CustomPalette = {
             name,
             preset,
             mode,
             overrides: { ...overrides },
             overrideAlphas: { ...overrideAlphas },
-            glassIntensity,
-            glassTintColor,
-            glassTintAlpha,
           };
           const nameLower = name.toLowerCase();
           const idx = customPalettes.findIndex((p) => p.name.toLowerCase() === nameLower);
@@ -137,7 +112,8 @@ export const useThemeStore = create<ThemeState>()(
         },
 
         deleteCustomPalette(name) {
-          set({ customPalettes: get().customPalettes.filter((p) => p.name !== name) });
+          const lower = name.toLowerCase();
+          set({ customPalettes: get().customPalettes.filter((p) => p.name.toLowerCase() !== lower) });
         },
 
         applyCustomPalette(palette) {
@@ -146,46 +122,52 @@ export const useThemeStore = create<ThemeState>()(
             mode: palette.mode ?? get().mode,
             overrides: { ...palette.overrides },
             overrideAlphas: { ...palette.overrideAlphas },
-            glassIntensity: palette.glassIntensity,
-            glassTintColor: palette.glassTintColor,
-            glassTintAlpha: palette.glassTintAlpha,
           });
         },
 
         restoreFromSettings(overrides, overrideAlphas) {
-          applyAndSet({ overrides: { ...overrides }, overrideAlphas: { ...overrideAlphas } });
+          const safeOverrides: Partial<ThemeColors> = {};
+          for (const k of Object.keys(overrides) as Array<keyof ThemeColors>) {
+            const v = overrides[k];
+            if (v && VALID_HEX.test(v)) safeOverrides[k] = v;
+          }
+          const safeAlphas: ColorAlphas = {};
+          for (const k of Object.keys(overrideAlphas) as Array<keyof ThemeColors>) {
+            const v = overrideAlphas[k];
+            if (typeof v === "number") safeAlphas[k] = clamp(v, 0, 100);
+          }
+          applyAndSet({ overrides: safeOverrides, overrideAlphas: safeAlphas });
         },
       };
     },
     {
       name: STORAGE_KEY,
-      version: 2,
+      version: 3,
       migrate(stored: unknown, version: number) {
         const s = { ...(stored as Record<string, unknown>) };
         if (version === 0) {
-          s.glassIntensity = s.glassEffects === false ? 0 : 100;
-          s.glassTintColor = "";
-          s.glassTintAlpha = 15;
           delete s.glassEffects;
         }
         if (version <= 1) {
+          // overrideAlphas and customPalettes were introduced in v2; neither field existed before.
           s.overrideAlphas = {};
           s.customPalettes = [];
         }
-        // version 2+ CustomPalette.mode is optional — no migration needed, applyCustomPalette falls back to current mode
+        if (version <= 2) {
+          delete s.glassIntensity;
+          delete s.glassTintColor;
+          delete s.glassTintAlpha;
+          if (Array.isArray(s.customPalettes)) {
+            s.customPalettes = (s.customPalettes as Record<string, unknown>[]).map(
+              ({ glassIntensity: _gi, glassTintColor: _gtc, glassTintAlpha: _gta, ...rest }) => rest
+            );
+          }
+        }
         return s;
       },
       onRehydrateStorage: () => (state) => {
         if (state) {
-          applyTheme(
-            state.preset,
-            state.mode,
-            state.overrides,
-            state.overrideAlphas,
-            state.glassIntensity,
-            state.glassTintColor,
-            state.glassTintAlpha
-          );
+          applyTheme(state.preset, state.mode, state.overrides, state.overrideAlphas);
         }
       },
     }

@@ -14,7 +14,7 @@ export function Section({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="panel-glass rounded-lg border border-border mb-4">
+    <div className="bg-panel rounded-lg border border-border mb-4">
       <h2>
         <button
           type="button"
