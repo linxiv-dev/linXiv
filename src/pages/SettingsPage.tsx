@@ -4,6 +4,7 @@ import { StorageSection } from "../components/settings/StorageSection";
 import { CrossRefSection } from "../components/settings/CrossRefSection";
 import { SearchSection } from "../components/settings/SearchSection";
 import { SidebarSection } from "../components/settings/SidebarSection";
+import { ExportSection } from "../components/settings/ExportSection";
 import { IntegrationsSection } from "../components/settings/IntegrationsSection";
 import { TrashSection } from "../components/settings/TrashSection";
 
@@ -32,6 +33,8 @@ export default function SettingsPage() {
         <Divider />
         <SearchSection />
         <SidebarSection />
+        <Divider />
+        <ExportSection />
         <Divider />
         <IntegrationsSection />
         <Divider />

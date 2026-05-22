@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Upload } from "lucide-react";
+import { useUiStore } from "../stores/ui";
 import {
   getProject,
   updateProject,
@@ -423,6 +424,7 @@ function ExportDialog({
   projectId: number;
   projectName?: string;
 }) {
+  const { exportMethods } = useUiStore();
   const [includePdfs, setIncludePdfs] = useState(false);
   const [busy, setBusy] = useState<"lxproj" | "bibtex" | "obsidian" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -451,23 +453,35 @@ function ExportDialog({
     }
   }
 
+  const anyEnabled = exportMethods.lxproj || exportMethods.bibtex || exportMethods.obsidian;
+
   return (
     <Dialog open={open} onClose={onClose} title="Export Project">
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3">
-          <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: "var(--color-text)" }}>
-            <input
-              type="checkbox"
-              checked={includePdfs}
-              onChange={(e) => setIncludePdfs(e.target.checked)}
-              className="accent-[var(--color-accent)]"
-            />
-            Include PDFs in .lxproj archive
-          </label>
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
-            BibTeX and Obsidian exports include paper metadata only.
+        {exportMethods.lxproj && (
+          <div className="flex flex-col gap-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: "var(--color-text)" }}>
+              <input
+                type="checkbox"
+                checked={includePdfs}
+                onChange={(e) => setIncludePdfs(e.target.checked)}
+                className="accent-[var(--color-accent)]"
+              />
+              Include PDFs in .lxproj archive
+            </label>
+            {(exportMethods.bibtex || exportMethods.obsidian) && (
+              <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+                BibTeX and Obsidian exports include paper metadata only.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!anyEnabled && (
+          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+            No export formats are enabled. Enable them in Settings → Export Methods.
           </p>
-        </div>
+        )}
 
         {error && (
           <p className="text-xs" style={{ color: "var(--color-danger)" }}>{error}</p>
@@ -475,15 +489,21 @@ function ExportDialog({
 
         <div className="flex gap-2 justify-end pt-1 flex-wrap">
           <Button variant="muted" onClick={onClose}>Cancel</Button>
-          <Button variant="muted" onClick={() => handleExport("bibtex")} disabled={!!busy}>
-            {busy === "bibtex" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />BibTeX</>}
-          </Button>
-          <Button variant="muted" onClick={() => handleExport("obsidian")} disabled={!!busy}>
-            {busy === "obsidian" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />Obsidian</>}
-          </Button>
-          <Button onClick={() => handleExport("lxproj")} disabled={!!busy}>
-            {busy === "lxproj" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />.lxproj</>}
-          </Button>
+          {exportMethods.bibtex && (
+            <Button variant="muted" onClick={() => handleExport("bibtex")} disabled={!!busy}>
+              {busy === "bibtex" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />BibTeX</>}
+            </Button>
+          )}
+          {exportMethods.obsidian && (
+            <Button variant="muted" onClick={() => handleExport("obsidian")} disabled={!!busy}>
+              {busy === "obsidian" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />Obsidian</>}
+            </Button>
+          )}
+          {exportMethods.lxproj && (
+            <Button onClick={() => handleExport("lxproj")} disabled={!!busy}>
+              {busy === "lxproj" ? <Spinner size={14} /> : <><Download size={13} className="mr-1" />.lxproj</>}
+            </Button>
+          )}
         </div>
       </div>
     </Dialog>
