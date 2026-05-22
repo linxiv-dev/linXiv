@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, useParams } from "react-router-dom";
 import AppShell from "./components/layout/AppShell";
 
 const HomePage = lazy(() => import("./pages/HomePage"));
@@ -12,6 +12,13 @@ const SearchPage = lazy(() => import("./pages/SearchPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TagPage = lazy(() => import("./pages/TagPage"));
 
+// Forces a full remount of PaperDetailPage when sfk changes, so all
+// useState initializers run fresh and no stale state drives incorrect queries.
+function KeyedPaperDetailPage() {
+  const { sfk } = useParams<{ sfk: string }>();
+  return <PaperDetailPage key={sfk} />;
+}
+
 const router = createBrowserRouter([
   {
     path: "/",
@@ -19,7 +26,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: "library", element: <LibraryPage /> },
-      { path: "library/:sfk", element: <PaperDetailPage /> },
+      { path: "library/:sfk", element: <KeyedPaperDetailPage /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "projects/:id", element: <ProjectDetailPage /> },
       { path: "graph", element: null },

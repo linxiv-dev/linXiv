@@ -18,7 +18,8 @@ Items flagged during design review. Grouped by area.
 ## Paper Detail
 - [x] Restore-from-trash "keep in projects?" prompt — API + frontend dialog complete (`KeepInProjectsDialog` in SettingsPage, `removeFromAllProjects` wired)
 - [ ] In-app PDF viewer tab (currently only "Open PDF" external link + download)
-- [ ] Version selector in header (switch between stored versions; diff view between any two)
+- [x] Version selector in header (switch between stored versions — selector in meta row, edit/download gated to latest)
+- [ ] Diff view between any two stored versions (deferred)
 - [ ] Subtle version-awareness indicators in GUI: library badge, new-version nudge, fetch-missing action
 - [ ] Notes tab: markdown editor, project scope picker defaulting to navigation context, optional version pin. Blocked by choice of latex renderer
 
