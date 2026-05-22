@@ -27,15 +27,6 @@ from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
-from storage.db import (
-    get_categories,
-    get_tags,
-    init_db,
-    parse_entry_id,
-    save_paper,
-    save_paper_metadata,
-    save_papers_metadata,
-)
 from sources import resolve_doi, fetch_paper_metadata
 from sources.base import PaperMetadata
 from sources.pdf_metadata import resolve_pdf_metadata
@@ -60,7 +51,14 @@ from service.paper import (
     repair_paper as svc_repair_paper,
     sfks_to_source_ids,
     get_papers_by_tag,
+    save_paper,
+    save_paper_metadata,
+    save_papers_metadata,
+    get_categories,
+    init_db,
+    parse_entry_id,
 )
+from service.tag import list_all_tags
 import user_settings
 from storage.notes import Note, ensure_notes_db, get_note, get_notes
 from storage.projects import (
@@ -191,7 +189,7 @@ def health() -> dict:
 @app.get("/api/stats")
 def stats() -> dict:
     papers = list_paper_details(latest_only=True)
-    tags = get_tags()
+    tags = list_all_tags()
     categories = get_categories()
     return {
         "paper_count": len(papers),
@@ -361,7 +359,7 @@ def api_categories() -> dict:
 
 @app.get("/api/tags")
 def api_tags() -> dict:
-    return {"tags": get_tags()}
+    return {"tags": list_all_tags()}
 
 
 @app.get("/api/tags/{label}")
@@ -630,7 +628,6 @@ def api_search_state_save(body: SearchStateBody) -> dict:
     )
     return {"ok": True}
 
-#TODO:RECREATE API to be more efficient, use service layer???
 class ArxivFetchBody(BaseModel):
     source_id: str = Field(min_length=1)
     save: bool = True
@@ -1062,13 +1059,12 @@ async def api_import_bibtex(
         metas = BibTeXFormat().import_string(text)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"BibTeX parse error: {e}") from e
-    saved: list[str] = []
-    for meta in metas:
-        save_paper_metadata(meta)
-        saved.append(meta.source_id)
-    if project_id and saved:
+    # Single transaction: all entries commit or none do (unlike the prior per-row loop).
+    pairs = save_papers_metadata(metas, tags=None)
+    saved = [sid for sid, _ in pairs]
+    if project_id is not None and saved:
         proj = get_project(project_id)
-        if proj:
+        if proj and proj.status == Status.ACTIVE:
             for sid in saved:
                 root = get_paper_root(sid)
                 if root:
@@ -1137,7 +1133,7 @@ async def api_import_pdf(
     if project_id is not None:
         try:
             proj = get_project(project_id)
-            if proj and proj.status == "active":
+            if proj and proj.status == Status.ACTIVE:
                 root = get_paper_root(source_id)
                 if root:
                     proj.add_paper(int(root["SOURCE_FK"]))
