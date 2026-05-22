@@ -24,11 +24,11 @@ LaTeX math expressions in paper titles and abstracts must be rendered — raw ma
 
 ## Custom Palette
 
-A user-saved named color configuration. Stores a full set of color values (the same fields as a built-in preset) so the user can define their own theme once and switch back to it without re-entering individual overrides. Custom palettes appear alongside built-in presets in the Appearance section of Settings. **[NOT IMPLEMENTED]**
+A user-saved named color configuration. Stores a full set of color values (the same fields as a built-in preset) so the user can define their own theme once and switch back to it without re-entering individual overrides. Custom palettes appear alongside built-in presets in the Appearance section of Settings.
 
 ## Glass Effect
 
-Controls frosted-glass rendering (currently Cupertino only). The intensity input should be a **percentage** (0–100%), not a binary toggle. The tint/color component of the glass should be expressed as a **hex color value**. **[NOT IMPLEMENTED in current format — currently a boolean toggle]**
+~~Cupertino-specific frosted-glass rendering toggle.~~ **Deprecated** — the glass effect is being decoupled from the Cupertino theme so it is no longer a theme-specific special case. Glass effect settings will be removed from the Cupertino theme definition; the feature may be re-introduced as a theme-agnostic option in the future.
 
 ## Keyboard Shortcuts
 
@@ -54,7 +54,7 @@ The current working set of results shown in the Search page, stored in a separat
 In advanced setting the user will be able to configure how many to save off the default (1 batch) 
 ## PDF Import
 
-Extracts metadata from a PDF file and saves it as a Paper. Must run asynchronously — the user should receive immediate feedback (progress indicator) and not be blocked while extraction runs. **[NOT IMPLEMENTED as async]** — current implementation is synchronous.
+Extracts metadata from a PDF file and saves it as a Paper. Runs asynchronously — the user receives immediate feedback via a progress indicator and is not blocked while extraction runs.
 
 ## Full-Text Search
 
@@ -62,7 +62,7 @@ Search across the local library including abstract and note content, not just ti
 
 ## Obsidian Integration
 
-One-way push of paper or project data to an Obsidian vault as markdown files. Backend functionality already exists; needs UI wiring in Settings under Export methods. **[NOT IMPLEMENTED in frontend]**.
+One-way push of paper or project data to an Obsidian vault as markdown files. Backend functionality existed first; UI wiring in Settings under Export methods is complete.
 
 ## Export
 
@@ -70,7 +70,7 @@ A one-way push of paper or project data to an external format or tool. Configure
 
 ## Graph
 
-A force-directed visualization of Papers, authors, and Tags as nodes. Supports multi-node selection; selected node IDs are posted to the parent React app via `postMessage`, which handles downstream actions through the standard shared flows: Export and Add to Project. **[NOT IMPLEMENTED]** — postMessage bridge for selection export and Add to Project is not yet built. The bottom paper table from the old PyQt frontend is intentionally removed. Graph performance optimization (level-of-detail, clustering) is deferred; the intended future direction is SVG-style rendering with cluster nodes for dense neighborhoods.
+A force-directed visualization of Papers, authors, and Tags as nodes. Supports multi-node selection; selected node IDs are posted to the parent React app via `postMessage`, which handles downstream actions through the standard shared flows: Export and Add to Project. The bottom paper table from the old PyQt frontend is intentionally removed. Graph performance optimization (level-of-detail, clustering) is deferred; the intended future direction is SVG-style rendering with cluster nodes for dense neighborhoods.
 
 ## Paper Version
 

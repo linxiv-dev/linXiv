@@ -55,6 +55,11 @@ Items flagged during design review. Grouped by area.
 ## Appearance / Theming
 - [x] Custom palettes: save named color configurations; appear alongside built-in presets in Settings; Changing of pallette selection ui to be slightly more usable will be important. Allow tinting to be available on each setting. Each setting should be an rgb comlumn and an a column, instead of the "cupertino only thing we got going on"
 - [x] Right now overrides always override genuinely even if you try to switch to old theme. We should make it so that the overrides are only changing before you switch to another a set theme. and then that theme takes over the overrides, right now you can never return to the defaults.
+- [ ] **Remove glass effect from Cupertino theme** — the glass effect is currently a Cupertino-specific special case. Decouple it from the theme definition so it is no longer treated as a theme-exclusive feature.
+- [ ] **Color picker default to current value** — when the user opens a color input in the palette editor, the hex field should pre-populate with the current active color, not the value inherited from the base theme the palette was derived from.
+
+## Settings Page
+- [ ] **Collapsible settings sections** — convert all sections in SettingsPage (and its extracted sub-components) to collapsible panels so users can fold away areas they are not actively configuring.
 
 ## Architecture & Backend Integrity
 
@@ -69,7 +74,7 @@ Items flagged during design review. Grouped by area.
 
 - [ ] **Project create/update missing from service layer** — `service/project.py` handles lifecycle (delete, restore, purge) but has no `create` or `update` function. Both live inline in route handlers in `api/app.py`, including tag-sync coordination (`_sync_project_tags`, `_normalize_tags`). Extract `create(project_in: ProjectIn)` and `update(project_fk, ...)` into the service layer so project mutations are testable without HTTP.
 
-- [ ] **`api/app.py` bypasses service layer for paper saves** — `api/app.py` imports `save_paper`, `save_paper_metadata`, `save_papers_metadata` directly from `storage.db`, bypassing `service/paper.py`. Creates two write paths into storage; the direct callers (BibTeX import, OpenAlex save, arXiv fetch) will silently skip any invariants added to the service save path — e.g., opportunistic version capture. Remove the direct `from storage.db import save_*` imports from `api/app.py` and route all saves through `service.paper`.
+- [x] **`api/app.py` bypasses service layer for paper saves** — `api/app.py` imports `save_paper`, `save_paper_metadata`, `save_papers_metadata` directly from `storage.db`, bypassing `service/paper.py`. Creates two write paths into storage; the direct callers (BibTeX import, OpenAlex save, arXiv fetch) will silently skip any invariants added to the service save path — e.g., opportunistic version capture. Remove the direct `from storage.db import save_*` imports from `api/app.py` and route all saves through `service.paper`.
 
 - [ ] **Implicit search result contract** — `api/app.py` has two private serializers (`_metadata_to_search_result`, `_arxiv_result_summary`) producing slightly different dict shapes from the same underlying `PaperMetadata`, with no Pydantic model to validate them against the frontend `SearchResult` type. Add a `SearchResultOut` Pydantic response model, replace both functions with a single constructor, and declare `response_model=SearchResultOut` on the arXiv and OpenAlex search routes.
 
