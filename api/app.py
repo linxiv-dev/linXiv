@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 from config import ENV_PATH, data_dir, resources_dir
 load_dotenv(ENV_PATH)
 
-import arxiv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.background import BackgroundTasks
@@ -27,11 +26,11 @@ from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
-from sources import resolve_doi, fetch_paper_metadata
+from sources import resolve_doi
 from sources.base import PaperMetadata
 from sources.pdf_metadata import resolve_pdf_metadata
-from sources.arxiv_source import ArxivSource
-from sources.openalex_source import OpenAlexSource
+from sources.arxiv_source import ArxivSource, ArxivNotFoundError
+from sources.openalex_source import OpenAlexSource, OpenAlexNotFoundError, OpenAlexInputError
 from formats.bibtex import BibTeXFormat
 from formats.markdown import ObsidianFormat
 from service.paper import (
@@ -51,12 +50,10 @@ from service.paper import (
     repair_paper as svc_repair_paper,
     sfks_to_source_ids,
     get_papers_by_tag,
-    save_paper,
     save_paper_metadata,
     save_papers_metadata,
     get_categories,
     init_db,
-    parse_entry_id,
 )
 from service.tag import list_all_tags
 import user_settings
@@ -89,20 +86,9 @@ _arxiv_source = ArxivSource()
 _openalex = OpenAlexSource()
 
 
-def _metadata_to_search_result(meta: PaperMetadata) -> dict:
-    """Serialize a PaperMetadata to the SearchResult shape the frontend expects."""
-    bare_id = meta.source_id.split(":", 1)[-1]
-    return {
-        "source_id": bare_id,
-        "version": meta.version,
-        "title": meta.title,
-        "summary": meta.summary or "",
-        "authors": meta.authors,
-        "published": "" if meta.published == datetime.date.min else meta.published.isoformat(),
-        "pdf_url": meta.url or "",
-        "primary_category": meta.category or "",
-        "entry_id": meta.source_id,
-    }
+def _strip_namespace(source_id: str) -> str:
+    """Return the bare paper ID with the source namespace prefix removed."""
+    return source_id.split(":", 1)[-1]
 
 
 def _cors_config() -> tuple[list[str], bool]:
@@ -112,22 +98,6 @@ def _cors_config() -> tuple[list[str], bool]:
         return ["*"], False
     origins = [o.strip() for o in raw.split(",") if o.strip()]
     return origins, True
-
-
-
-def _arxiv_result_summary(p: arxiv.Result) -> dict:
-    sid, ver = parse_entry_id(p.entry_id)
-    return {
-        "source_id": sid,
-        "version": ver,
-        "title": p.title,
-        "summary": p.summary,
-        "authors": [a.name for a in p.authors],
-        "published": p.published.date().isoformat(),
-        "pdf_url": p.pdf_url,
-        "primary_category": p.primary_category,
-        "entry_id": p.entry_id,
-    }
 
 
 def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
@@ -561,6 +531,48 @@ def api_project_remove_paper(project_id: int, source_id: str) -> dict:
     return {"ok": True}
 
 
+class SearchResultOut(BaseModel):
+    source_id: str
+    version: int
+    title: str
+    summary: str
+    authors: list[str]
+    published: str
+    pdf_url: str
+    primary_category: str
+    entry_id: str
+
+    @classmethod
+    def from_metadata(cls, meta: PaperMetadata) -> "SearchResultOut":
+        return cls(
+            source_id=_strip_namespace(meta.source_id),
+            version=meta.version,
+            title=meta.title,
+            summary=meta.summary,
+            authors=meta.authors,
+            published="" if meta.published == datetime.date.min else meta.published.isoformat(),
+            pdf_url=meta.url or "",
+            primary_category=meta.category or "",
+            entry_id=meta.source_id,
+        )
+
+
+class ArxivSearchOut(BaseModel):
+    results: list[SearchResultOut]
+    saved_source_ids: list[str]
+
+
+class ArxivFetchOut(BaseModel):
+    paper: SearchResultOut
+    saved: bool
+    source_id: str
+
+
+class ArxivFetchBody(BaseModel):
+    source_id: str = Field(min_length=1)
+    save: bool = True
+
+
 class ArxivSearchBody(BaseModel):
     query: str = Field(min_length=1)
     max_results: int = Field(default=25, ge=1, le=100)
@@ -568,8 +580,8 @@ class ArxivSearchBody(BaseModel):
     sort: Literal["relevance", "newest", "oldest", "lastUpdated"] = "relevance"
 
 
-@app.post("/api/arxiv/search")
-def api_arxiv_search(body: ArxivSearchBody) -> dict:
+@app.post("/api/arxiv/search", response_model=ArxivSearchOut)
+def api_arxiv_search(body: ArxivSearchBody) -> ArxivSearchOut:
     try:
         results = _arxiv_source.search(
             body.query.strip(),
@@ -578,12 +590,15 @@ def api_arxiv_search(body: ArxivSearchBody) -> dict:
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    summaries = [_metadata_to_search_result(m) for m in results]
+    summaries = [SearchResultOut.from_metadata(m) for m in results]
     saved: list[str] = []
     if body.save and results:
-        pairs = save_papers_metadata(results, tags=None)
-        saved = [sid.split(":", 1)[-1] for sid, _ in pairs]
-    return {"results": summaries, "saved_source_ids": saved if body.save else []}
+        try:
+            pairs = save_papers_metadata(results, tags=None)
+            saved = [_strip_namespace(sid) for sid, _ in pairs]
+        except sqlite3.IntegrityError as exc:
+            print(f"[linxiv] batch save IntegrityError (results still returned): {exc}")
+    return ArxivSearchOut(results=summaries, saved_source_ids=saved)
 
 
 # ── Search history / state ────────────────────────────────────────────────────
@@ -628,21 +643,27 @@ def api_search_state_save(body: SearchStateBody) -> dict:
     )
     return {"ok": True}
 
-class ArxivFetchBody(BaseModel):
-    source_id: str = Field(min_length=1)
-    save: bool = True
 
-
-@app.post("/api/arxiv/fetch")
-def api_arxiv_fetch(body: ArxivFetchBody) -> dict:
+@app.post("/api/arxiv/fetch", response_model=ArxivFetchOut)
+def api_arxiv_fetch(body: ArxivFetchBody) -> ArxivFetchOut:
     try:
-        paper = fetch_paper_metadata(body.source_id.strip())
+        meta = _arxiv_source.fetch_by_id(body.source_id.strip())
+    except ArxivNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    pid, _ = parse_entry_id(paper.entry_id)
+    source_id = _strip_namespace(meta.source_id)
     if body.save:
-        save_paper(paper)
-    return {"paper": _arxiv_result_summary(paper), "saved": body.save, "source_id": pid}
+        try:
+            stored_sid, _ = save_paper_metadata(meta)
+            source_id = _strip_namespace(stored_sid)
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ArxivFetchOut(
+        paper=SearchResultOut.from_metadata(meta),
+        saved=body.save,
+        source_id=source_id,
+    )
 
 
 class DoiResolveBody(BaseModel):
@@ -861,14 +882,18 @@ def api_trash_project_hard_delete(project_id: int) -> dict:
 
 # ── OpenAlex search ───────────────────────────────────────────────────────────
 
+class OpenAlexSearchOut(BaseModel):
+    results: list[SearchResultOut]
+
+
 class OpenAlexSearchBody(BaseModel):
     query: str = Field(min_length=1)
     max_results: int = Field(default=25, ge=1, le=100)  # OpenAlex supports up to 200 per_page
     sort: Literal["relevance", "newest", "oldest", "citations"] = "relevance"
 
 
-@app.post("/api/openalex/search")
-def api_openalex_search(body: OpenAlexSearchBody) -> dict:
+@app.post("/api/openalex/search", response_model=OpenAlexSearchOut)
+def api_openalex_search(body: OpenAlexSearchBody) -> OpenAlexSearchOut:
     try:
         results = _openalex.search(
             body.query.strip(),
@@ -877,22 +902,7 @@ def api_openalex_search(body: OpenAlexSearchBody) -> dict:
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return {
-        "results": [
-            {
-                "source_id": m.source_id,
-                "version": m.version,
-                "title": m.title,
-                "summary": m.summary or "",
-                "authors": m.authors,
-                "published": "" if m.published == datetime.date.min else m.published.isoformat(),
-                "pdf_url": m.url or "",
-                "primary_category": m.category or "",
-                "entry_id": m.source_id,
-            }
-            for m in results
-        ]
-    }
+    return OpenAlexSearchOut(results=[SearchResultOut.from_metadata(m) for m in results])
 
 
 # ── Export / Import ───────────────────────────────────────────────────────────
@@ -1140,13 +1150,25 @@ class OpenAlexSaveBody(BaseModel):
     source_id: str = Field(min_length=1)
 
 
-@app.post("/api/openalex/save")
-def api_openalex_save(body: OpenAlexSaveBody) -> dict:
+class OpenAlexSaveOut(BaseModel):
+    saved: bool
+    source_id: str
+
+
+@app.post("/api/openalex/save", response_model=OpenAlexSaveOut)
+def api_openalex_save(body: OpenAlexSaveBody) -> OpenAlexSaveOut:
     try:
         meta = _openalex.fetch_by_id(body.source_id.strip())
+    except OpenAlexNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except OpenAlexInputError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    save_paper_metadata(meta)
-    return {"saved": True, "source_id": meta.source_id}
+    try:
+        stored_sid, _ = save_paper_metadata(meta)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return OpenAlexSaveOut(saved=True, source_id=_strip_namespace(stored_sid))
 
 

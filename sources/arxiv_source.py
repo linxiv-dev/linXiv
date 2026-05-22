@@ -39,6 +39,15 @@ def _result_to_metadata(result: arxiv.Result) -> PaperMetadata:
     )
 
 
+class ArxivNotFoundError(LookupError):
+    """Raised by fetch_by_id when the paper ID does not exist on arXiv."""
+
+
+# arxiv >= 2.0 raises UnexpectedEmptyPageError for empty id_list results;
+# older versions exhaust the iterator (StopIteration). Handle both.
+_ARXIV_EMPTY_PAGE_ERROR = getattr(arxiv, "UnexpectedEmptyPageError", None)
+
+
 _SORT_MAP: dict[str, tuple[arxiv.SortCriterion, arxiv.SortOrder]] = {
     "relevance":   (arxiv.SortCriterion.Relevance,       arxiv.SortOrder.Descending),
     "newest":      (arxiv.SortCriterion.SubmittedDate,   arxiv.SortOrder.Descending),
@@ -85,13 +94,17 @@ class ArxivSource(PaperSource):
 
     def fetch_by_id(self, source_id: str) -> PaperMetadata:
         bare_id = source_id.removeprefix("arxiv:")
+        if not bare_id:
+            raise ValueError(f"source_id '{source_id}' resolves to an empty arXiv ID.")
         search = arxiv.Search(id_list=[bare_id])
         _check_ratelimit()
         try:
             result = next(self._client.results(search))
         except StopIteration:
-            raise ValueError(f"Paper '{source_id}' not found on arXiv.")
+            raise ArxivNotFoundError(f"Paper '{source_id}' not found on arXiv.") from None
         except Exception as e:
+            if _ARXIV_EMPTY_PAGE_ERROR and isinstance(e, _ARXIV_EMPTY_PAGE_ERROR):
+                raise ArxivNotFoundError(f"Paper '{source_id}' not found on arXiv.") from None
             print(f"[arxiv] fetch error: {e}")
             if "429" in str(e):
                 _record_ratelimit()
