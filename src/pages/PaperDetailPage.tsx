@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getPaperBySfk, getPaperPdfUrl } from "../api/papers";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { getPaperBySfk, getPaperVersions, getPaperPdfUrl } from "../api/papers";
 import { getNotes, deleteNote } from "../api/notes";
 import { fetchArxiv } from "../api/search";
 import type { Note, Paper } from "../types/api";
@@ -13,6 +13,8 @@ import { NoteEditor } from "../components/notes/NoteEditor";
 import { PaperMetadataEditor } from "../components/papers/PaperMetadataEditor";
 import { normalizeAuthors } from "../lib/papers";
 import { TagBadge } from "../components/tags/TagBadge";
+
+const LATEST_VERSION_KEY = "latest" as const;
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
@@ -34,16 +36,28 @@ export default function PaperDetailPage() {
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [showPdfViewer, setShowPdfViewer] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  // null means "latest"; a number means a specific stored version
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
   const {
     data: paper,
     isLoading: paperLoading,
+    isFetching: paperFetching,
     error: paperError,
   } = useQuery({
-    queryKey: ["paper", "sfk", sfk],
-    queryFn: () => getPaperBySfk(Number(sfk)),
+    queryKey: ["paper", "sfk", sfk, selectedVersion ?? LATEST_VERSION_KEY],
+    queryFn: () => getPaperBySfk(Number(sfk), selectedVersion ?? undefined),
+    enabled: !!sfk,
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: versionsData } = useQuery({
+    queryKey: ["paper", "versions", sfk],
+    queryFn: () => getPaperVersions(Number(sfk)),
     enabled: !!sfk,
   });
+
+  const versions = versionsData?.versions ?? [];
 
   const {
     data: notesData,
@@ -54,10 +68,13 @@ export default function PaperDetailPage() {
     enabled: !!paper?.source_id,
   });
 
+  const isViewingLatest = selectedVersion === null || selectedVersion === versionsData?.latest_version;
+
   const downloadPdfMutation = useMutation({
     mutationFn: () => fetchArxiv(paper!.source_id, true),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["paper", "sfk", sfk] });
+      queryClient.invalidateQueries({ queryKey: ["paper", "versions", sfk] });
     },
   });
 
@@ -78,11 +95,15 @@ export default function PaperDetailPage() {
     deleteNoteMutation.mutate(note.id);
   }
 
-  function handlePaperSaved(updated: Paper) {
+  function handlePaperSaved(_updated: Paper) {
     // source_id is immutable via the repair endpoint (see ADR-0008), so
     // updated.source_id === paper.source_id is always true here. The notes
     // cache key is tied to source_id; one invalidation is sufficient.
-    queryClient.setQueryData(["paper", "sfk", sfk], updated);
+    // The repair endpoint always returns the latest version regardless of
+    // which version the user was viewing, so setQueryData is unsafe here.
+    // Invalidate all ["paper","sfk",sfk,*] slots via prefix match.
+    queryClient.invalidateQueries({ queryKey: ["paper", "sfk", sfk] });
+    queryClient.invalidateQueries({ queryKey: ["paper", "versions", sfk] });
     queryClient.invalidateQueries({ queryKey: ["notes", paper?.source_id] });
     queryClient.invalidateQueries({ queryKey: ["papers"] });
     queryClient.invalidateQueries({ queryKey: ["graph"] });
@@ -120,15 +141,23 @@ export default function PaperDetailPage() {
         {/* Two-column layout */}
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Left column — paper details */}
-          <div className="flex-1 min-w-0 space-y-5">
+          <div
+            className="flex-1 min-w-0 space-y-5"
+            style={{
+              opacity: paperFetching && !paperLoading ? 0.6 : 1,
+              transition: "opacity 0.15s",
+            }}
+          >
             {/* Back button + Edit */}
             <div className="flex items-center justify-between mb-1">
               <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
                 ← Library
               </Button>
-              <Button variant="muted" size="sm" onClick={() => setShowEditor(true)}>
-                Edit
-              </Button>
+              {isViewingLatest && (
+                <Button variant="muted" size="sm" onClick={() => setShowEditor(true)}>
+                  Edit
+                </Button>
+              )}
             </div>
 
             {/* Title */}
@@ -173,7 +202,32 @@ export default function PaperDetailPage() {
                   {paper.category}
                 </Badge>
               )}
-              {paper.version > 0 && (
+              {versions.length > 1 && (versionsData?.latest_version ?? 0) >= 1 ? (
+                // Version selector — only rendered when multiple versions are stored.
+                // Native <select> is styled to match Badge; acceptable in the
+                // Tauri/WebKit target environment.
+                <select
+                  value={selectedVersion ?? versionsData?.latest_version}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setSelectedVersion(v === versionsData?.latest_version ? null : v);
+                  }}
+                  className="inline-flex items-center rounded-full font-medium border border-[var(--color-border)] bg-[var(--color-panel)] text-[var(--color-text)] px-2 py-0.5 text-xs cursor-pointer"
+                  aria-label="Select version"
+                >
+                  {versions.filter((v) => v.version >= 1).map((v) => {
+                    const dateStr = v.updated ?? v.published;
+                    const label = dateStr ? ` · ${formatDate(dateStr)}` : "";
+                    const isLatest = v.version === versionsData?.latest_version;
+                    return (
+                      <option key={v.version} value={v.version}>
+                        v{v.version}{isLatest ? " (latest)" : ""}{label}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : paper.version > 0 && (
+                // Static badge when only one version is stored (v0 = no version info).
                 <Badge>v{paper.version}</Badge>
               )}
             </div>
@@ -209,7 +263,7 @@ export default function PaperDetailPage() {
                   </Button>
                 ) : (
                   <>
-                    {paper.source === "arxiv" && (
+                    {paper.source === "arxiv" && isViewingLatest && (
                       <Button
                         variant="muted"
                         onClick={() => downloadPdfMutation.mutate()}
@@ -247,7 +301,7 @@ export default function PaperDetailPage() {
 
               {showPdfViewer && paper.has_pdf && (
                 <iframe
-                  src={getPaperPdfUrl(paper.source_id)}
+                  src={getPaperPdfUrl(paper.source_id, paper.version > 0 ? paper.version : undefined)}
                   className="w-full rounded border border-border"
                   style={{ height: "70vh" }}
                   title="PDF viewer"

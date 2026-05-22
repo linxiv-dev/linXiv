@@ -49,6 +49,8 @@ from service.paper import (
     Paper,
     ensure_paper_root,
     get as get_paper_details,
+    get_all as get_all_paper_versions,
+    get_source_id as get_paper_source_id,
     get_paper_root,
     list_paper_details,
     list_deleted as list_deleted_papers,
@@ -209,11 +211,42 @@ def api_list_papers(
     return {"papers": [p.to_dict() for p in papers]}
 
 
-@app.get("/api/papers/sfk/{source_fk}")
-def api_get_paper_by_sfk(source_fk: int) -> dict:
-    paper = get_paper_details(Paper(source_fk=source_fk))
-    if not paper:
+@app.get("/api/papers/sfk/{source_fk}/versions")
+def api_get_paper_versions(source_fk: int) -> dict:
+    all_data = get_all_paper_versions(Paper(source_fk=source_fk))
+    if not all_data:
         raise HTTPException(status_code=404, detail="Paper not found")
+    return {
+        "source_id": all_data.source_id,
+        "latest_version": all_data.latest_version,
+        "versions": [
+            {
+                "version": v.version,
+                "published": v.published.isoformat() if v.published else None,
+                "updated": v.updated.isoformat() if v.updated else None,
+                "has_pdf": v.has_pdf,
+            }
+            for v in all_data.versions
+        ],
+    }
+
+
+@app.get("/api/papers/sfk/{source_fk}")
+def api_get_paper_by_sfk(
+    source_fk: int,
+    version: int | None = Query(default=None, ge=1),
+) -> dict:
+    if version is not None:
+        source_id = get_paper_source_id(source_fk)
+        if not source_id:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        paper = get_paper_details(Paper(source_id=source_id, version=version))
+        if not paper:
+            raise HTTPException(status_code=404, detail=f"Version {version} not stored")
+    else:
+        paper = get_paper_details(Paper(source_fk=source_fk))
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
     return paper.to_dict()
 
 
