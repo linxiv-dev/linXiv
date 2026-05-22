@@ -13,7 +13,7 @@ Items flagged during design review. Grouped by area.
 ## Library
 - [x] Virtual scrolling for paper list (expected scale: thousands of papers)
 - [x] Paper Metadata Editor — shared create/edit form; port field set from PyQt, do not redesign
-- [ ] postMessage bridge: selected PaperCard source_fks → parent app → Add to Project flow
+- [x] postMessage bridge: selected PaperCard source_fks → parent app → Add to Project flow
 
 ## Paper Detail
 - [x] Restore-from-trash "keep in projects?" prompt — API + frontend dialog complete (`KeepInProjectsDialog` in SettingsPage, `removeFromAllProjects` wired)

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from service.paper import get_source_id
 from storage.db import get_graph_data
-from storage.projects import Status, filter_projects
+from storage.projects import Status, filter_projects, color_to_hex
 from storage.tags import get_project_tags
 
 
@@ -24,27 +23,20 @@ def get_augmented_graph_data() -> dict:
     nodes = nodes + tag_nodes
     edges = edges + tag_edges
 
-    try:
-        paper_to_projects: dict[str, list[int]] = {}
-        for proj in filter_projects():
-            if proj.id:
-                for sfk in proj.source_fks:
-                    source_id = get_source_id(sfk)
-                    if source_id:
-                        paper_to_projects.setdefault(source_id, []).append(proj.id)
-        for node in nodes:
-            if node["type"] == "paper":
-                node["project_ids"] = paper_to_projects.get(node["id"], [])
-    except Exception:
-        pass
+    paper_to_projects: dict[int, list[int]] = {}
+    for proj in filter_projects():
+        if proj.id and proj.status == Status.ACTIVE:
+            for sfk in proj.source_fks:
+                paper_to_projects.setdefault(sfk, []).append(proj.id)
+    for node in nodes:
+        if node["type"] == "paper":
+            node["project_ids"] = paper_to_projects.get(node["id"], [])
 
     return {"nodes": nodes, "edges": edges}
 
 
 def project_filter_options() -> list[dict]:
     """Project chips for the graph (same shape as desktop GraphPage._load_dropdowns)."""
-    from storage.projects import color_to_hex
-
     out: list[dict] = []
     for p in filter_projects():
         if p.id and p.status != Status.DELETED:

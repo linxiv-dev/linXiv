@@ -647,6 +647,7 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
         paper_nodes = [
             {
                 "id":        row["source_fk"],
+                "source_id": row["source_id"],
                 "label":     row["title"],
                 "type":      "paper",
                 "category":  row["category"],
@@ -658,7 +659,8 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
                 "summary":   row["summary"],
             }
             for row in conn.execute("""
-                SELECT r.SOURCE_FK AS source_fk, p.TITLE AS title, p.CATEGORY AS category,
+                SELECT r.SOURCE_FK AS source_fk, r.SOURCE_ID AS source_id,
+                       p.TITLE AS title, p.CATEGORY AS category,
                        m.TAGS AS tags, p.HAS_PDF AS has_pdf, m.PUBLISHED AS published,
                        m.URL AS url, m.DOI AS doi, m.SUMMARY AS summary
                 FROM PAPER_ROOTS r
