@@ -33,8 +33,6 @@ const COLOR_OVERRIDE_KEYS: { key: keyof ThemeColors; label: string }[] = [
   { key: "danger",  label: "Danger"     },
 ];
 
-const DEFAULT_TINT = "#7fb3f0";
-
 interface HexColorInputProps {
   value: string;
   onChange: (val: string) => void;
@@ -42,7 +40,6 @@ interface HexColorInputProps {
   /** Shown as a dimmed swatch when value is empty, so users can see the current theme color. */
   presetColor?: string;
   ariaLabel?: string;
-  seedOnEmpty?: boolean;
 }
 
 function HexColorInput({
@@ -51,7 +48,6 @@ function HexColorInput({
   placeholder,
   presetColor,
   ariaLabel,
-  seedOnEmpty = false,
 }: HexColorInputProps) {
   const errorId = useId();
   const [local, setLocal] = useState(value);
@@ -79,14 +75,7 @@ function HexColorInput({
   const isInvalid = local !== "" && !VALID_HEX.test(local);
 
   function openPicker() {
-    const picker = pickerRef.current;
-    if (!picker) return;
-    if (seedOnEmpty && !hasSwatch) {
-      picker.value = DEFAULT_TINT;
-      setLocal(DEFAULT_TINT);
-      onChange(DEFAULT_TINT);
-    }
-    picker.click();
+    pickerRef.current?.click();
   }
 
   return (
@@ -217,7 +206,7 @@ function GlassControls() {
     <div className="py-2 mb-2 border-t border-border">
       <span className="text-sm text-text font-medium">Glass effects</span>
       <p className="text-xs text-muted mt-0.5 mb-3">
-        Blur and vibrancy on panels (Cupertino only). Tint applies even at 0% blur.
+        Blur and vibrancy on panels. Tint applies even at 0% blur.
       </p>
 
       <div className="flex items-center gap-3 mb-3">
@@ -256,7 +245,6 @@ function GlassControls() {
           onChange={setGlassTintColor}
           placeholder="none"
           ariaLabel="Choose glass tint color"
-          seedOnEmpty
         />
       </div>
 
@@ -444,6 +432,7 @@ export function AppearanceSection() {
   const deleteCustomPalette = useThemeStore((s) => s.deleteCustomPalette);
   const applyCustomPalette  = useThemeStore((s) => s.applyCustomPalette);
   const [overridesOpen, setOverridesOpen] = useState(false);
+  const overridesPanelId = useId();
 
   const existingPaletteNames = useMemo(
     () => new Set(customPalettes.map((p) => p.name.toLowerCase())),
@@ -455,7 +444,10 @@ export function AppearanceSection() {
   useEffect(() => () => {
     if (saveOverridesTimer.current) {
       clearTimeout(saveOverridesTimer.current);
-      // Flush pending save so navigation away doesn't silently drop changes.
+      // Best-effort flush: fires the save immediately if a debounce is still pending.
+      // The fetch completes even after unmount (local desktop API, no abort signal).
+      // Changes made in the last ~800ms before navigation may silently drop if the
+      // request fails — there is no completion guarantee.
       persistThemeOverrides();
     }
   }, []);
@@ -541,27 +533,31 @@ export function AppearanceSection() {
             type="button"
             onClick={() => setMode(m)}
             className={[
-              "px-3 py-1.5 rounded-md border text-sm font-medium transition-colors capitalize",
+              "px-3 py-1.5 rounded-md border text-sm font-medium transition-colors",
               mode === m
                 ? "bg-accent border-accent text-white"
                 : "bg-panel border-border text-muted hover:text-text",
             ].join(" ")}
           >
-            {m === "dark" ? "🌙 Dark" : "☀️ Light"}
+            {m === "dark"
+              ? <><span aria-hidden="true">🌙</span> Dark</>
+              : <><span aria-hidden="true">☀️</span> Light</>
+            }
           </button>
         ))}
       </div>
 
-      {preset === "Cupertino" && <GlassControls />}
+      <GlassControls />
 
       <button
         type="button"
         aria-expanded={overridesOpen}
-        aria-controls="color-overrides-panel"
+        aria-controls={overridesPanelId}
         className="flex items-center gap-2 text-sm text-muted hover:text-text transition-colors mb-2"
         onClick={() => setOverridesOpen((o) => !o)}
       >
         <span
+          aria-hidden="true"
           className="text-xs"
           style={{
             display: "inline-block",
@@ -574,29 +570,30 @@ export function AppearanceSection() {
         Color Overrides
       </button>
 
-      {overridesOpen && (
-        <div id="color-overrides-panel" className="mt-2">
-          <div className="flex items-center gap-3 mb-2">
-            <span style={{ width: "7rem", flexShrink: 0 }} />
-            <span className="text-xs text-muted" style={{ width: 112, flexShrink: 0 }}>Color</span>
-            <span className="text-xs text-muted flex-1">Opacity</span>
-          </div>
-          {COLOR_OVERRIDE_KEYS.map(({ key, label }) => (
-            <ColorRow
-              key={`${preset}-${mode}-${key}`}
-              label={label}
-              colorKey={key}
-              scheduleSave={scheduleSaveOverrides}
-            />
-          ))}
-          <div className="mt-3 pt-2 border-t border-border">
-            <SavePaletteInline
-              onSave={saveCustomPalette}
-              existingNames={existingPaletteNames}
-            />
-          </div>
+      <div
+        id={overridesPanelId}
+        className={overridesOpen ? "mt-2" : "hidden"}
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <span style={{ width: "7rem", flexShrink: 0 }} />
+          <span className="text-xs text-muted" style={{ width: 112, flexShrink: 0 }}>Color</span>
+          <span className="text-xs text-muted flex-1">Opacity</span>
         </div>
-      )}
+        {COLOR_OVERRIDE_KEYS.map(({ key, label }) => (
+          <ColorRow
+            key={`${preset}-${mode}-${key}`}
+            label={label}
+            colorKey={key}
+            scheduleSave={scheduleSaveOverrides}
+          />
+        ))}
+        <div className="mt-3 pt-2 border-t border-border">
+          <SavePaletteInline
+            onSave={saveCustomPalette}
+            existingNames={existingPaletteNames}
+          />
+        </div>
+      </div>
     </Section>
   );
 }
