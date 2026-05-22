@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import os
+import re
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ load_dotenv(ENV_PATH)
 
 import arxiv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +45,7 @@ from formats.bibtex import BibTeXFormat
 from formats.markdown import ObsidianFormat
 from service.paper import (
     set_has_pdf_by_source,
+    set_pdf_path,
     Paper,
     ensure_paper_root,
     get as get_paper_details,
@@ -1042,6 +1045,13 @@ async def api_import_bibtex(
 
 # ── PDF import ────────────────────────────────────────────────────────────────
 
+def _write_and_resolve_pdf(content: bytes, tmp_path: Path) -> "PaperMetadata":
+    """Write PDF bytes to disk and resolve metadata. Runs in a thread pool."""
+    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path.write_bytes(content)
+    return resolve_pdf_metadata(str(tmp_path))
+
+
 @app.post("/api/papers/import/pdf")
 async def api_import_pdf(
     file: UploadFile = File(...),
@@ -1051,32 +1061,55 @@ async def api_import_pdf(
         raise HTTPException(status_code=400, detail="File must be a PDF")
     content = await file.read()
     tmp_path = PDF_DIR / f"_upload_{uuid.uuid4().hex}.pdf"
-    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    final_path: Path | None = None
+    saved_to_db = False
+    source_id = ""
     try:
-        tmp_path.write_bytes(content)
         try:
-            meta = resolve_pdf_metadata(str(tmp_path))
+            meta = await run_in_threadpool(_write_and_resolve_pdf, content, tmp_path)
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Could not extract PDF metadata: {e}") from e
-        save_paper_metadata(meta)
-        source_id = meta.source_id
+        source_id, _ = save_paper_metadata(meta)
+        saved_to_db = True
         version = meta.version
         title = meta.title
-        final_path = PDF_DIR / f"{source_id}v{version}.pdf"
-        tmp_path.rename(final_path)
+        # Sanitize source_id for use as a filename component — strip all
+        # characters that are illegal in filenames on Windows or Unix, including
+        # slashes that appear in DOI-based source IDs (e.g. "doi:10.1234/abc").
+        filename_safe_id = re.sub(r'[/\\:*?"<>|]', '_', source_id)
+        final_path = PDF_DIR / f"{filename_safe_id}v{version}.pdf"
+        # replace() is atomic and overwrites on all platforms (handles re-import).
+        tmp_path.replace(final_path)
+        set_pdf_path(source_id, str(final_path))
         set_has_pdf_by_source(source_id, True)
-        if project_id:
-            proj = get_project(project_id)
-            if proj:
-                root = get_paper_root(source_id)
-                if root:
-                    proj.add_paper(int(root["SOURCE_FK"]))
     except HTTPException:
+        # Only the 422 from the inner try can reach here; saved_to_db is False
+        # and tmp_path has not been renamed yet.
         tmp_path.unlink(missing_ok=True)
         raise
     except Exception as e:
+        # Clean up: one of these will be a no-op since replace() is atomic.
         tmp_path.unlink(missing_ok=True)
+        if final_path is not None:
+            final_path.unlink(missing_ok=True)
+        # If the DB row was committed but a subsequent step failed, roll it back
+        # to prevent a ghost paper entry with no corresponding file.
+        if saved_to_db:
+            try:
+                hard_delete_paper(Paper(source_id=source_id))
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=str(e)) from e
+    # Project linking is best-effort — paper is already fully saved above.
+    if project_id is not None:
+        try:
+            proj = get_project(project_id)
+            if proj and proj.status == "active":
+                root = get_paper_root(source_id)
+                if root:
+                    proj.add_paper(int(root["SOURCE_FK"]))
+        except Exception:
+            pass
     return {"source_id": source_id, "title": title}
 
 

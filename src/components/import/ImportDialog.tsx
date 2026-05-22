@@ -17,6 +17,7 @@ type FileKind = "pdf" | "bibtex" | "lxproj" | "unknown";
 type FileStatus = "queued" | "processing" | "done" | "error";
 
 interface QueueEntry {
+  uid: number;
   file: File;
   kind: FileKind;
   status: FileStatus;
@@ -36,16 +37,23 @@ function detectKind(f: File): FileKind {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
+const STATUS_ICON: Record<Exclude<FileStatus, "processing">, { char: string; color: string }> = {
+  queued: { char: "○", color: "var(--color-muted)"   },
+  done:   { char: "✓", color: "var(--color-success)" },
+  error:  { char: "✗", color: "var(--color-danger)"  },
+};
+
 function StatusMark({ status }: { status: FileStatus }) {
   if (status === "processing") return <Spinner size={12} />;
-  const map: Record<FileStatus, { char: string; color: string }> = {
-    queued:     { char: "○", color: "var(--color-muted)"   },
-    processing: { char: "…", color: "var(--color-muted)"   },
-    done:       { char: "✓", color: "var(--color-success)" },
-    error:      { char: "✗", color: "var(--color-danger)"  },
-  };
-  const { char, color } = map[status];
+  const { char, color } = STATUS_ICON[status];
   return <span style={{ color, fontFamily: "monospace", width: 14, display: "inline-block", textAlign: "center" }}>{char}</span>;
+}
+
+function processingLabel(kind: FileKind): string {
+  if (kind === "pdf") return "Resolving metadata…";
+  if (kind === "bibtex") return "Parsing BibTeX…";
+  if (kind === "lxproj") return "Importing…";
+  return "Processing…";
 }
 
 function LxprojPreview({
@@ -74,7 +82,7 @@ function LxprojPreview({
           <label key={v} className="flex items-center gap-1 cursor-pointer capitalize" style={{ color: "var(--color-text)" }}>
             <input
               type="radio"
-              name={`conflict-${entry.file.name}`}
+              name={`conflict-${entry.uid}`}
               value={v}
               checked={entry.onConflict === v}
               onChange={() => onChange({ onConflict: v })}
@@ -102,33 +110,37 @@ export interface ImportDialogProps {
 
 export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const uidRef = useRef(0);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [running, setRunning] = useState(false);
 
-  function updateEntry(i: number, patch: Partial<QueueEntry>) {
-    setQueue((prev) => prev.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+  function updateEntry(uid: number, patch: Partial<QueueEntry>) {
+    setQueue((prev) => prev.map((e) => (e.uid === uid ? { ...e, ...patch } : e)));
   }
 
   async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []).filter((f) => detectKind(f) !== "unknown");
+    const withKind = Array.from(e.target.files ?? [])
+      .map((f) => ({ f, kind: detectKind(f) }))
+      .filter(({ kind }) => kind !== "unknown");
     e.target.value = "";
-    if (!files.length) return;
+    if (!withKind.length) return;
 
-    const newEntries: QueueEntry[] = files.map((f) => ({
+    const newEntries: QueueEntry[] = withKind.map(({ f, kind }) => ({
+      uid: uidRef.current++,
       file: f,
-      kind: detectKind(f),
+      kind,
       status: "queued",
       onConflict: "merge",
     }));
     setQueue((prev) => [...prev, ...newEntries]);
 
     // Auto-fetch previews for .lxproj files
-    for (let i = 0; i < newEntries.length; i++) {
-      if (newEntries[i].kind !== "lxproj") continue;
+    for (const entry of newEntries) {
+      if (entry.kind !== "lxproj") continue;
       try {
-        const preview = await previewImport(newEntries[i].file);
+        const preview = await previewImport(entry.file);
         setQueue((prev) =>
-          prev.map((e) => (e.file === newEntries[i].file ? { ...e, preview } : e))
+          prev.map((e) => (e.uid === entry.uid ? { ...e, preview } : e))
         );
       } catch {
         // preview is optional — import can still proceed
@@ -141,11 +153,11 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
     setRunning(true);
     const newProjectIds: number[] = [];
 
-    for (let i = 0; i < queue.length; i++) {
-      if (queue[i].status !== "queued") continue;
-      updateEntry(i, { status: "processing" });
+    for (const entry of queue) {
+      if (entry.status !== "queued") continue;
+      updateEntry(entry.uid, { status: "processing" });
       try {
-        const { file, kind, onConflict } = queue[i];
+        const { file, kind, onConflict } = entry;
         let result = "";
         if (kind === "pdf") {
           const r = await importPdf(file, projectId);
@@ -158,9 +170,9 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
           newProjectIds.push(r.project_id);
           result = `Project imported`;
         }
-        updateEntry(i, { status: "done", result });
+        updateEntry(entry.uid, { status: "done", result });
       } catch (err) {
-        updateEntry(i, {
+        updateEntry(entry.uid, {
           status: "error",
           error: err instanceof Error ? err.message : "Failed",
         });
@@ -212,8 +224,8 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
             className="rounded-md border border-border overflow-y-auto"
             style={{ maxHeight: 300, backgroundColor: "var(--color-bg)" }}
           >
-            {queue.map((entry, i) => (
-              <div key={i} className="border-b border-border last:border-0">
+            {queue.map((entry) => (
+              <div key={entry.uid} className="border-b border-border last:border-0">
                 <div className="flex items-center gap-2 px-3 py-2 text-sm">
                   <StatusMark status={entry.status} />
                   <span className="flex-1 truncate" style={{ color: "var(--color-text)" }}>
@@ -222,6 +234,11 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
                   <span className="text-xs shrink-0" style={{ color: "var(--color-muted)" }}>
                     {entry.kind === "pdf" ? "PDF" : entry.kind === "bibtex" ? "BibTeX" : ".lxproj"}
                   </span>
+                  {entry.status === "processing" && (
+                    <span className="text-xs shrink-0" style={{ color: "var(--color-muted)" }}>
+                      {processingLabel(entry.kind)}
+                    </span>
+                  )}
                   {entry.result && (
                     <span className="text-xs shrink-0" style={{ color: "var(--color-success)" }}>
                       {entry.result}
@@ -241,7 +258,7 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
                       type="button"
                       className="text-sm shrink-0 leading-none"
                       style={{ color: "var(--color-muted)" }}
-                      onClick={() => setQueue((prev) => prev.filter((_, idx) => idx !== i))}
+                      onClick={() => setQueue((prev) => prev.filter((e) => e.uid !== entry.uid))}
                     >
                       ×
                     </button>
@@ -249,7 +266,7 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
                 </div>
                 {entry.kind === "lxproj" && entry.status === "queued" && (
                   <div className="px-3 pb-2">
-                    <LxprojPreview entry={entry} onChange={(patch) => updateEntry(i, patch)} />
+                    <LxprojPreview entry={entry} onChange={(patch) => updateEntry(entry.uid, patch)} />
                   </div>
                 )}
               </div>

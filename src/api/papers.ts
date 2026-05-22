@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch, BASE_URL } from "./client";
 import type { Paper } from "../types/api";
 
 export async function listPapers(
@@ -52,10 +52,6 @@ export async function repairPaper(sfk: number, body: PaperRepairBody): Promise<P
  * the backend directly; in browser dev it goes through the Vite proxy.
  */
 export function getPaperPdfUrl(sourceId: string, version?: number): string {
-  const base =
-    typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined
-      ? "http://127.0.0.1:8000"
-      : "";
   const query = version !== undefined ? `?version=${version}` : "";
-  return `${base}/api/papers/${encodeURIComponent(sourceId)}/pdf${query}`;
+  return `${BASE_URL}/api/papers/${encodeURIComponent(sourceId)}/pdf${query}`;
 }
