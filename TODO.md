@@ -49,7 +49,7 @@ Items flagged during design review. Grouped by area.
 ## Integrations & Import/Export
 - [x] Obsidian export: UI wiring in Settings under Export methods (backend already implemented)
 - [ ] PDF import: make async with progress indicator (currently synchronous / blocking). Note: `exportImport.ts` also bypasses `apiFetch` entirely and duplicates BASE_URL/isTauri detection — fix the infrastructure seam when touching this module.
-- [ ] Export methods toggle in Settings (show only enabled targets; prune candidates before release)
+- [x] Export methods toggle in Settings (show only enabled targets; prune candidates before release)
 
 ## Appearance / Theming
 - [ ] Custom palettes: save named color configurations; appear alongside built-in presets in Settings; Changing of pallette selection ui to be slightly more usable will be important. Allow tinting to be available on each setting. Each setting should be an rgb comlumn and an a column, instead of the "cupertino only thing we got going on"
