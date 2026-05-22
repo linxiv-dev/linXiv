@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
 
 from service.models.note import NoteDetails
 from storage.notes import (
@@ -7,27 +8,31 @@ from storage.notes import (
     get_notes as _get_notes,
     get_notes_by_paper_id as _get_notes_by_paper_id,
     get_project_notes as _get_project_notes,
-    list_all_notes as _list_all_notes,
     count_paper_notes as _count_paper_notes,
     count_project_notes as _count_project_notes,
     ensure_notes_db as _ensure_notes_db,
-    Note as _StorageNote,
+    create_note as _create_note,
+    patch_note as _patch_note,
+    delete_note as _delete_note,
 )
 
 
+# Service-layer dataclasses mirror storage FK field names (e.g. source_fk) where the name
+# is already idiomatic. The exception is paper_id (not paper_id_fk) because PAPER.PAPER_ID
+# and the FK referencing it have different names in the schema; using paper_id here matches
+# the logical concept rather than the FK column name.
+
 @dataclass
 class Note:
-    note_id:    int | None = None  # NOTE_SK — exact PK lookup
-    source_fk:  int | None = None  # PAPER_ROOTS.SOURCE_FK — all notes for a paper root
-    paper_id:   int | None = None  # PAPER.PAPER_ID — pinned to a specific version
-    project_fk: int | None = None  # PROJECT.PROJECT_FK — scoped to a project
+    note_id: int | None = None  # NOTE_SK — PK for get/delete operations
 
 
 @dataclass
 class Notes:
-    source_fk:  int | None = None
-    paper_id:   int | None = None
-    project_fk: int | None = None
+    source_fk:    int | None = None
+    paper_id:     int | None = None
+    project_fk:   int | None = None
+    all_projects: bool = False
 
 
 @dataclass
@@ -35,71 +40,77 @@ class NoteIn:
     source_fk:  int
     title:       str
     content:     str
-    note_id:     int | None = None
     paper_id:    int | None = None
     project_fk:  int | None = None
+
+
+@dataclass
+class NoteUpdateIn:
+    note_id: int
+    title:   str | None = None
+    content: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.title is None and self.content is None:
+            raise ValueError("at least one of title or content must be provided")
 
 
 # ---------------------------------------------------------------------------
 # Master functions
 # ---------------------------------------------------------------------------
 
-def get(note: Note) -> Optional[NoteDetails]:
-    """Fetch a single note.
-
-    Resolution order: note_id → source_fk + project_fk → paper_id + project_fk
-    """
-    if note.note_id:
-        return get_note_details(note)
-
-    if note.source_fk:
-        results = _get_notes(
-            note.source_fk,
-            project_id=note.project_fk,
-            all_projects=note.project_fk is None,
-        )
-        return results[0] if results else None
-
-    if note.paper_id and note.project_fk:
-        results = _get_project_notes(note.project_fk)
-        matches = [n for n in results if n.paper_id_fk == note.paper_id]
-        return matches[0] if matches else None
-
-    return None
+def get(note: Note) -> NoteDetails | None:
+    """Fetch a single note by note_id. Returns None if not found or if note_id is not set."""
+    if note.note_id is None:
+        return None
+    return _get_note(note.note_id)
 
 
 def get_many(notes: Notes) -> list[NoteDetails]:
-    """Fetch notes matching any combination of Notes filter fields."""
-    return get_notes(notes)
+    """Fetch notes by the given filter. Valid combinations:
+    source_fk (+ optional project_fk / all_projects), paper_id alone, or project_fk alone.
+    Raises ValueError if no key is set or if paper_id is combined with source_fk/project_fk.
+    """
+    if notes.paper_id is not None and (notes.source_fk is not None or notes.project_fk is not None):
+        raise ValueError("paper_id cannot be combined with source_fk or project_fk")
+    if notes.all_projects and notes.project_fk is not None:
+        raise ValueError("all_projects=True cannot be combined with a specific project_fk")
+    if notes.all_projects and notes.paper_id is not None:
+        raise ValueError("all_projects=True cannot be combined with paper_id")
+    if notes.source_fk is not None:
+        return _get_notes(
+            notes.source_fk,
+            project_id   = notes.project_fk,
+            all_projects = notes.all_projects,
+        )
+    elif notes.paper_id is not None:
+        return _get_notes_by_paper_id(notes.paper_id)
+    elif notes.project_fk is not None:
+        return _get_project_notes(notes.project_fk)
+    raise ValueError("at least one filter field must be set on Notes")
 
 
-def upsert(note: NoteIn) -> int | None:
-    """Insert or update a note. Returns NOTE_SK."""
-    storage_note = _StorageNote(
-        id=note.note_id,
+def create(note: NoteIn) -> int:
+    """Insert a new note. Returns NOTE_SK."""
+    return _create_note(
         source_fk=note.source_fk,
         paper_id_fk=note.paper_id,
         project_id=note.project_fk,
         title=note.title,
         content=note.content,
     )
-    storage_note.save()
-    return storage_note.id
 
 
-def delete(note: Note) -> None:
-    details = get(note)
-    if details is None:
-        return
-    storage_note = _StorageNote(
-        id=details.note_id,
-        source_fk=details.source_fk,
-        paper_id_fk=details.paper_id_fk,
-        project_id=details.project_id,
-        title=details.title,
-        content=details.content,
-    )
-    storage_note.delete()
+def delete(note: Note) -> bool:
+    """Delete a note by note_id. Returns False if not found or note_id is not set."""
+    if note.note_id is None:
+        return False
+    return _delete_note(note.note_id)
+
+
+def update(note: NoteUpdateIn) -> bool:
+    """Partial update. Returns False if not found."""
+    return _patch_note(note.note_id, note.title, note.content)
 
 
 # ---------------------------------------------------------------------------
@@ -116,23 +127,3 @@ def count_project_notes(project_id: int) -> int:
 
 def ensure_notes_db() -> None:
     _ensure_notes_db()
-
-
-def get_note_details(note: Note) -> Optional[NoteDetails]:
-    if note.note_id is None:
-        return None
-    return _get_note(note.note_id)
-
-
-def get_notes(notes: Notes) -> list[NoteDetails]:
-    if notes.source_fk:
-        return _get_notes(
-            notes.source_fk,
-            project_id   = notes.project_fk,
-            all_projects = notes.project_fk is None,
-        )
-    elif notes.paper_id:
-        return _get_notes_by_paper_id(notes.paper_id)
-    elif notes.project_fk:
-        return _get_project_notes(notes.project_fk)
-    return _list_all_notes()

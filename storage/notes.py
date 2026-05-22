@@ -68,10 +68,8 @@ class Note:
         )
 
     def save(self) -> None:
-        now = datetime.datetime.now()
-        self.updated_at = now
+        now = datetime.datetime.now(datetime.timezone.utc)
         if self.id is None:
-            self.created_at = now
             with _connect() as conn:
                 cur = conn.execute(
                     """
@@ -80,28 +78,26 @@ class Note:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (self.source_fk, self.paper_id_fk, self.project_id,
-                     self.title, self.content, self.created_at, self.updated_at),
+                     self.title, self.content, now, now),
                 )
                 self.id = cur.lastrowid
+            self.created_at = now
+            self.updated_at = now
         else:
             with _connect() as conn:
-                conn.execute(
-                    """
-                    UPDATE NOTE
-                    SET SOURCE_FK = ?, PAPER_ID_FK = ?, PROJECT_FK = ?,
-                        TITLE = ?, NOTE = ?, UPDATED_AT = ?
-                    WHERE NOTE_SK = ?
-                    """,
-                    (self.source_fk, self.paper_id_fk, self.project_id,
-                     self.title, self.content, self.updated_at, self.id),
+                cur = conn.execute(
+                    "UPDATE NOTE SET TITLE = ?, NOTE = ?, UPDATED_AT = ? WHERE NOTE_SK = ?",
+                    (self.title, self.content, now, self.id),
                 )
+                if cur.rowcount == 0:
+                    raise ValueError(f"Note with id={self.id} does not exist")
+            self.updated_at = now
 
     def delete(self) -> None:
         if self.id is None:
             return
-        with _connect() as conn:
-            conn.execute("DELETE FROM NOTE WHERE NOTE_SK = ?", (self.id,))
-        self.id = None
+        if delete_note(self.id):
+            self.id = None
 
 
 # ── Queries ───────────────────────────────────────────────────────────────────
@@ -109,6 +105,50 @@ class Note:
 def get_note(note_id: int) -> Optional[NoteDetails]:
     row = _get_note_row(note_id)
     return Note.from_row(row).to_details() if row else None
+
+
+def create_note(
+    source_fk: int,
+    paper_id_fk: Optional[int],
+    project_id: Optional[int],
+    title: str,
+    content: str,
+) -> int:
+    """Insert a new note row. Returns NOTE_SK."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO NOTE
+                (SOURCE_FK, PAPER_ID_FK, PROJECT_FK, TITLE, NOTE, CREATED_AT, UPDATED_AT)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (source_fk, paper_id_fk, project_id, title, content, now, now),
+        )
+        note_id = cur.lastrowid
+    if note_id is None:
+        raise RuntimeError("INSERT returned no lastrowid")
+    return note_id
+
+
+def patch_note(note_id: int, title: Optional[str], content: Optional[str]) -> bool:
+    """Partial update via COALESCE: None args leave the column unchanged.
+    Returns False if the row was not found.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE NOTE SET TITLE=COALESCE(?,TITLE), NOTE=COALESCE(?,NOTE), UPDATED_AT=? WHERE NOTE_SK=?",
+            (title, content, now, note_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_note(note_id: int) -> bool:
+    """Hard-delete a single note row. Returns False if the row did not exist."""
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM NOTE WHERE NOTE_SK = ?", (note_id,))
+        return cur.rowcount > 0
 
 
 def get_notes(
