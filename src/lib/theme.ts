@@ -11,6 +11,8 @@ export type ThemeColors = {
   danger: string;
 };
 
+export type ColorAlphas = Partial<Record<keyof ThemeColors, number>>;
+
 export const PRESETS = {
   Navy: {
     dark: {
@@ -156,30 +158,40 @@ const GLASS_BLUR_MAX = 24;
 const GLASS_BLUR_SM_MAX = 20;
 const GLASS_SAT_RANGE = 0.8; // saturation goes from 1.0 to (1.0 + GLASS_SAT_RANGE)
 
-export function getColors(
-  preset: PresetName,
-  mode: ThemeMode,
-  overrides: Partial<ThemeColors> = {}
-): ThemeColors {
-  return { ...PRESETS[preset][mode], ...overrides } as ThemeColors;
-}
-
-function hexToRgba(hex: string, alpha: number): string {
+export function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha.toFixed(2)})`;
 }
 
+export function getColors(
+  preset: PresetName,
+  mode: ThemeMode,
+  overrides: Partial<ThemeColors> = {},
+  overrideAlphas: ColorAlphas = {}
+): ThemeColors {
+  const base = { ...PRESETS[preset][mode] } as Record<keyof ThemeColors, string>;
+  for (const k of Object.keys(overrides) as Array<keyof ThemeColors>) {
+    const hex = overrides[k];
+    if (hex && VALID_HEX.test(hex)) {
+      const alpha = overrideAlphas[k] ?? 100;
+      base[k] = alpha < 100 ? hexToRgba(hex, alpha / 100) : hex;
+    }
+  }
+  return base as ThemeColors;
+}
+
 export function applyTheme(
   preset: PresetName,
   mode: ThemeMode,
   overrides: Partial<ThemeColors> = {},
+  overrideAlphas: ColorAlphas = {},
   glassIntensity = 100,
   glassTintColor = "",
   glassTintAlpha = 15
 ): void {
-  const colors = getColors(preset, mode, overrides);
+  const colors = getColors(preset, mode, overrides, overrideAlphas);
   const root = document.documentElement;
   root.setAttribute("data-theme", preset.toLowerCase());
   root.setAttribute("data-mode", mode);

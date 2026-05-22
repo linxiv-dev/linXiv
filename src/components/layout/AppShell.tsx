@@ -4,8 +4,14 @@ import { Sidebar } from "./Sidebar";
 import { Spinner } from "../ui/spinner";
 import GraphPage from "../../pages/GraphPage";
 import { useUiStore, type SidebarPageKey } from "../../stores/ui";
+import { getSettings } from "../../api/settings";
+import { useThemeStore } from "../../stores/theme";
+import { VALID_HEX } from "../../lib/theme";
+import type { ThemeColors, ColorAlphas } from "../../lib/theme";
 
 const KEEP_ALIVE = ["/graph"];
+
+const VALID_COLOR_KEYS = new Set<string>(["bg", "panel", "border", "accent", "text", "muted", "success", "danger"]);
 
 const ROUTE_PAGE_KEY: Record<string, SidebarPageKey> = {
   "/graph":  "graph",
@@ -38,6 +44,30 @@ export default function AppShell() {
       navigate("/", { replace: true });
     }
   }, [pathname, sidebarPages, navigate]);
+
+  // Server is authoritative for theme overrides — restore on boot so that
+  // cleared localStorage or a fresh profile picks up the saved values.
+  // Note: applies after localStorage rehydration, so a brief visual re-apply
+  // is possible if values differ (expected only on first boot or after cache clear).
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((settings) => {
+        if (cancelled) return;
+        const rawOverrides = settings.theme_overrides ?? {};
+        const rawAlphas = settings.theme_override_alphas ?? {};
+        // Discard unknown keys and invalid values from a potentially corrupted store.
+        const overrides = Object.fromEntries(
+          Object.entries(rawOverrides).filter(([k, v]) => VALID_COLOR_KEYS.has(k) && typeof v === "string" && VALID_HEX.test(v))
+        ) as Partial<ThemeColors>;
+        const alphas = Object.fromEntries(
+          Object.entries(rawAlphas).filter(([k, v]) => VALID_COLOR_KEYS.has(k) && typeof v === "number" && v >= 0 && v <= 100)
+        ) as ColorAlphas;
+        useThemeStore.getState().restoreFromSettings(overrides, alphas);
+      })
+      .catch(console.error);
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div
