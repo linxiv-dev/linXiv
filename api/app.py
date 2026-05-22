@@ -24,7 +24,7 @@ from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
 from sources import resolve_doi, fetch_paper_metadata
@@ -60,7 +60,7 @@ from service.paper import (
 )
 from service.tag import list_all_tags
 import user_settings
-from storage.notes import Note, ensure_notes_db, get_note, get_notes
+import service.note as _service_note
 from storage.projects import (
     Project,
     Status,
@@ -147,7 +147,7 @@ def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
 async def _lifespan(_: FastAPI):
     init_db()
     ensure_projects_db()
-    ensure_notes_db()
+    _service_note.ensure_notes_db()
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     async def _purge():
         try:
@@ -673,10 +673,22 @@ def api_doi_save(body: DoiSaveBody) -> dict:
 
 
 class NoteCreate(BaseModel):
-    source_id: str
+    source_id:  str = Field(min_length=1)
     project_id: int | None = None
-    title: str = ""
-    content: str = ""
+    paper_id:   int | None = None
+    title:      str = ""
+    content:    str = ""
+
+
+class NoteUpdate(BaseModel):
+    title:   str | None = None
+    content: str | None = None
+
+    @model_validator(mode="after")
+    def _require_at_least_one(self):
+        if self.title is None and self.content is None:
+            raise ValueError("at least one of title or content must be provided")
+        return self
 
 
 @app.get("/api/notes")
@@ -688,12 +700,17 @@ def api_notes(
     root = get_paper_root(source_id)
     if root is None:
         return {"notes": []}
-    notes = get_notes(int(root["SOURCE_FK"]), project_id=project_id, all_projects=all_projects)
+    notes = _service_note.get_many(_service_note.Notes(
+        source_fk=int(root["SOURCE_FK"]),
+        project_fk=project_id,
+        all_projects=all_projects,
+    ))
     return {
         "notes": [
             {
                 "id": n.note_id,
                 "source_fk": n.source_fk,
+                "paper_id_fk": n.paper_id_fk,
                 "project_id": n.project_id,
                 "title": n.title,
                 "content": n.content,
@@ -708,52 +725,27 @@ def api_notes(
 @app.post("/api/notes")
 def api_note_create(body: NoteCreate) -> dict:
     source_fk = ensure_paper_root(body.source_id.strip())
-    n = Note(
+    note_id = _service_note.create(_service_note.NoteIn(
         source_fk=source_fk,
-        project_id=body.project_id,
+        project_fk=body.project_id,
+        paper_id=body.paper_id,
         title=body.title,
         content=body.content,
-    )
-    n.save()
-    return {"id": n.id}
-
-
-class NoteUpdate(BaseModel):
-    title: str | None = None
-    content: str | None = None
+    ))
+    return {"id": note_id}
 
 
 @app.patch("/api/notes/{note_id}")
 def api_note_update(note_id: int, body: NoteUpdate) -> dict:
-    details = get_note(note_id)
-    if details is None:
+    if not _service_note.update(_service_note.NoteUpdateIn(note_id=note_id, title=body.title, content=body.content)):
         raise HTTPException(status_code=404, detail="Note not found")
-    n = Note(
-        id=details.note_id,
-        source_fk=details.source_fk,
-        paper_id_fk=details.paper_id_fk,
-        project_id=details.project_id,
-        title=body.title if body.title is not None else details.title,
-        content=body.content if body.content is not None else details.content,
-    )
-    n.save()
     return {"ok": True}
 
 
 @app.delete("/api/notes/{note_id}")
 def api_note_delete(note_id: int) -> dict:
-    details = get_note(note_id)
-    if details is None:
+    if not _service_note.delete(_service_note.Note(note_id=note_id)):
         raise HTTPException(status_code=404, detail="Note not found")
-    n = Note(
-        id=details.note_id,
-        source_fk=details.source_fk,
-        paper_id_fk=details.paper_id_fk,
-        project_id=details.project_id,
-        title=details.title,
-        content=details.content,
-    )
-    n.delete()
     return {"ok": True}
 
 
