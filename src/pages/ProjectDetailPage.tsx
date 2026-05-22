@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useNavigationType, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Upload } from "lucide-react";
-import { useUiStore } from "../stores/ui";
+import { useUiStore, type ExportFormatKey } from "../stores/ui";
 import {
   getProject,
   updateProject,
@@ -267,8 +267,6 @@ function AddPapersDialog({
       } else {
         onClose();
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add papers");
     } finally {
       setSubmitting(false);
     }
@@ -424,16 +422,19 @@ function ExportDialog({
   projectId: number;
   projectName?: string;
 }) {
-  const { exportMethods } = useUiStore();
+  const exportMethods = useUiStore((s) => s.exportMethods);
   const [includePdfs, setIncludePdfs] = useState(false);
-  const [busy, setBusy] = useState<"lxproj" | "bibtex" | "obsidian" | null>(null);
+  const [busy, setBusy] = useState<ExportFormatKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) setError(null);
+    if (open) {
+      setError(null);
+      setIncludePdfs(false);
+    }
   }, [open]);
 
-  async function handleExport(format: "lxproj" | "bibtex" | "obsidian") {
+  async function handleExport(format: ExportFormatKey) {
     setBusy(format);
     setError(null);
     try {
@@ -441,19 +442,21 @@ function ExportDialog({
         await exportProject(projectId, includePdfs, projectName);
       } else if (format === "bibtex") {
         await exportBibtex(projectId, projectName);
-      } else {
+      } else if (format === "obsidian") {
         await exportObsidian(projectId, projectName);
+      } else {
+        format satisfies never;
       }
       onClose();
     } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") return;
+      if (e instanceof Error && e.name === "AbortError") return; // file-picker cancelled — keep dialog open, show nothing
       setError(e instanceof Error ? e.message : "Export failed");
     } finally {
       setBusy(null);
     }
   }
 
-  const anyEnabled = exportMethods.lxproj || exportMethods.bibtex || exportMethods.obsidian;
+  const anyEnabled = Object.values(exportMethods).some(Boolean);
 
   return (
     <Dialog open={open} onClose={onClose} title="Export Project">
@@ -516,9 +519,10 @@ function ExportDialog({
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const navType = useNavigationType();
   const queryClient = useQueryClient();
 
-  const { selectedIds, toggle, clear } = useSelectionStore();
+  const { selectedIds, toggle, clear, selectAll } = useSelectionStore();
 
   // Clear selection on mount/unmount to avoid leaking state to other pages
   useEffect(() => {
@@ -557,7 +561,7 @@ export default function ProjectDetailPage() {
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
-  const projectId = Number(id);
+  const projectId = id && /^\d+$/.test(id) ? parseInt(id, 10) : NaN;
 
   const {
     data: project,
@@ -567,7 +571,7 @@ export default function ProjectDetailPage() {
   } = useQuery({
     queryKey: ["project", id],
     queryFn: () => getProject(projectId),
-    enabled: Boolean(id),
+    enabled: !isNaN(projectId),
   });
 
   const {
@@ -594,18 +598,14 @@ export default function ProjectDetailPage() {
       const results = await Promise.allSettled(
         idsArray.map((sid) => removePaperFromProject(projectId, sid))
       );
-      await queryClient.invalidateQueries({ queryKey: ["project", id] });
       const failedCount = results.filter((r) => r.status === "rejected").length;
       if (failedCount > 0) {
-        // Deselect only the papers that were successfully removed so the
-        // selection bar reflects what's actually still in the project.
-        idsArray.forEach((sid, i) => { if (results[i].status === "fulfilled") toggle(sid); });
+        selectAll(idsArray.filter((_, i) => results[i].status === "rejected"));
         setRemoveError(`Failed to remove ${failedCount} paper${failedCount !== 1 ? "s" : ""}`);
       } else {
         clear();
       }
-    } catch (err) {
-      setRemoveError(err instanceof Error ? err.message : "Failed to remove papers");
+      await queryClient.invalidateQueries({ queryKey: ["project", id] });
     } finally {
       setRemoving(false);
     }
@@ -692,17 +692,8 @@ export default function ProjectDetailPage() {
     <div className="flex flex-col gap-6 p-8 overflow-y-auto">
       {/* Back nav */}
       <button
-        onClick={() => window.history.length > 1 ? navigate(-1) : navigate("/projects")}
-        className="inline-flex items-center gap-1.5 text-sm w-fit transition-colors"
-        style={{ color: "var(--color-muted)" }}
-        onMouseEnter={(e) =>
-          ((e.currentTarget as HTMLButtonElement).style.color =
-            "var(--color-text)")
-        }
-        onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLButtonElement).style.color =
-            "var(--color-muted)")
-        }
+        onClick={() => navType !== "POP" ? navigate(-1) : navigate("/projects")}
+        className="inline-flex items-center gap-1.5 text-sm w-fit transition-colors text-muted hover:text-text"
       >
         <ArrowLeft size={14} />
         Back

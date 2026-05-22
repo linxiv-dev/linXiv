@@ -1,4 +1,5 @@
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { join as pathJoin } from "@tauri-apps/api/path";
 
 // Shared base URL (mirrors client.ts logic)
 const BASE_URL =
@@ -7,6 +8,10 @@ const BASE_URL =
     : "";
 
 const isTauri = typeof window !== "undefined" && window.__TAURI_INTERNALS__ !== undefined;
+
+function pickerCancelled(): Error {
+  return Object.assign(new Error("Cancelled"), { name: "AbortError" });
+}
 
 export interface ImportPreview {
   project_name: string;
@@ -30,7 +35,7 @@ export async function exportProject(
       defaultPath: `${slug}.lxproj`,
       filters: [{ name: "linXiv Project", extensions: ["lxproj"] }],
     });
-    if (!destPath) return;
+    if (!destPath) throw pickerCancelled();
     const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -97,7 +102,7 @@ export async function exportBibtex(projectId: number, projectName?: string): Pro
       defaultPath: `${slug}.bib`,
       filters: [{ name: "BibTeX", extensions: ["bib"] }],
     });
-    if (!destPath) return;
+    if (!destPath) throw pickerCancelled();
     const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export/bibtex?dest_path=${encodeURIComponent(destPath)}`);
     if (!res.ok) {
       const body = await res.json().catch(() => ({})) as { detail?: string };
@@ -118,9 +123,10 @@ export async function exportBibtex(projectId: number, projectName?: string): Pro
 export async function exportObsidian(projectId: number, projectName?: string): Promise<void> {
   const slug = projectName ? projectName.replace(/\s+/g, "_").toLowerCase() : `project-${projectId}`;
   if (isTauri) {
-    const destDir = await open({ directory: true, title: "Select Obsidian vault folder" });
-    if (!destDir) return;
-    const destPath = `${destDir}/${slug}.md`;
+    const picked = await open({ directory: true, title: "Select Obsidian vault folder" });
+    const destDir = Array.isArray(picked) ? picked[0] : picked;
+    if (!destDir) throw pickerCancelled();
+    const destPath = await pathJoin(destDir, `${slug}.md`);
     const res = await fetch(`${BASE_URL}/api/projects/${projectId}/export/obsidian?dest_path=${encodeURIComponent(destPath)}`);
     if (!res.ok) {
       const body = await res.json().catch(() => ({})) as { detail?: string };

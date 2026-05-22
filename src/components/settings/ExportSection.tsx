@@ -8,7 +8,8 @@ const EXPORT_FORMAT_OPTIONS: { key: ExportFormatKey; label: string; description:
 ];
 
 export function ExportSection() {
-  const { exportMethods, setExportMethod } = useUiStore();
+  const exportMethods = useUiStore((s) => s.exportMethods);
+  const setExportMethod = useUiStore((s) => s.setExportMethod);
 
   return (
     <Section title="Export Methods">
@@ -22,18 +23,21 @@ export function ExportSection() {
         >
           <div className="flex-1 min-w-0 mr-4">
             <span className="text-sm font-medium text-text">{label}</span>
-            <p className="text-xs text-muted mt-0.5">{description}</p>
+            <p id={`export-desc-${key}`} className="text-xs text-muted mt-0.5">{description}</p>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={exportMethods[key]}
+            aria-label={`${label} export`}
+            aria-describedby={`export-desc-${key}`}
             onClick={() => setExportMethod(key, !exportMethods[key])}
             className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors"
             style={{
               background: exportMethods[key] ? "var(--color-accent)" : "var(--color-border)",
             }}
           >
+            {/* translateX: track(44) - 2×border(4) - knob(20) = 20px; update if size classes change */}
             <span
               className="pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform"
               style={{ transform: exportMethods[key] ? "translateX(20px)" : "translateX(0)" }}
