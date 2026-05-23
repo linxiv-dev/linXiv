@@ -218,7 +218,7 @@ def api_get_paper_by_sfk(
     return paper.to_dict()
 
 
-@app.get("/api/papers/{source_id}")
+@app.get("/api/papers/{source_id:path}")
 def api_get_paper(source_id: str) -> dict:
     paper = get_paper_details(Paper(source_id=source_id))
     if not paper:
@@ -226,7 +226,7 @@ def api_get_paper(source_id: str) -> dict:
     return paper.to_dict()
 
 
-@app.delete("/api/papers/{source_id}")
+@app.delete("/api/papers/{source_id:path}")
 def api_delete_paper(source_id: str) -> dict:
     paper = get_paper_details(Paper(source_id=source_id))
     if not paper:
@@ -519,7 +519,7 @@ def api_project_add_paper(project_id: int, body: ProjectPaperBody) -> dict:
     return {"ok": True}
 
 
-@app.delete("/api/projects/{project_id}/papers/{source_id}")
+@app.delete("/api/projects/{project_id}/papers/{source_id:path}")
 def api_project_remove_paper(project_id: int, source_id: str) -> dict:
     p = get_project(project_id)
     if not p:
@@ -798,7 +798,7 @@ def api_env_patch(body: EnvUpdate) -> dict:
     return {"ok": True}
 
 
-@app.get("/api/papers/{source_id}/pdf", response_model=None)
+@app.get("/api/papers/{source_id:path}/pdf", response_model=None)
 def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
     paper = get_paper_details(Paper(source_id=source_id, version=version))
     if not paper:
@@ -844,7 +844,7 @@ def api_trash_list() -> dict:
     }
 
 
-@app.post("/api/trash/{source_id}/restore")
+@app.post("/api/trash/{source_id:path}/restore")
 def api_trash_restore(source_id: str) -> dict:
     pdf_path, project_fks = restore_paper(Paper(source_id=source_id))
     return {"ok": True, "pdf_path": pdf_path, "project_fks": project_fks}
@@ -857,7 +857,7 @@ def api_remove_paper_from_all_projects(source_fk: int) -> dict:
     return {"ok": True, "removed_from": removed}
 
 
-@app.delete("/api/trash/{source_id}")
+@app.delete("/api/trash/{source_id:path}")
 def api_trash_hard_delete(source_id: str) -> dict:
     hard_delete_paper(Paper(source_id=source_id))
     return {"ok": True}

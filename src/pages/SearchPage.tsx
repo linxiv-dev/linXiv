@@ -262,7 +262,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
   }
 
   const handleSavePaper = useCallback(async (sourceId: string) => {
-    if (sourceId.startsWith("openalex:")) {
+    if (sourceId.startsWith("openalex:") || /^W\d+$/.test(sourceId)) {
       await saveOpenAlex(sourceId);
     } else {
       await fetchArxiv(sourceId, true);
