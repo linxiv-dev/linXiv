@@ -13,6 +13,7 @@ Run with venv:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 import uvicorn
@@ -21,10 +22,16 @@ import uvicorn
 def run() -> None:
     # reload=True requires the source tree — disabled in frozen PyInstaller builds
     should_reload = not getattr(sys, "frozen", False)
+    raw_port = os.environ.get("LINXIV_PORT", "8000")
+    try:
+        port = int(raw_port)
+    except ValueError:
+        sys.stderr.write(f"[linxiv] LINXIV_PORT={raw_port!r} is not a valid integer\n")
+        sys.exit(2)
     uvicorn.run(
         "api.app:app",
         host="127.0.0.1",
-        port=8000,
+        port=port,
         reload=should_reload,
         reload_dirs=[str(Path(__file__).resolve().parent.parent)] if should_reload else None,
     )

@@ -55,6 +55,7 @@ from service.paper import (
     PdfImportError,
     pdf_on_disk_name,
 )
+from service.models.paper import PaperDetails
 from service.tag import list_all_tags
 import user_settings
 import service.note as _service_note
@@ -104,10 +105,7 @@ def _cors_config() -> tuple[list[str], bool]:
     return origins, True
 
 
-def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
-    paper = get_paper_details(Paper(source_id=source_id, version=version))
-    if not paper:
-        return None
+def _resolve_local_pdf(paper: PaperDetails, source_id: str, version: int | None) -> str | None:
     ver = paper.version if version is None else version
     if paper.pdf_path and os.path.isfile(paper.pdf_path):
         return paper.pdf_path
@@ -157,7 +155,10 @@ def api_root() -> dict:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True}
+    # The "service" field is checked by the Tauri launcher to verify that a
+    # response on the expected port is actually our API and not a rogue process
+    # that happened to grab the port between bind-probe and uvicorn startup.
+    return {"ok": True, "service": "linxiv-api"}
 
 
 @app.get("/api/stats")
@@ -239,9 +240,13 @@ def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
     paper = get_paper_details(Paper(source_id=source_id, version=version))
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    path = _resolve_local_pdf(source_id, version)
+    path = _resolve_local_pdf(paper, source_id, version)
     if path:
         return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
+    if paper.has_pdf:
+        # Database says a PDF should be on disk but the file is missing — don't
+        # silently fall through to the remote URL, which would mask the data drift.
+        raise HTTPException(status_code=404, detail="PDF file not found on disk")
     if paper.url:
         return RedirectResponse(paper.url)
     raise HTTPException(status_code=404, detail="No PDF available")
