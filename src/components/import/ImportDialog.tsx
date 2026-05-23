@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Upload } from "lucide-react";
 import { useImportJobsStore } from "../../stores/importJobs";
 import {
@@ -95,6 +96,7 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
   const [rejectedFilenames, setRejectedFilenames] = useState<string[]>([]);
   const addJobs = useImportJobsStore((s) => s.addJobs);
   const updateStoreJob = useImportJobsStore((s) => s.updateJob);
+  const queryClient = useQueryClient();
   // Keep onDone stable across the async loop even if parent re-renders or unmounts.
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
@@ -144,6 +146,24 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
     reset();
     onClose();
 
+    // Imports that produce papers must bust every cache that reads paper data.
+    // Keys mirror PaperDetailPage's post-edit invalidation set.
+    const invalidatePaperCaches = () => {
+      // ["paper"] is a prefix that covers ["paper","sfk",...] and ["paper","versions",...].
+      queryClient.invalidateQueries({ queryKey: ["paper"] });
+      queryClient.invalidateQueries({ queryKey: ["papers"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      // New papers may introduce new tags, and pinning to a project changes the
+      // project's paper count — bust both so the sidebar/index views refresh.
+      queryClient.invalidateQueries({ queryKey: ["tags"] });
+      queryClient.invalidateQueries({ queryKey: ["tag"] });
+      if (projectId !== undefined) {
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
+        // ProjectDetailPage keys the per-project query with String(id) from useParams.
+        queryClient.invalidateQueries({ queryKey: ["project", String(projectId)] });
+      }
+    };
+
     const newProjectIds: number[] = [];
     // Sequential intentionally: avoids saturating the backend with concurrent uploads.
     for (const entry of toProcess) {
@@ -153,9 +173,11 @@ export function ImportDialog({ open, onClose, projectId, onDone }: ImportDialogP
         if (kind === "pdf") {
           const r = await importPdf(file, projectId);
           result = `Saved "${r.title || file.name}"`;
+          invalidatePaperCaches();
         } else if (kind === "bibtex") {
           const r = await importBibtex(file, projectId);
           result = `${r.saved_count} paper${r.saved_count !== 1 ? "s" : ""} saved`;
+          invalidatePaperCaches();
         } else if (kind === "lxproj") {
           const r = await commitImport(file, onConflict);
           newProjectIds.push(r.project_id);

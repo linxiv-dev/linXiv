@@ -4,48 +4,34 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import os
-import re
 import sqlite3
-import uuid
 from contextlib import asynccontextmanager
 from typing import Literal
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from config import ENV_PATH, data_dir, resources_dir
+from config import ENV_PATH
 load_dotenv(ENV_PATH)
 
-import arxiv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
-from storage.db import (
-    get_categories,
-    get_tags,
-    init_db,
-    parse_entry_id,
-    save_paper,
-    save_paper_metadata,
-    save_papers_metadata,
-)
-from sources import resolve_doi, fetch_paper_metadata
+from sources import resolve_doi
 from sources.base import PaperMetadata
-from sources.pdf_metadata import resolve_pdf_metadata
-from sources.arxiv_source import ArxivSource
-from sources.openalex_source import OpenAlexSource
+from sources.arxiv_source import ArxivSource, ArxivNotFoundError
+from sources.openalex_source import OpenAlexSource, OpenAlexNotFoundError, OpenAlexInputError
 from formats.bibtex import BibTeXFormat
 from formats.markdown import ObsidianFormat
 from service.paper import (
-    set_has_pdf_by_source,
-    set_pdf_path,
     Paper,
     ensure_paper_root,
     get as get_paper_details,
@@ -60,14 +46,22 @@ from service.paper import (
     repair_paper as svc_repair_paper,
     sfks_to_source_ids,
     get_papers_by_tag,
+    save_paper_metadata,
+    save_papers_metadata,
+    get_categories,
+    init_db,
+    search_papers,
+    import_pdf as svc_import_pdf,
+    PdfImportError,
+    pdf_on_disk_name,
 )
+from service.models.paper import PaperDetails
+from service.tag import list_all_tags
 import user_settings
-from storage.notes import Note, ensure_notes_db, get_note, get_notes
+import service.note as _service_note
 from storage.projects import (
     Project,
     Status,
-    color_from_hex,
-    color_to_hex,
     ensure_projects_db,
     filter_projects,
     get_project,
@@ -75,36 +69,31 @@ from storage.projects import (
 )
 from service.project import (
     Project as SvcProject,
+    ProjectIn as SvcProjectIn,
+    color_from_hex,
+    color_to_hex,
+    create as create_project_svc,
+    update as update_project_svc,
     hard_delete as hard_delete_project,
     list_deleted as list_deleted_projects,
     purge_old as purge_old_projects,
     restore as restore_project_svc,
 )
-from storage.tags import add_project_tags, get_project_tags, remove_project_tags
+from storage.tags import get_project_tags
 from storage.config.queries import Q, list_project_tags_bulk, list_project_source_ids_bulk, list_projects_by_tag, get_tag_by_label
 import storage.search_history as _search_history
 import storage.search_state as _search_state
 
-PDF_DIR = data_dir() / "pdfs"
+from storage.paths import pdf_dir as _storage_pdf_dir
+PDF_DIR = _storage_pdf_dir()
 
 _arxiv_source = ArxivSource()
 _openalex = OpenAlexSource()
 
 
-def _metadata_to_search_result(meta: PaperMetadata) -> dict:
-    """Serialize a PaperMetadata to the SearchResult shape the frontend expects."""
-    bare_id = meta.source_id.split(":", 1)[-1]
-    return {
-        "source_id": bare_id,
-        "version": meta.version,
-        "title": meta.title,
-        "summary": meta.summary or "",
-        "authors": meta.authors,
-        "published": "" if meta.published == datetime.date.min else meta.published.isoformat(),
-        "pdf_url": meta.url or "",
-        "primary_category": meta.category or "",
-        "entry_id": meta.source_id,
-    }
+def _strip_namespace(source_id: str) -> str:
+    """Return the bare paper ID with the source namespace prefix removed."""
+    return source_id.split(":", 1)[-1]
 
 
 def _cors_config() -> tuple[list[str], bool]:
@@ -116,30 +105,11 @@ def _cors_config() -> tuple[list[str], bool]:
     return origins, True
 
 
-
-def _arxiv_result_summary(p: arxiv.Result) -> dict:
-    sid, ver = parse_entry_id(p.entry_id)
-    return {
-        "source_id": sid,
-        "version": ver,
-        "title": p.title,
-        "summary": p.summary,
-        "authors": [a.name for a in p.authors],
-        "published": p.published.date().isoformat(),
-        "pdf_url": p.pdf_url,
-        "primary_category": p.primary_category,
-        "entry_id": p.entry_id,
-    }
-
-
-def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
-    paper = get_paper_details(Paper(source_id=source_id, version=version))
-    if not paper:
-        return None
+def _resolve_local_pdf(paper: PaperDetails, source_id: str, version: int | None) -> str | None:
     ver = paper.version if version is None else version
     if paper.pdf_path and os.path.isfile(paper.pdf_path):
         return paper.pdf_path
-    std = PDF_DIR / f"{source_id}v{ver}.pdf"
+    std = PDF_DIR / pdf_on_disk_name(source_id, ver)
     if std.is_file():
         return str(std)
     return None
@@ -149,7 +119,7 @@ def _resolve_local_pdf(source_id: str, version: int | None) -> str | None:
 async def _lifespan(_: FastAPI):
     init_db()
     ensure_projects_db()
-    ensure_notes_db()
+    _service_note.ensure_notes_db()
     PDF_DIR.mkdir(parents=True, exist_ok=True)
     async def _purge():
         try:
@@ -185,13 +155,16 @@ def api_root() -> dict:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True}
+    # The "service" field is checked by the Tauri launcher to verify that a
+    # response on the expected port is actually our API and not a rogue process
+    # that happened to grab the port between bind-probe and uvicorn startup.
+    return {"ok": True, "service": "linxiv-api"}
 
 
 @app.get("/api/stats")
 def stats() -> dict:
     papers = list_paper_details(latest_only=True)
-    tags = get_tags()
+    tags = list_all_tags()
     categories = get_categories()
     return {
         "paper_count": len(papers),
@@ -250,7 +223,36 @@ def api_get_paper_by_sfk(
     return paper.to_dict()
 
 
-@app.get("/api/papers/{source_id}")
+@app.get("/api/papers/search")
+def api_search_papers(
+    q: str = Query(),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> dict:
+    q = q.strip()
+    if len(q) < 3:
+        raise HTTPException(status_code=422, detail="Query must contain at least 3 non-whitespace characters")
+    papers = search_papers(q, limit)
+    return {"papers": [p.to_dict() for p in papers]}
+
+
+@app.get("/api/papers/{source_id:path}/pdf", response_model=None)
+def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
+    paper = get_paper_details(Paper(source_id=source_id, version=version))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    path = _resolve_local_pdf(paper, source_id, version)
+    if path:
+        return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path), content_disposition_type="inline")
+    if paper.has_pdf:
+        # Database says a PDF should be on disk but the file is missing — don't
+        # silently fall through to the remote URL, which would mask the data drift.
+        raise HTTPException(status_code=404, detail="PDF file not found on disk")
+    if paper.url:
+        return RedirectResponse(paper.url)
+    raise HTTPException(status_code=404, detail="No PDF available")
+
+
+@app.get("/api/papers/{source_id:path}")
 def api_get_paper(source_id: str) -> dict:
     paper = get_paper_details(Paper(source_id=source_id))
     if not paper:
@@ -258,7 +260,7 @@ def api_get_paper(source_id: str) -> dict:
     return paper.to_dict()
 
 
-@app.delete("/api/papers/{source_id}")
+@app.delete("/api/papers/{source_id:path}")
 def api_delete_paper(source_id: str) -> dict:
     paper = get_paper_details(Paper(source_id=source_id))
     if not paper:
@@ -361,7 +363,7 @@ def api_categories() -> dict:
 
 @app.get("/api/tags")
 def api_tags() -> dict:
-    return {"tags": get_tags()}
+    return {"tags": list_all_tags()}
 
 
 @app.get("/api/tags/{label}")
@@ -429,30 +431,6 @@ def api_graph_project_options() -> dict:
     return {"projects": project_filter_options()}
 
 
-def _normalize_tags(tags: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for t in tags:
-        label = t.strip().lower()
-        if label and label not in seen:
-            seen.add(label)
-            result.append(label)
-    return result
-
-
-def _sync_project_tags(project_id: int, new_tags: list[str]) -> None:
-    normalized = _normalize_tags(new_tags)
-    current = get_project_tags(project_id)
-    current_lower = {t.lower() for t in current}
-    new_lower = {t.lower() for t in normalized}
-    to_remove = [t for t in current if t.lower() not in new_lower]
-    to_add = [t for t in normalized if t.lower() not in current_lower]
-    if to_remove:
-        remove_project_tags(project_id, to_remove)
-    if to_add:
-        add_project_tags(project_id, to_add)
-
-
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
@@ -470,13 +448,21 @@ class ProjectUpdate(BaseModel):
 
 @app.post("/api/projects")
 def api_project_create(body: ProjectCreate) -> dict:
-    color = color_from_hex(body.color_hex) if body.color_hex else None
-    p = Project(name=body.name.strip(), description=body.description.strip(), color=color)
-    p.save()
-    assert p.id
-    if body.project_tags:
-        add_project_tags(p.id, _normalize_tags(body.project_tags))
-    return {"project": {"id": p.id, "name": p.name}}
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be blank")
+    try:
+        color = color_from_hex(body.color_hex) if body.color_hex else None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid color_hex") from e
+    # source_fks intentionally omitted: papers are linked via POST /projects/{id}/papers
+    fk = create_project_svc(SvcProjectIn(
+        name        = name,
+        description = body.description.strip(),
+        color       = color,
+        tags        = body.project_tags,
+    ))
+    return {"project": {"id": fk, "name": name}}
 
 
 @app.get("/api/projects/{project_id}")
@@ -497,32 +483,41 @@ def api_project_get(project_id: int) -> dict:
 
 @app.patch("/api/projects/{project_id}")
 def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
-    p = get_project(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if body.name:
-        p.name = body.name.strip()
-    if body.description:
-        p.description = body.description
-    if body.color_hex:
-        p.color = color_from_hex(body.color_hex)
-    if body.project_tags is not None and p.id is not None:
-        _sync_project_tags(p.id, body.project_tags)
-    if body.status:
+    status: Status | None = None
+    if body.status is not None:
         try:
-            new_status = Status(body.status)
+            status = Status(body.status)
         except ValueError as e:
             raise HTTPException(status_code=400, detail="Invalid status") from e
-        # archive/restore/delete call p.save() internally, which persists ALL
-        # fields on p — including any name/description/color already set above.
-        if new_status == Status.ARCHIVED:
-            p.archive()
-        elif new_status == Status.ACTIVE:
-            p.restore()
-        elif new_status == Status.DELETED:
-            p.delete()
-        return {"ok": True}
-    p.save()
+    # Build color kwarg only when color_hex was explicitly sent so that omitting
+    # the field is a no-op while sending null explicitly clears the color.
+    color_kwarg: dict = {}
+    if "color_hex" in body.model_fields_set:
+        try:
+            color_kwarg["color"] = color_from_hex(body.color_hex) if body.color_hex else None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Invalid color_hex") from e
+    name: str | None = None
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name cannot be blank")
+    try:
+        update_project_svc(
+            project_fk   = project_id,
+            name         = name,
+            # description is a non-nullable string (never NULL in DB); clients
+            # clear it with "" not null, so None here safely means "no change".
+            # color_hex uses model_fields_set because its DB column IS nullable.
+            description  = body.description.strip() if body.description is not None else None,
+            project_tags = body.project_tags,
+            status       = status,
+            **color_kwarg,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail="Project not found") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True}
 
 
@@ -551,7 +546,7 @@ def api_project_add_paper(project_id: int, body: ProjectPaperBody) -> dict:
     return {"ok": True}
 
 
-@app.delete("/api/projects/{project_id}/papers/{source_id}")
+@app.delete("/api/projects/{project_id}/papers/{source_id:path}")
 def api_project_remove_paper(project_id: int, source_id: str) -> dict:
     p = get_project(project_id)
     if not p:
@@ -563,6 +558,48 @@ def api_project_remove_paper(project_id: int, source_id: str) -> dict:
     return {"ok": True}
 
 
+class SearchResultOut(BaseModel):
+    source_id: str
+    version: int
+    title: str
+    summary: str
+    authors: list[str]
+    published: str
+    paper_url: str
+    primary_category: str
+    entry_id: str
+
+    @classmethod
+    def from_metadata(cls, meta: PaperMetadata) -> "SearchResultOut":
+        return cls(
+            source_id=_strip_namespace(meta.source_id),
+            version=meta.version,
+            title=meta.title,
+            summary=meta.summary,
+            authors=meta.authors,
+            published="" if meta.published == datetime.date.min else meta.published.isoformat(),
+            paper_url=meta.url or "",
+            primary_category=meta.category or "",
+            entry_id=meta.source_id,
+        )
+
+
+class ArxivSearchOut(BaseModel):
+    results: list[SearchResultOut]
+    saved_source_ids: list[str]
+
+
+class ArxivFetchOut(BaseModel):
+    paper: SearchResultOut
+    saved: bool
+    source_id: str
+
+
+class ArxivFetchBody(BaseModel):
+    source_id: str = Field(min_length=1)
+    save: bool = True
+
+
 class ArxivSearchBody(BaseModel):
     query: str = Field(min_length=1)
     max_results: int = Field(default=25, ge=1, le=100)
@@ -570,8 +607,8 @@ class ArxivSearchBody(BaseModel):
     sort: Literal["relevance", "newest", "oldest", "lastUpdated"] = "relevance"
 
 
-@app.post("/api/arxiv/search")
-def api_arxiv_search(body: ArxivSearchBody) -> dict:
+@app.post("/api/arxiv/search", response_model=ArxivSearchOut)
+def api_arxiv_search(body: ArxivSearchBody) -> ArxivSearchOut:
     try:
         results = _arxiv_source.search(
             body.query.strip(),
@@ -580,12 +617,15 @@ def api_arxiv_search(body: ArxivSearchBody) -> dict:
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    summaries = [_metadata_to_search_result(m) for m in results]
+    summaries = [SearchResultOut.from_metadata(m) for m in results]
     saved: list[str] = []
     if body.save and results:
-        pairs = save_papers_metadata(results, tags=None)
-        saved = [sid.split(":", 1)[-1] for sid, _ in pairs]
-    return {"results": summaries, "saved_source_ids": saved if body.save else []}
+        try:
+            pairs = save_papers_metadata(results, tags=None)
+            saved = [_strip_namespace(sid) for sid, _ in pairs]
+        except sqlite3.IntegrityError as exc:
+            print(f"[linxiv] batch save IntegrityError (results still returned): {exc}")
+    return ArxivSearchOut(results=summaries, saved_source_ids=saved)
 
 
 # ── Search history / state ────────────────────────────────────────────────────
@@ -630,22 +670,27 @@ def api_search_state_save(body: SearchStateBody) -> dict:
     )
     return {"ok": True}
 
-#TODO:RECREATE API to be more efficient, use service layer???
-class ArxivFetchBody(BaseModel):
-    source_id: str = Field(min_length=1)
-    save: bool = True
 
-
-@app.post("/api/arxiv/fetch")
-def api_arxiv_fetch(body: ArxivFetchBody) -> dict:
+@app.post("/api/arxiv/fetch", response_model=ArxivFetchOut)
+def api_arxiv_fetch(body: ArxivFetchBody) -> ArxivFetchOut:
     try:
-        paper = fetch_paper_metadata(body.source_id.strip())
+        meta = _arxiv_source.fetch_by_id(body.source_id.strip())
+    except ArxivNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    pid, _ = parse_entry_id(paper.entry_id)
+    source_id = _strip_namespace(meta.source_id)
     if body.save:
-        save_paper(paper)
-    return {"paper": _arxiv_result_summary(paper), "saved": body.save, "source_id": pid}
+        try:
+            stored_sid, _ = save_paper_metadata(meta)
+            source_id = _strip_namespace(stored_sid)
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ArxivFetchOut(
+        paper=SearchResultOut.from_metadata(meta),
+        saved=body.save,
+        source_id=source_id,
+    )
 
 
 class DoiResolveBody(BaseModel):
@@ -676,10 +721,22 @@ def api_doi_save(body: DoiSaveBody) -> dict:
 
 
 class NoteCreate(BaseModel):
-    source_id: str
+    source_id:  str = Field(min_length=1)
     project_id: int | None = None
-    title: str = ""
-    content: str = ""
+    paper_id:   int | None = None
+    title:      str = ""
+    content:    str = ""
+
+
+class NoteUpdate(BaseModel):
+    title:   str | None = None
+    content: str | None = None
+
+    @model_validator(mode="after")
+    def _require_at_least_one(self):
+        if self.title is None and self.content is None:
+            raise ValueError("at least one of title or content must be provided")
+        return self
 
 
 @app.get("/api/notes")
@@ -691,12 +748,17 @@ def api_notes(
     root = get_paper_root(source_id)
     if root is None:
         return {"notes": []}
-    notes = get_notes(int(root["SOURCE_FK"]), project_id=project_id, all_projects=all_projects)
+    notes = _service_note.get_many(_service_note.Notes(
+        source_fk=int(root["SOURCE_FK"]),
+        project_fk=project_id,
+        all_projects=all_projects,
+    ))
     return {
         "notes": [
             {
                 "id": n.note_id,
                 "source_fk": n.source_fk,
+                "paper_id_fk": n.paper_id_fk,
                 "project_id": n.project_id,
                 "title": n.title,
                 "content": n.content,
@@ -711,52 +773,116 @@ def api_notes(
 @app.post("/api/notes")
 def api_note_create(body: NoteCreate) -> dict:
     source_fk = ensure_paper_root(body.source_id.strip())
-    n = Note(
+    note_id = _service_note.create(_service_note.NoteIn(
         source_fk=source_fk,
-        project_id=body.project_id,
+        project_fk=body.project_id,
+        paper_id=body.paper_id,
         title=body.title,
         content=body.content,
-    )
-    n.save()
-    return {"id": n.id}
-
-
-class NoteUpdate(BaseModel):
-    title: str | None = None
-    content: str | None = None
+    ))
+    return {"id": note_id}
 
 
 @app.patch("/api/notes/{note_id}")
 def api_note_update(note_id: int, body: NoteUpdate) -> dict:
-    details = get_note(note_id)
-    if details is None:
+    if not _service_note.update(_service_note.NoteUpdateIn(note_id=note_id, title=body.title, content=body.content)):
         raise HTTPException(status_code=404, detail="Note not found")
-    n = Note(
-        id=details.note_id,
-        source_fk=details.source_fk,
-        paper_id_fk=details.paper_id_fk,
-        project_id=details.project_id,
-        title=body.title if body.title is not None else details.title,
-        content=body.content if body.content is not None else details.content,
-    )
-    n.save()
     return {"ok": True}
 
 
 @app.delete("/api/notes/{note_id}")
 def api_note_delete(note_id: int) -> dict:
-    details = get_note(note_id)
-    if details is None:
+    if not _service_note.delete(_service_note.Note(note_id=note_id)):
         raise HTTPException(status_code=404, detail="Note not found")
-    n = Note(
-        id=details.note_id,
-        source_fk=details.source_fk,
-        paper_id_fk=details.paper_id_fk,
-        project_id=details.project_id,
-        title=details.title,
-        content=details.content,
+    return {"ok": True}
+
+
+import service.author as _service_author
+
+
+class AuthorUpdate(BaseModel):
+    full_name:  str | None = None
+    first_name: str | None = None
+    last_name:  str | None = None
+    orcid:      str | None = None
+
+
+def _author_ref(author_id: int) -> _service_author.Author:
+    return _service_author.Author(author_id=author_id)
+
+
+def _author_detail_response(author_id: int) -> dict:
+    """Build the full author detail dict (used by GET and PATCH)."""
+    author = _service_author.get(_author_ref(author_id))
+    if author is None:
+        raise HTTPException(status_code=404, detail="Author not found")
+    papers = _service_author.get_paper_previews(author_id)
+    return {
+        "author_id":   author.author_id,
+        "full_name":   author.full_name,
+        "first_name":  author.first_name,
+        "last_name":   author.last_name,
+        "orcid":       author.orcid,
+        "paper_count": len(papers),
+        "papers": [
+            {
+                "paper_id":  p.paper_id,
+                "source_id": p.source_id,
+                "source_fk": p.source_fk,
+                "version":   p.version,
+                "title":     p.title,
+            }
+            for p in papers
+        ],
+    }
+
+
+@app.get("/api/authors")
+def api_authors_list() -> dict:
+    authors = _service_author.list_with_paper_count()
+    return {
+        "authors": [
+            {
+                "author_id":   a.author_id,
+                "full_name":   a.full_name,
+                "first_name":  a.first_name,
+                "last_name":   a.last_name,
+                "orcid":       a.orcid,
+                "paper_count": a.paper_count,
+            }
+            for a in authors
+        ]
+    }
+
+
+@app.get("/api/authors/{author_id}")
+def api_author_get(author_id: int) -> dict:
+    return _author_detail_response(author_id)
+
+
+@app.patch("/api/authors/{author_id}")
+def api_author_update(author_id: int, body: AuthorUpdate) -> dict:
+    _service_author.update_fields(
+        author_id  = author_id,
+        full_name  = body.full_name,
+        first_name = body.first_name,
+        last_name  = body.last_name,
+        orcid      = body.orcid,
     )
-    n.delete()
+    return _author_detail_response(author_id)
+
+
+@app.delete("/api/authors/{author_id}")
+def api_author_delete(author_id: int) -> dict:
+    if _service_author.get(_author_ref(author_id)) is None:
+        raise HTTPException(status_code=404, detail="Author not found")
+    total_links = _service_author.count_paper_links(author_id)
+    if total_links > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Author is linked to {total_links} paper(s); unlink before deleting.",
+        )
+    _service_author.delete_author(author_id)
     return {"ok": True}
 
 
@@ -786,19 +912,6 @@ def api_env_patch(body: EnvUpdate) -> dict:
     set_key(str(ENV_PATH), body.key, body.value)
     os.environ[body.key] = body.value
     return {"ok": True}
-
-
-@app.get("/api/papers/{source_id}/pdf", response_model=None)
-def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
-    paper = get_paper_details(Paper(source_id=source_id, version=version))
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    path = _resolve_local_pdf(source_id, version)
-    if path:
-        return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
-    if paper.url:
-        return RedirectResponse(paper.url)
-    raise HTTPException(status_code=404, detail="No PDF available")
 
 
 # Graph viewer static bundle (used by PyQt, external frontends via iframe/proxy)
@@ -834,7 +947,7 @@ def api_trash_list() -> dict:
     }
 
 
-@app.post("/api/trash/{source_id}/restore")
+@app.post("/api/trash/{source_id:path}/restore")
 def api_trash_restore(source_id: str) -> dict:
     pdf_path, project_fks = restore_paper(Paper(source_id=source_id))
     return {"ok": True, "pdf_path": pdf_path, "project_fks": project_fks}
@@ -847,7 +960,7 @@ def api_remove_paper_from_all_projects(source_fk: int) -> dict:
     return {"ok": True, "removed_from": removed}
 
 
-@app.delete("/api/trash/{source_id}")
+@app.delete("/api/trash/{source_id:path}")
 def api_trash_hard_delete(source_id: str) -> dict:
     hard_delete_paper(Paper(source_id=source_id))
     return {"ok": True}
@@ -872,14 +985,18 @@ def api_trash_project_hard_delete(project_id: int) -> dict:
 
 # ── OpenAlex search ───────────────────────────────────────────────────────────
 
+class OpenAlexSearchOut(BaseModel):
+    results: list[SearchResultOut]
+
+
 class OpenAlexSearchBody(BaseModel):
     query: str = Field(min_length=1)
     max_results: int = Field(default=25, ge=1, le=100)  # OpenAlex supports up to 200 per_page
     sort: Literal["relevance", "newest", "oldest", "citations"] = "relevance"
 
 
-@app.post("/api/openalex/search")
-def api_openalex_search(body: OpenAlexSearchBody) -> dict:
+@app.post("/api/openalex/search", response_model=OpenAlexSearchOut)
+def api_openalex_search(body: OpenAlexSearchBody) -> OpenAlexSearchOut:
     try:
         results = _openalex.search(
             body.query.strip(),
@@ -888,22 +1005,7 @@ def api_openalex_search(body: OpenAlexSearchBody) -> dict:
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    return {
-        "results": [
-            {
-                "source_id": m.source_id,
-                "version": m.version,
-                "title": m.title,
-                "summary": m.summary or "",
-                "authors": m.authors,
-                "published": "" if m.published == datetime.date.min else m.published.isoformat(),
-                "pdf_url": m.url or "",
-                "primary_category": m.category or "",
-                "entry_id": m.source_id,
-            }
-            for m in results
-        ]
-    }
+    return OpenAlexSearchOut(results=[SearchResultOut.from_metadata(m) for m in results])
 
 
 # ── Export / Import ───────────────────────────────────────────────────────────
@@ -1062,13 +1164,12 @@ async def api_import_bibtex(
         metas = BibTeXFormat().import_string(text)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"BibTeX parse error: {e}") from e
-    saved: list[str] = []
-    for meta in metas:
-        save_paper_metadata(meta)
-        saved.append(meta.source_id)
-    if project_id and saved:
+    # Single transaction: all entries commit or none do (unlike the prior per-row loop).
+    pairs = save_papers_metadata(metas, tags=None)
+    saved = [sid for sid, _ in pairs]
+    if project_id is not None and saved:
         proj = get_project(project_id)
-        if proj:
+        if proj and proj.status == Status.ACTIVE:
             for sid in saved:
                 root = get_paper_root(sid)
                 if root:
@@ -1078,11 +1179,8 @@ async def api_import_bibtex(
 
 # ── PDF import ────────────────────────────────────────────────────────────────
 
-def _write_and_resolve_pdf(content: bytes, tmp_path: Path) -> "PaperMetadata":
-    """Write PDF bytes to disk and resolve metadata. Runs in a thread pool."""
-    PDF_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_path.write_bytes(content)
-    return resolve_pdf_metadata(str(tmp_path))
+_MAX_PDF_BYTES = 100 * 1024 * 1024  # 100 MB
+_api_log = logging.getLogger(__name__)
 
 
 @app.post("/api/papers/import/pdf")
@@ -1092,58 +1190,21 @@ async def api_import_pdf(
 ) -> dict:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="File must be a PDF")
+    if file.size is not None and file.size > _MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail=f"Upload rejected: declared size exceeds {_MAX_PDF_BYTES // 1024 // 1024} MB limit")
     content = await file.read()
-    tmp_path = PDF_DIR / f"_upload_{uuid.uuid4().hex}.pdf"
-    final_path: Path | None = None
-    saved_to_db = False
-    source_id = ""
+    if len(content) > _MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail=f"Upload rejected: file size exceeds {_MAX_PDF_BYTES // 1024 // 1024} MB limit")
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="File does not appear to be a valid PDF")
     try:
-        try:
-            meta = await run_in_threadpool(_write_and_resolve_pdf, content, tmp_path)
-        except Exception as e:
-            raise HTTPException(status_code=422, detail=f"Could not extract PDF metadata: {e}") from e
-        source_id, _ = save_paper_metadata(meta)
-        saved_to_db = True
-        version = meta.version
-        title = meta.title
-        # Sanitize source_id for use as a filename component — strip all
-        # characters that are illegal in filenames on Windows or Unix, including
-        # slashes that appear in DOI-based source IDs (e.g. "doi:10.1234/abc").
-        filename_safe_id = re.sub(r'[/\\:*?"<>|]', '_', source_id)
-        final_path = PDF_DIR / f"{filename_safe_id}v{version}.pdf"
-        # replace() is atomic and overwrites on all platforms (handles re-import).
-        tmp_path.replace(final_path)
-        set_pdf_path(source_id, str(final_path))
-        set_has_pdf_by_source(source_id, True)
-    except HTTPException:
-        # Only the 422 from the inner try can reach here; saved_to_db is False
-        # and tmp_path has not been renamed yet.
-        tmp_path.unlink(missing_ok=True)
-        raise
+        result = await run_in_threadpool(svc_import_pdf, content, project_id)
+    except PdfImportError as e:
+        raise HTTPException(status_code=422, detail=f"Could not extract PDF metadata: {e}") from e
     except Exception as e:
-        # Clean up: one of these will be a no-op since replace() is atomic.
-        tmp_path.unlink(missing_ok=True)
-        if final_path is not None:
-            final_path.unlink(missing_ok=True)
-        # If the DB row was committed but a subsequent step failed, roll it back
-        # to prevent a ghost paper entry with no corresponding file.
-        if saved_to_db:
-            try:
-                hard_delete_paper(Paper(source_id=source_id))
-            except Exception:
-                pass
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    # Project linking is best-effort — paper is already fully saved above.
-    if project_id is not None:
-        try:
-            proj = get_project(project_id)
-            if proj and proj.status == "active":
-                root = get_paper_root(source_id)
-                if root:
-                    proj.add_paper(int(root["SOURCE_FK"]))
-        except Exception:
-            pass
-    return {"source_id": source_id, "title": title}
+        _api_log.exception("PDF import failed")
+        raise HTTPException(status_code=500, detail="PDF import failed") from e
+    return {"source_id": result.source_id, "title": result.title}
 
 
 # ── OpenAlex save ─────────────────────────────────────────────────────────────
@@ -1152,13 +1213,25 @@ class OpenAlexSaveBody(BaseModel):
     source_id: str = Field(min_length=1)
 
 
-@app.post("/api/openalex/save")
-def api_openalex_save(body: OpenAlexSaveBody) -> dict:
+class OpenAlexSaveOut(BaseModel):
+    saved: bool
+    source_id: str
+
+
+@app.post("/api/openalex/save", response_model=OpenAlexSaveOut)
+def api_openalex_save(body: OpenAlexSaveBody) -> OpenAlexSaveOut:
     try:
         meta = _openalex.fetch_by_id(body.source_id.strip())
+    except OpenAlexNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except OpenAlexInputError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
-    save_paper_metadata(meta)
-    return {"saved": True, "source_id": meta.source_id}
+    try:
+        stored_sid, _ = save_paper_metadata(meta)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return OpenAlexSaveOut(saved=True, source_id=_strip_namespace(stored_sid))
 
 

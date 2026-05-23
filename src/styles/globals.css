@@ -12,11 +12,6 @@
   --color-muted: #7777aa;
   --color-success: #4caf88;
   --color-danger: #e05c6c;
-  /* Glass effect variables (Cupertino only, set by applyTheme) */
-  --glass-blur: 0px;
-  --glass-blur-sm: 0px;
-  --glass-sat: 1;
-  --glass-tint: transparent;
 }
 
 * {
@@ -58,7 +53,7 @@ body,
   outline-offset: 2px;
 }
 
-/* ── Cupertino: frosted glass / vibrancy ──────────────────────────────────── */
+/* ── Cupertino: frosted glass background gradients ────────────────────────── */
 
 [data-theme="cupertino"][data-mode="light"] body,
 [data-theme="cupertino"][data-mode="light"] #root {
@@ -70,39 +65,3 @@ body,
   background: linear-gradient(160deg, #0a0a1a 0%, #1c1c1e 50%, #0f1a2e 100%) fixed;
 }
 
-/*
- * Tint overlay — applies whenever --glass-tint is non-transparent (independent of blur).
- * Uses var(--color-panel) as the base so dark/light panel colors are respected.
- * .app-sidebar targets the Sidebar component specifically; bare <aside> is not used.
- */
-[data-theme="cupertino"] .app-sidebar,
-[data-theme="cupertino"] .panel-glass,
-[data-theme="cupertino"] .bg-panel {
-  background: linear-gradient(var(--glass-tint), var(--glass-tint)),
-    var(--color-panel);
-}
-
-/* Blur — only applied when data-glass is present (intensity > 0). */
-[data-theme="cupertino"][data-glass="true"] .app-sidebar {
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
-}
-
-[data-theme="cupertino"][data-glass="true"] .panel-glass,
-[data-theme="cupertino"][data-glass="true"] .bg-panel {
-  backdrop-filter: blur(var(--glass-blur-sm)) saturate(var(--glass-sat));
-  -webkit-backdrop-filter: blur(var(--glass-blur-sm)) saturate(var(--glass-sat));
-}
-
-/* Input fields — mode-appropriate opaque backgrounds when glass is active. */
-[data-theme="cupertino"][data-mode="light"][data-glass="true"] input,
-[data-theme="cupertino"][data-mode="light"][data-glass="true"] select,
-[data-theme="cupertino"][data-mode="light"][data-glass="true"] textarea {
-  background: rgba(255, 255, 255, 0.85) !important;
-}
-
-[data-theme="cupertino"][data-mode="dark"][data-glass="true"] input,
-[data-theme="cupertino"][data-mode="dark"][data-glass="true"] select,
-[data-theme="cupertino"][data-mode="dark"][data-glass="true"] textarea {
-  background: rgba(44, 44, 46, 0.90) !important;
-}

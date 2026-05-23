@@ -15,6 +15,7 @@ import { getSearchState, saveSearchState } from "../api/searchState";
 import { getSettings } from "../api/settings";
 import { listPapers } from "../api/papers";
 import type { Clause, SearchResult, Paper } from "../types/api";
+import { isArxivId, normalizeAuthors } from "../lib/papers";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,25 +24,26 @@ function paperMatchesText(paper: Paper, query: string): boolean {
   if (!q) return false;
   const title = paper.title.toLowerCase();
   const summary = (paper.summary ?? "").toLowerCase();
-  const authors = (Array.isArray(paper.authors) ? paper.authors : [paper.authors])
-    .join(" ")
-    .toLowerCase();
+  const authors = normalizeAuthors(paper.authors).join(" ").toLowerCase();
   return title.includes(q) || summary.includes(q) || authors.includes(q);
 }
 
+// Adapts the storage Paper model to the SearchResult wire shape.
+// paper.url (storage field) maps to paper_url (API contract field renamed from pdf_url per ADR 0011).
 function paperToSearchResult(paper: Paper): SearchResult {
-  const authorsRaw = paper.authors;
-  const authors = Array.isArray(authorsRaw) ? authorsRaw : [authorsRaw];
   return {
     source_id: paper.source_id,
     version: paper.version,
     title: paper.title,
     summary: paper.summary ?? "",
-    authors,
+    authors: normalizeAuthors(paper.authors),
     published: paper.published ?? "",
-    pdf_url: paper.url ?? "",
+    paper_url: paper.url ?? "",
     primary_category: paper.category ?? "",
-    entry_id: paper.source_id,
+    // Reconstruct namespaced entry_id (e.g. "arxiv:2204.12985") to match the API path contract.
+    // Fallback to bare source_id when source is null (BibTeX/PDF imports); those papers are always
+    // pre-saved (isSaved=true) so entry_id is never used for dispatch in that case.
+    entry_id: paper.source ? `${paper.source}:${paper.source_id}` : paper.source_id,
   };
 }
 
@@ -262,10 +264,14 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
   }
 
   const handleSavePaper = useCallback(async (sourceId: string) => {
-    if (sourceId.startsWith("openalex:")) {
+    if (isArxivId(sourceId)) {
+      await fetchArxiv(sourceId, true);
+    } else if (/^W\d+$/.test(sourceId)) {
       await saveOpenAlex(sourceId);
     } else {
-      await fetchArxiv(sourceId, true);
+      // Local-search results (doi:, local: source types) are always pre-saved so isSaved=true
+      // in handleCheck prevents reaching here. Throw to surface any unexpected call site.
+      throw new Error(`Unknown source ID format: ${sourceId}`);
     }
     setSavedIds((prev) => new Set([...prev, sourceId]));
   }, []);
@@ -426,6 +432,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
               onClick={handleAppend}
               disabled={isLoading || results === null || !hasQuery}
               title="Append to current results"
+              aria-label="Append to current results"
               className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
               style={{ background: "var(--color-success)", color: "var(--color-bg)" }}
             >
@@ -446,6 +453,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
               onClick={handleClear}
               disabled={isLoading || results === null}
               title="Clear results"
+              aria-label="Clear results"
               className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
               style={{ background: "var(--color-danger)", color: "white" }}
             >

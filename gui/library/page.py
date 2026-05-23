@@ -273,7 +273,7 @@ class PaperDetailView(QWidget):
 
         try:
             import service.note as note_svc
-            all_notes = note_svc.get_notes(note_svc.Notes(source_fk=source_fk))
+            all_notes = note_svc.get_many(note_svc.Notes(source_fk=source_fk))
         except Exception:
             all_notes = []
 

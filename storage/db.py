@@ -10,7 +10,7 @@ from typing import Optional, TYPE_CHECKING
 import arxiv
 
 from storage.config.core import apply_sql_schema
-from storage.config.queries import _TAG_FK_BY_LABEL_SQL
+from storage.config.queries import _TAG_FK_BY_LABEL_SQL, list_papers as _queries_list_papers
 from storage.paths import old_pdf_dir, pdf_dir
 
 if TYPE_CHECKING:
@@ -621,6 +621,17 @@ def get_paper_by_source_fk(source_fk: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+def get_papers_by_source_fks(source_fks: list[int]) -> list[sqlite3.Row]:
+    """Batch-fetch latest paper versions for a list of SOURCE_FKs in one query.
+
+    The empty-list guard is intentional: _queries_list_papers(source_fks=None)
+    returns the full library, which is the wrong behaviour here.
+    """
+    if not source_fks:
+        return []
+    return _queries_list_papers(source_fks=source_fks)
+
+
 #TODO: FIX TO CONTAIN TOTAL FUNCTIONALITY, get paper_root from paper_id needs to be a fetching param or name can change 
 def get_paper_root(source_id: str) -> Optional[sqlite3.Row]:
     """Return the PAPER_ROOTS row for a given source_id."""
@@ -817,9 +828,13 @@ def set_full_text(full_text: str|None, paper_id: int|None, source_id: str|None, 
 def search_full_text(query: str, limit: int = 20) -> list[sqlite3.Row]:
     """Full-text search over TeX source content. Returns matching papers."""
     with _connect() as conn:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+        ).fetchone():
+            return []
         return conn.execute("""
-            SELECT p.* FROM papers p
-            JOIN papers_fts fts ON p.source_id = fts.PAPER_ID
+            SELECT p.* FROM latest_papers p
+            JOIN papers_fts fts ON p.source_id = fts.paper_id
             WHERE papers_fts MATCH ?
             ORDER BY rank
             LIMIT ?

@@ -33,33 +33,28 @@ const COLOR_OVERRIDE_KEYS: { key: keyof ThemeColors; label: string }[] = [
   { key: "danger",  label: "Danger"     },
 ];
 
-const DEFAULT_TINT = "#7fb3f0";
-
 interface HexColorInputProps {
   value: string;
   onChange: (val: string) => void;
-  placeholder?: string;
   /** Shown as a dimmed swatch when value is empty, so users can see the current theme color. */
   presetColor?: string;
   ariaLabel?: string;
-  seedOnEmpty?: boolean;
 }
 
 function HexColorInput({
   value,
   onChange,
-  placeholder,
   presetColor,
   ariaLabel,
-  seedOnEmpty = false,
 }: HexColorInputProps) {
   const errorId = useId();
-  const [local, setLocal] = useState(value);
+  const [local, setLocal] = useState(value || presetColor || "");
   const pickerRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setLocal((prev) => (prev !== value ? value : prev));
-  }, [value]);
+    const active = value || presetColor || "";
+    setLocal((prev) => (prev !== active ? active : prev));
+  }, [value, presetColor]);
 
   function handleText(val: string) {
     setLocal(val);
@@ -74,19 +69,12 @@ function HexColorInput({
   }
 
   const hasSwatch = VALID_HEX.test(local);
-  const hasPreset = !hasSwatch && VALID_HEX.test(presetColor ?? "");
-  const swatchColor = hasSwatch ? local : (hasPreset ? presetColor! : "#888888");
+  const hasOverride = VALID_HEX.test(value);
+  const swatchColor = hasSwatch ? local : "#888888";
   const isInvalid = local !== "" && !VALID_HEX.test(local);
 
   function openPicker() {
-    const picker = pickerRef.current;
-    if (!picker) return;
-    if (seedOnEmpty && !hasSwatch) {
-      picker.value = DEFAULT_TINT;
-      setLocal(DEFAULT_TINT);
-      onChange(DEFAULT_TINT);
-    }
-    picker.click();
+    pickerRef.current?.click();
   }
 
   return (
@@ -101,14 +89,14 @@ function HexColorInput({
             height: 20,
             background: swatchColor,
             padding: 0,
-            opacity: hasPreset ? 0.45 : 1,
+            opacity: hasOverride ? 1 : 0.45,
           }}
           onClick={openPicker}
         />
         <input
           ref={pickerRef}
           type="color"
-          value={hasSwatch ? local : (hasPreset ? presetColor! : "#888888")}
+          value={hasSwatch ? local : "#888888"}
           onChange={(e) => handlePicker(e.target.value)}
           aria-hidden="true"
           className="opacity-0 absolute w-0 h-0 pointer-events-none"
@@ -118,7 +106,6 @@ function HexColorInput({
       <Input
         type="text"
         value={local}
-        placeholder={placeholder}
         onChange={(e) => handleText(e.target.value)}
         style={{ width: 90, flexShrink: 0 }}
         spellCheck={false}
@@ -147,12 +134,16 @@ function ColorRow({
   const setOverride = useThemeStore((s) => s.setOverride);
   const removeOverride = useThemeStore((s) => s.removeOverride);
   const setOverrideAlpha = useThemeStore((s) => s.setOverrideAlpha);
-  const overrideHex = useThemeStore((s) => s.overrides[colorKey] as string | undefined);
+  const setOverrideWithAlpha = useThemeStore((s) => s.setOverrideWithAlpha);
+  const overrideHex = useThemeStore((s) => s.overrides[colorKey]);
   const hasOverride = overrideHex !== undefined;
   const alpha = useThemeStore((s) => s.overrideAlphas[colorKey] ?? 100);
   const preset = useThemeStore((s) => s.preset);
   const mode = useThemeStore((s) => s.mode);
   const presetHex = PRESETS[preset][mode][colorKey];
+
+  const presetIsHex = VALID_HEX.test(presetHex);
+  const canTuneAlpha = hasOverride || presetIsHex;
 
   function handleHexChange(val: string) {
     if (val === "") {
@@ -160,6 +151,17 @@ function ColorRow({
       scheduleSave();
     } else if (VALID_HEX.test(val)) {
       setOverride(colorKey, val);
+      scheduleSave();
+    }
+  }
+
+  function handleAlphaChange(val: number) {
+    if (!hasOverride && presetIsHex) {
+      if (val === 100) return; // preset at full opacity is already the default
+      setOverrideWithAlpha(colorKey, presetHex, val);
+      scheduleSave();
+    } else if (hasOverride) {
+      setOverrideAlpha(colorKey, val);
       scheduleSave();
     }
   }
@@ -174,7 +176,7 @@ function ColorRow({
       </span>
       <HexColorInput
         value={overrideHex ?? ""}
-        presetColor={VALID_HEX.test(presetHex) ? presetHex : undefined}
+        presetColor={presetIsHex ? presetHex : undefined}
         onChange={handleHexChange}
         ariaLabel={`Choose ${label} color`}
       />
@@ -183,13 +185,13 @@ function ColorRow({
         min={0}
         max={100}
         value={alpha}
-        disabled={!hasOverride}
-        onChange={(e) => { setOverrideAlpha(colorKey, Number(e.target.value)); scheduleSave(); }}
+        disabled={!canTuneAlpha}
+        onChange={(e) => handleAlphaChange(Number(e.target.value))}
         className="flex-1"
         style={{
           accentColor: "var(--color-accent)",
-          opacity: hasOverride ? 1 : 0.35,
-          cursor: hasOverride ? "pointer" : "not-allowed",
+          opacity: canTuneAlpha ? 1 : 0.35,
+          cursor: canTuneAlpha ? "pointer" : "not-allowed",
         }}
         aria-label={`${label} opacity`}
       />
@@ -197,97 +199,12 @@ function ColorRow({
         className="text-sm text-muted tabular-nums"
         style={{ width: "2.5rem", textAlign: "right", flexShrink: 0 }}
       >
-        {hasOverride ? `${alpha}%` : "—"}
+        {canTuneAlpha ? `${alpha}%` : "—"}
       </span>
     </div>
   );
 }
 
-function GlassControls() {
-  const glassIntensity = useThemeStore((s) => s.glassIntensity);
-  const glassTintColor = useThemeStore((s) => s.glassTintColor);
-  const glassTintAlpha = useThemeStore((s) => s.glassTintAlpha);
-  const setGlassIntensity = useThemeStore((s) => s.setGlassIntensity);
-  const setGlassTintColor = useThemeStore((s) => s.setGlassTintColor);
-  const setGlassTintAlpha = useThemeStore((s) => s.setGlassTintAlpha);
-
-  const hasTint = VALID_HEX.test(glassTintColor);
-
-  return (
-    <div className="py-2 mb-2 border-t border-border">
-      <span className="text-sm text-text font-medium">Glass effects</span>
-      <p className="text-xs text-muted mt-0.5 mb-3">
-        Blur and vibrancy on panels (Cupertino only). Tint applies even at 0% blur.
-      </p>
-
-      <div className="flex items-center gap-3 mb-3">
-        <span
-          className="text-sm text-muted font-medium"
-          style={{ width: "7rem", flexShrink: 0 }}
-        >
-          Blur intensity
-        </span>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={glassIntensity}
-          onChange={(e) => setGlassIntensity(Number(e.target.value))}
-          className="flex-1"
-          style={{ accentColor: "var(--color-accent)" }}
-        />
-        <span
-          className="text-sm text-muted tabular-nums"
-          style={{ width: "2.5rem", textAlign: "right", flexShrink: 0 }}
-        >
-          {glassIntensity}%
-        </span>
-      </div>
-
-      <div className="flex items-center gap-3 mb-2">
-        <span
-          className="text-sm text-muted font-medium"
-          style={{ width: "7rem", flexShrink: 0 }}
-        >
-          Tint color
-        </span>
-        <HexColorInput
-          value={glassTintColor}
-          onChange={setGlassTintColor}
-          placeholder="none"
-          ariaLabel="Choose glass tint color"
-          seedOnEmpty
-        />
-      </div>
-
-      {hasTint && (
-        <div className="flex items-center gap-3">
-          <span
-            className="text-sm text-muted font-medium"
-            style={{ width: "7rem", flexShrink: 0 }}
-          >
-            Tint opacity
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={glassTintAlpha}
-            onChange={(e) => setGlassTintAlpha(Number(e.target.value))}
-            className="flex-1"
-            style={{ accentColor: "var(--color-accent)" }}
-          />
-          <span
-            className="text-sm text-muted tabular-nums"
-            style={{ width: "2.5rem", textAlign: "right", flexShrink: 0 }}
-          >
-            {glassTintAlpha}%
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function PresetDots({ preset, mode }: { preset: PresetName; mode: ThemeMode }) {
   const colors = PRESETS[preset][mode];
@@ -444,6 +361,7 @@ export function AppearanceSection() {
   const deleteCustomPalette = useThemeStore((s) => s.deleteCustomPalette);
   const applyCustomPalette  = useThemeStore((s) => s.applyCustomPalette);
   const [overridesOpen, setOverridesOpen] = useState(false);
+  const overridesPanelId = useId();
 
   const existingPaletteNames = useMemo(
     () => new Set(customPalettes.map((p) => p.name.toLowerCase())),
@@ -452,12 +370,17 @@ export function AppearanceSection() {
 
   const saveOverridesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (saveOverridesTimer.current) {
-      clearTimeout(saveOverridesTimer.current);
-      // Flush pending save so navigation away doesn't silently drop changes.
-      persistThemeOverrides();
-    }
+  useEffect(() => {
+    return () => {
+      if (saveOverridesTimer.current) {
+        clearTimeout(saveOverridesTimer.current);
+        // Best-effort flush: fires the save immediately if a debounce is still pending.
+        // The fetch completes even after unmount (local desktop API, no abort signal).
+        // Changes made in the last ~800ms before navigation may silently drop if the
+        // request fails — there is no completion guarantee.
+        persistThemeOverrides();
+      }
+    };
   }, []);
 
   function scheduleSaveOverrides() {
@@ -541,27 +464,29 @@ export function AppearanceSection() {
             type="button"
             onClick={() => setMode(m)}
             className={[
-              "px-3 py-1.5 rounded-md border text-sm font-medium transition-colors capitalize",
+              "px-3 py-1.5 rounded-md border text-sm font-medium transition-colors",
               mode === m
                 ? "bg-accent border-accent text-white"
                 : "bg-panel border-border text-muted hover:text-text",
             ].join(" ")}
           >
-            {m === "dark" ? "🌙 Dark" : "☀️ Light"}
+            {m === "dark"
+              ? <><span aria-hidden="true">🌙</span> Dark</>
+              : <><span aria-hidden="true">☀️</span> Light</>
+            }
           </button>
         ))}
       </div>
 
-      {preset === "Cupertino" && <GlassControls />}
-
       <button
         type="button"
         aria-expanded={overridesOpen}
-        aria-controls="color-overrides-panel"
+        aria-controls={overridesPanelId}
         className="flex items-center gap-2 text-sm text-muted hover:text-text transition-colors mb-2"
         onClick={() => setOverridesOpen((o) => !o)}
       >
         <span
+          aria-hidden="true"
           className="text-xs"
           style={{
             display: "inline-block",
@@ -574,29 +499,30 @@ export function AppearanceSection() {
         Color Overrides
       </button>
 
-      {overridesOpen && (
-        <div id="color-overrides-panel" className="mt-2">
-          <div className="flex items-center gap-3 mb-2">
-            <span style={{ width: "7rem", flexShrink: 0 }} />
-            <span className="text-xs text-muted" style={{ width: 112, flexShrink: 0 }}>Color</span>
-            <span className="text-xs text-muted flex-1">Opacity</span>
-          </div>
-          {COLOR_OVERRIDE_KEYS.map(({ key, label }) => (
-            <ColorRow
-              key={`${preset}-${mode}-${key}`}
-              label={label}
-              colorKey={key}
-              scheduleSave={scheduleSaveOverrides}
-            />
-          ))}
-          <div className="mt-3 pt-2 border-t border-border">
-            <SavePaletteInline
-              onSave={saveCustomPalette}
-              existingNames={existingPaletteNames}
-            />
-          </div>
+      <div
+        id={overridesPanelId}
+        className={overridesOpen ? "mt-2" : "hidden"}
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <span style={{ width: "7rem", flexShrink: 0 }} />
+          <span className="text-xs text-muted" style={{ width: 112, flexShrink: 0 }}>Color</span>
+          <span className="text-xs text-muted flex-1">Opacity</span>
         </div>
-      )}
+        {COLOR_OVERRIDE_KEYS.map(({ key, label }) => (
+          <ColorRow
+            key={`${preset}-${mode}-${key}`}
+            label={label}
+            colorKey={key}
+            scheduleSave={scheduleSaveOverrides}
+          />
+        ))}
+        <div className="mt-3 pt-2 border-t border-border">
+          <SavePaletteInline
+            onSave={saveCustomPalette}
+            existingNames={existingPaletteNames}
+          />
+        </div>
+      </div>
     </Section>
   );
 }

@@ -76,7 +76,7 @@ export interface SearchResult {
   summary: string;
   authors: string[];
   published: string;
-  pdf_url: string;
+  paper_url: string;
   primary_category: string;
   entry_id: string;
 }
@@ -108,4 +108,26 @@ export interface Clause {
   field: "all" | "ti" | "au" | "abs";
   value: string;
   uid: string;
+}
+
+export interface Author {
+  author_id: number;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  orcid: string | null;
+  paper_count?: number;
+}
+
+export interface AuthorPaperPreview {
+  paper_id: number;
+  source_id: string;
+  source_fk: number;
+  version: number;
+  title: string | null;
+}
+
+export interface AuthorDetail extends Author {
+  paper_count: number;
+  papers: AuthorPaperPreview[];
 }

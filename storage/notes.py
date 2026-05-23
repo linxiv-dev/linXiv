@@ -68,10 +68,8 @@ class Note:
         )
 
     def save(self) -> None:
-        now = datetime.datetime.now()
-        self.updated_at = now
+        now = datetime.datetime.now(datetime.timezone.utc)
         if self.id is None:
-            self.created_at = now
             with _connect() as conn:
                 cur = conn.execute(
                     """
@@ -80,28 +78,26 @@ class Note:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (self.source_fk, self.paper_id_fk, self.project_id,
-                     self.title, self.content, self.created_at, self.updated_at),
+                     self.title, self.content, now, now),
                 )
                 self.id = cur.lastrowid
+            self.created_at = now
+            self.updated_at = now
         else:
             with _connect() as conn:
-                conn.execute(
-                    """
-                    UPDATE NOTE
-                    SET SOURCE_FK = ?, PAPER_ID_FK = ?, PROJECT_FK = ?,
-                        TITLE = ?, NOTE = ?, UPDATED_AT = ?
-                    WHERE NOTE_SK = ?
-                    """,
-                    (self.source_fk, self.paper_id_fk, self.project_id,
-                     self.title, self.content, self.updated_at, self.id),
+                cur = conn.execute(
+                    "UPDATE NOTE SET TITLE = ?, NOTE = ?, UPDATED_AT = ? WHERE NOTE_SK = ?",
+                    (self.title, self.content, now, self.id),
                 )
+                if cur.rowcount == 0:
+                    raise ValueError(f"Note with id={self.id} does not exist")
+            self.updated_at = now
 
     def delete(self) -> None:
         if self.id is None:
             return
-        with _connect() as conn:
-            conn.execute("DELETE FROM NOTE WHERE NOTE_SK = ?", (self.id,))
-        self.id = None
+        if delete_note(self.id):
+            self.id = None
 
 
 # ── Queries ───────────────────────────────────────────────────────────────────
@@ -109,6 +105,50 @@ class Note:
 def get_note(note_id: int) -> Optional[NoteDetails]:
     row = _get_note_row(note_id)
     return Note.from_row(row).to_details() if row else None
+
+
+def create_note(
+    source_fk: int,
+    paper_id_fk: Optional[int],
+    project_id: Optional[int],
+    title: str,
+    content: str,
+) -> int:
+    """Insert a new note row. Returns NOTE_SK."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    with _connect() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO NOTE
+                (SOURCE_FK, PAPER_ID_FK, PROJECT_FK, TITLE, NOTE, CREATED_AT, UPDATED_AT)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (source_fk, paper_id_fk, project_id, title, content, now, now),
+        )
+        note_id = cur.lastrowid
+    if note_id is None:
+        raise RuntimeError("INSERT returned no lastrowid")
+    return note_id
+
+
+def patch_note(note_id: int, title: Optional[str], content: Optional[str]) -> bool:
+    """Partial update via COALESCE: None args leave the column unchanged.
+    Returns False if the row was not found.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE NOTE SET TITLE=COALESCE(?,TITLE), NOTE=COALESCE(?,NOTE), UPDATED_AT=? WHERE NOTE_SK=?",
+            (title, content, now, note_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_note(note_id: int) -> bool:
+    """Hard-delete a single note row. Returns False if the row did not exist."""
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM NOTE WHERE NOTE_SK = ?", (note_id,))
+        return cur.rowcount > 0
 
 
 def get_notes(
@@ -179,3 +219,27 @@ def note_counts_by_paper_for_project(project_id: int) -> dict[int, int]:
             (project_id, project_id),
         ).fetchall()
     return {int(row["source_fk"]): int(row["note_count"]) for row in rows}
+
+
+def _escape_like(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search_notes_source_fks(query: str, limit: int = 50) -> list[int]:
+    """Return distinct SOURCE_FKs of active papers whose note title or content contains query."""
+    pattern = f"%{_escape_like(query)}%"
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT n.SOURCE_FK
+            FROM NOTE n
+            JOIN PAPER_ROOTS r ON r.SOURCE_FK = n.SOURCE_FK
+            WHERE r.STATUS = 'active'
+              AND (n.TITLE LIKE ? ESCAPE '\\' OR n.NOTE LIKE ? ESCAPE '\\')
+            GROUP BY n.SOURCE_FK
+            ORDER BY MAX(n.UPDATED_AT) DESC
+            LIMIT ?
+            """,
+            (pattern, pattern, limit),
+        ).fetchall()
+    return [int(row["SOURCE_FK"]) for row in rows]

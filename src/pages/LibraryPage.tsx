@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Upload } from "lucide-react";
-import { listPapers, deletePaper } from "../api/papers";
+import { listPapers, deletePaper, searchLibrary } from "../api/papers";
 import { listProjects, addPaperToProject } from "../api/projects";
 import { useSelectionStore } from "../stores/selection";
 import type { Paper } from "../types/api";
@@ -34,6 +34,7 @@ function matchesPaper(paper: Paper, query: string): boolean {
   if (!query.trim()) return true;
   const q = query.toLowerCase();
   if (paper.title.toLowerCase().includes(q)) return true;
+  if (paper.summary?.toLowerCase().includes(q)) return true;
   const authors = normalizeAuthors(paper.authors ?? []);
   return authors.some((a) => a.toLowerCase().includes(q));
 }
@@ -44,6 +45,8 @@ export default function LibraryPage() {
 
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
+  const trimmedSearch = deferredSearch.trim();
+  const ftsEnabled = trimmedSearch.length >= 3;
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectPickerError, setProjectPickerError] = useState<string | null>(null);
@@ -72,6 +75,17 @@ export default function LibraryPage() {
     queryKey: ["projects"],
     queryFn: () => listProjects(),
     enabled: projectPickerOpen,
+  });
+
+  const {
+    data: ftsData,
+    isFetching: ftsFetching,
+    isError: ftsError,
+  } = useQuery({
+    queryKey: ["papers", "search", trimmedSearch],
+    queryFn: () => searchLibrary(trimmedSearch),
+    enabled: ftsEnabled,
+    staleTime: 30_000,
   });
 
   const deleteMutation = useMutation({
@@ -126,16 +140,31 @@ export default function LibraryPage() {
 
   const allPapers = papersData?.papers ?? [];
 
-  const filtered = useMemo(
-    () =>
-      allPapers.filter((paper) => {
-        if (!matchesPaper(paper, deferredSearch)) return false;
-        if (filterMode === "has_pdf") return paper.has_pdf;
-        if (filterMode === "no_pdf") return !paper.has_pdf;
-        return true;
-      }),
-    [allPapers, deferredSearch, filterMode]
-  );
+  const filtered = useMemo(() => {
+    const ftsPapers = ftsEnabled ? (ftsData?.papers ?? []) : [];
+    const ftsIds = new Set(ftsPapers.map((p) => p.source_id));
+
+    const seen = new Set<string>();
+    const result: Paper[] = [];
+
+    for (const paper of allPapers) {
+      if (!matchesPaper(paper, deferredSearch) && !ftsIds.has(paper.source_id)) continue;
+      if (filterMode === "has_pdf" && !paper.has_pdf) continue;
+      if (filterMode === "no_pdf" && paper.has_pdf) continue;
+      seen.add(paper.source_id);
+      result.push(paper);
+    }
+
+    // FTS results not in the loaded window (for libraries exceeding PAPER_FETCH_LIMIT)
+    for (const paper of ftsPapers) {
+      if (seen.has(paper.source_id)) continue;
+      if (filterMode === "has_pdf" && !paper.has_pdf) continue;
+      if (filterMode === "no_pdf" && paper.has_pdf) continue;
+      result.push(paper);
+    }
+
+    return result;
+  }, [allPapers, deferredSearch, filterMode, ftsEnabled, ftsData]);
 
   const virtualizer = useVirtualizer({
     count: filtered.length,
@@ -173,9 +202,12 @@ export default function LibraryPage() {
     const total = allPapers.length;
     const shown = filtered.length;
     const limitReached = total >= PAPER_FETCH_LIMIT;
-    const totalStr = `${total}${limitReached ? "+" : ""}`;
-    if (shown !== total) return `${shown} of ${totalStr} paper${total !== 1 ? "s" : ""}`;
-    return `${totalStr} paper${total !== 1 ? "s" : ""}`;
+    if (shown < total) {
+      const totalStr = `${total}${limitReached ? "+" : ""}`;
+      return `${shown} of ${totalStr} paper${shown !== 1 ? "s" : ""}`;
+    }
+    const overflowed = shown > total || limitReached;
+    return `${shown}${overflowed ? "+" : ""} paper${shown !== 1 ? "s" : ""}`;
   }, [allPapers.length, filtered.length]);
 
   if (isLoading) {
@@ -202,12 +234,18 @@ export default function LibraryPage() {
       <div className="shrink-0 px-6 py-4 border-b border-border space-y-3">
         <div className="flex items-center gap-3">
           <Input
-            placeholder="Search by title or author…"
+            placeholder="Search by title, abstract, full text, or notes…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="max-w-sm"
           />
-          <span className="text-muted text-sm shrink-0">{paperCountLabel}</span>
+          <span className="flex items-center gap-1.5 text-muted text-sm shrink-0">
+            {ftsEnabled && ftsFetching && <Spinner size={12} />}
+            {ftsEnabled && ftsError && (
+              <span style={{ color: "var(--color-danger)" }} className="text-xs">search error</span>
+            )}
+            {paperCountLabel}
+          </span>
           <Button
             variant="muted"
             size="sm"

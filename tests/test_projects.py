@@ -381,7 +381,7 @@ class TestServiceProjectUpsertTags:
         assert "svc-tag" in details.project_tags
 
     def test_upsert_update_nonexistent_raises(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(LookupError):
             _svc_project.upsert(
                 _svc_project.ProjectIn(name="Ghost", description=""),
                 project_fk=9999,

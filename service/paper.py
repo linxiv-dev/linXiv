@@ -2,20 +2,34 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
+import threading
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import storage.db as db
+import storage.notes as _notes_storage
 import storage.projects as _proj_storage
 from service.models.paper import PaperDetails, PaperDetailsAll
+from service.models.project import Status
 from sources.base import PaperMetadata
+from sources.pdf_metadata import resolve_pdf_metadata
+from storage.paths import pdf_dir as _pdf_dir
 
 if TYPE_CHECKING:
     import arxiv
 
 _log = logging.getLogger(__name__)
+
+_UNSAFE_FNAME_RE = re.compile(r'[/\\:*?"<>|]')
+# Serializes the pre-existence check + insert in import_pdf to prevent two
+# concurrent imports of the same paper from racing on the check-then-upsert.
+# Single-process only; multi-worker deployments require external serialization.
+_pdf_import_root_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +74,32 @@ class PaperIn:
     url:         str | None       = None
     tags:        list[str] | None = None
     source:      str | None       = None
+
+
+@dataclass
+class PaperImportResult:
+    """Result returned by import_pdf on success."""
+    source_id: str
+    title: str
+
+
+class PdfImportError(Exception):
+    """Raised when PDF metadata cannot be extracted."""
+
+
+def pdf_filename_safe(source_id: str) -> str:
+    """Return a filesystem-safe version of a source_id for use in PDF filenames."""
+    return _UNSAFE_FNAME_RE.sub("_", source_id)
+
+
+def pdf_on_disk_name(source_id: str, version: int) -> str:
+    """Return the expected on-disk filename for a directly imported PDF.
+
+    Format: ``{safe_source_id}v{version}.pdf``  (note: no underscore before 'v').
+    This differs from the .lxproj archive format (``{source_id}_v{version}.pdf``),
+    which is fixed by the export/import format contract and must not be changed here.
+    """
+    return f"{pdf_filename_safe(source_id)}v{version}.pdf"
 
 
 @dataclass
@@ -514,8 +554,181 @@ def is_paper_deleted(source_id: str) -> bool:
 def set_has_pdf(source_id: str, version: int, has: bool) -> None:
     db.set_has_pdf(source_id, version, has)
 
-def set_pdf_path(source_id: str, path: str) -> None:
-    db.set_pdf_path(source_id, path)
+def set_pdf_path(source_id: str, path: str, version: int | None = None) -> None:
+    db.set_pdf_path(source_id, path, version)
+
+
+def import_pdf(content: bytes, project_id: int | None = None) -> PaperImportResult:
+    """Save a PDF to disk, extract its metadata, persist to DB, and optionally link to a project.
+
+    Raises PdfImportError if metadata extraction fails.
+
+    Dedupe behavior: when arXiv/DOI enrichment matches an upstream identity
+    that already exists in PAPER_ROOTS, the import adopts that identity instead
+    of creating a new ``local:<sha>`` root. Adopting a soft-deleted root
+    auto-restores it via ``_ensure_paper_root_row``; if the import then fails,
+    the rollback re-soft-deletes so a failed import doesn't permanently un-trash.
+
+    Rollback policy on storage failure:
+      - Brand new paper (root did not exist): hard_delete under _pdf_import_root_lock,
+        but only if no concurrent import has since written a pdf_path for this version.
+      - New version of existing paper: orphan PAPER row left in place to avoid
+        destroying pre-existing versions; a warning is logged.
+      - Re-import of existing version: DB row left as-is. If a PDF already
+        existed at the canonical path the preserve-existing branch ran (no
+        write happened) and nothing is touched. If no PDF existed on disk
+        before, the orphan file written by the failed import is unlinked.
+      - Adopted into soft-deleted root: re-soft-delete the root to restore prior state.
+
+    Known limitations:
+      - Two parallel imports of the same upstream paper before any PAPER_ROOTS
+        row exists will NOT dedupe against each other -- both will create
+        distinct ``local:<sha>`` roots. Dedupe only fires against pre-existing
+        roots.
+      - The ``pre_existing_pdf_on_disk`` check is a filesystem check inside
+        the import lock; the subsequent ``tmp_path.unlink()`` runs outside.
+        A user manually deleting the canonical PDF between those two steps
+        leaves the DB pointing to a missing file. Narrow race, accepted.
+
+    Project linking is best-effort: silently skips if the project is missing or not active;
+    logs a warning on any unexpected exception.
+    Note: _pdf_import_root_lock is a threading.Lock (single-process only).
+    """
+    dest_dir = _pdf_dir()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = dest_dir / f"_upload_{uuid.uuid4().hex}.pdf"
+    final_path: Path | None = None
+    inserted_new_root = False
+    inserted_new_version = False
+    restored_deleted_root = False
+    pre_existing_pdf_on_disk = False
+    # "Did we write a file at final_path" is distinct from "did we insert a
+    # new PAPER row" -- a same-version adopt into a deleted root where
+    # PDF_PATH was NULL still writes a fresh file even though no row is new.
+    # Track these separately so rollback can clean up the file in cells the
+    # row-based gates miss.
+    wrote_final_path = False
+    source_id: str | None = None
+    version: int | None = None
+
+    try:
+        tmp_path.write_bytes(content)
+        try:
+            meta, external = resolve_pdf_metadata(str(tmp_path))
+        except Exception as e:
+            _log.warning("import_pdf: metadata extraction failed: %s", e)
+            raise PdfImportError(str(e)) from e
+        with _pdf_import_root_lock:
+            # If enrichment matched an upstream record (arxiv/doi) that is
+            # already in PAPER_ROOTS, adopt that identity instead of creating
+            # a new local:<sha> root.
+            if external is not None:
+                existing_root = db.get_paper_root(external[0])
+                if existing_root is not None:
+                    if str(existing_root["STATUS"]) == "deleted":
+                        # save_paper_metadata's ensure_paper_root call will
+                        # auto-restore. Track this so rollback can re-trash.
+                        restored_deleted_root = True
+                    ext_id, ext_version = external
+                    meta = meta.model_copy(
+                        update={"source_id": ext_id, "version": ext_version}
+                    )
+            pre_existing_root = db.get_paper_root(meta.source_id) is not None
+            pre_existing_version = db.get_paper(meta.source_id, meta.version) is not None
+            # If we're adopting and the version already has its PDF on disk at the
+            # canonical path, preserve the user's existing copy rather than
+            # silently overwriting it.
+            pre_existing_pdf_on_disk = (
+                pre_existing_version
+                and (dest_dir / pdf_on_disk_name(meta.source_id, meta.version)).exists()
+            )
+            # _insert_metadata returns meta.source_id and meta.version verbatim
+            # (storage/db.py:_insert_metadata), so source_id == meta.source_id is guaranteed.
+            source_id, version = save_paper_metadata(meta)
+            inserted_new_root = not pre_existing_root
+            inserted_new_version = not pre_existing_version
+        final_path = dest_dir / pdf_on_disk_name(source_id, version)
+        if pre_existing_pdf_on_disk:
+            tmp_path.unlink(missing_ok=True)
+            _log.info(
+                "import_pdf: dedupe -- kept existing PDF at %s for source_id=%r version=%r",
+                final_path, source_id, version,
+            )
+        else:
+            tmp_path.replace(final_path)
+            wrote_final_path = True
+            set_pdf_path(source_id, str(final_path), version)
+            set_has_pdf(source_id, version, True)
+    except PdfImportError:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        # Root-level cleanup. restored_deleted_root and inserted_new_root are
+        # mutually exclusive: the former requires the root pre-existed (as
+        # deleted), the latter requires it didn't exist.
+        if restored_deleted_root and source_id is not None:
+            # Adopt path auto-restored a trashed root; the import then failed,
+            # so put it back in the trash to restore prior state.
+            try:
+                db.soft_delete_paper(source_id)
+            except Exception:
+                _log.exception(
+                    "import_pdf: re-soft-delete failed after rollback for source_id=%r",
+                    source_id,
+                )
+        elif inserted_new_root and source_id is not None:
+            try:
+                with _pdf_import_root_lock:
+                    # Re-check under the lock: only delete file + DB row if no concurrent
+                    # import has since committed a pdf_path. Using the same guard for both
+                    # ensures the file and DB row are never left in split-brain state.
+                    # Known narrow race: a concurrent import of a *different* version under
+                    # this root that completes between our two lock acquisitions would be
+                    # deleted alongside ours. This is a single-process, low-traffic path;
+                    # the tradeoff is documented and accepted.
+                    row = db.get_paper(source_id, version)
+                    if row and not row["pdf_path"]:
+                        if final_path is not None:
+                            final_path.unlink(missing_ok=True)
+                        hard_delete(Paper(source_id=source_id))
+            except Exception:
+                _log.exception("import_pdf: rollback hard_delete failed for source_id=%r", source_id)
+        # Independent file cleanup: if we wrote a fresh file at final_path and
+        # the inserted_new_root branch isn't handling it (that branch has its
+        # own lock-guarded unlink), remove the orphan file. This catches the
+        # restored_deleted_root + same-version cell where PDF_PATH was NULL --
+        # the re-soft-delete won't unlink (it queries the still-NULL path) but
+        # the file we just wrote is real.
+        if wrote_final_path and not inserted_new_root and final_path is not None:
+            final_path.unlink(missing_ok=True)
+        # Orphan-row warning is independent of file cleanup: it only fires when
+        # we actually inserted a row that's now stranded (not in the inserted_new_root
+        # case, which hard_deletes the row, nor in the pre_existing_version case,
+        # where the row predates this import).
+        if inserted_new_version and not inserted_new_root and source_id is not None:
+            _log.warning(
+                "import_pdf: orphan PAPER row left for source_id=%r version=%r after rollback",
+                source_id, version,
+            )
+        raise
+
+    if project_id is not None:
+        try:
+            proj = _proj_storage.get_project(project_id)
+            if proj and proj.status == Status.ACTIVE:
+                # save_paper_metadata returns (source_id, version); source_fk requires
+                # a separate lookup since add_paper takes the integer SOURCE_FK.
+                root = db.get_paper_root(source_id)
+                if root:
+                    proj.add_paper(int(root["SOURCE_FK"]))
+        except Exception:
+            _log.warning(
+                "import_pdf: project link failed for source_id=%r project_id=%r",
+                source_id, project_id, exc_info=True,
+            )
+
+    return PaperImportResult(source_id=source_id, title=meta.title)
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +743,39 @@ def search_full_text(query: str, limit: int = 20) -> list[sqlite3.Row]:
 
 def search_full_text_details(query: str, limit: int = 20) -> list[PaperDetails]:
     return [_row_to_paper_details(r) for r in db.search_full_text(query, limit)]
+
+
+def search_papers(query: str, limit: int = 50) -> list[PaperDetails]:
+    """Search papers by FTS (TeX source) and note content; merge, deduplicate, cap at limit.
+
+    Runs two independent searches, then merges results:
+      - FTS5 MATCH on papers_fts (TeX full-text, ranked by relevance)
+      - LIKE on NOTE title/content (ranked by note recency; fills remaining slots)
+
+    FTS results are added first. On FTS5 syntax error the FTS path falls back to []
+    so note results still populate. Returns at most *limit* papers total.
+    """
+    try:
+        fts_rows = db.search_full_text(query, limit)
+    except sqlite3.OperationalError as exc:
+        _log.warning("FTS search failed for query=%r: %s", query, exc)
+        fts_rows = []
+    papers: list[PaperDetails] = [_row_to_paper_details(r) for r in fts_rows]
+    seen_ids: set[str] = {p.source_id for p in papers}
+
+    notes_sfks = _notes_storage.search_notes_source_fks(query, limit)
+    if notes_sfks:
+        sfk_rank = {sfk: i for i, sfk in enumerate(notes_sfks)}
+        note_rows = sorted(
+            db.get_papers_by_source_fks(notes_sfks),
+            key=lambda r: sfk_rank.get(int(r["source_fk"]), len(notes_sfks)),
+        )
+        for row in note_rows:
+            if row["source_id"] not in seen_ids:
+                seen_ids.add(row["source_id"])
+                papers.append(_row_to_paper_details(row))
+
+    return papers[:limit]
 
 
 # ---------------------------------------------------------------------------

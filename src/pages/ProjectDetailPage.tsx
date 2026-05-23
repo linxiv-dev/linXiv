@@ -21,7 +21,6 @@ import { ColorSwatch } from "../components/projects/ColorSwatch";
 import { PRESET_COLORS } from "../components/projects/constants";
 import { TagInput, type TagInputHandle } from "../components/projects/TagInput";
 import { Button } from "../components/ui/button";
-import { Badge } from "../components/ui/badge";
 import { TagBadge } from "../components/tags/TagBadge";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";

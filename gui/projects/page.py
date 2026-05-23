@@ -449,18 +449,15 @@ class NoteEditorDialog(QDialog):
     def _on_save(self) -> None:
         import service.note as note_svc
         if self._note:
-            note_svc.upsert(note_svc.NoteIn(
-                note_id    = self._note.note_id,
-                source_fk  = self._note.source_fk,
-                paper_id   = self._note.paper_id_fk,
-                project_fk = self._note.project_id,
-                title      = self._note_title.text().strip(),
-                content    = self._editor.toPlainText().strip(),
+            note_svc.update(note_svc.NoteUpdateIn(
+                note_id = self._note.note_id,
+                title   = self._note_title.text().strip(),
+                content = self._editor.toPlainText().strip(),
             ))
         else:
             if self._source_fk is None:
                 return
-            note_svc.upsert(note_svc.NoteIn(
+            note_svc.create(note_svc.NoteIn(
                 source_fk  = self._source_fk,
                 project_fk = self._project_id,
                 title      = self._note_title.text().strip(),
@@ -545,7 +542,7 @@ class NotesDialog(QDialog):
         self._cards.clear()
 
         import service.note as note_svc
-        notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
+        notes = note_svc.get_many(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
 
         if notes:
             self._empty_lbl.setVisible(False)
@@ -611,7 +608,7 @@ class NotesDialog(QDialog):
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             import service.note as note_svc
-            notes = note_svc.get_notes(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
+            notes = note_svc.get_many(note_svc.Notes(source_fk=self._source_fk, project_fk=self._project_id))
             new_notes = [n for n in notes if n.note_id not in self._cards]
             self._empty_lbl.setVisible(False)
             for note in new_notes:
