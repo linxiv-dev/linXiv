@@ -432,6 +432,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
               onClick={handleAppend}
               disabled={isLoading || results === null || !hasQuery}
               title="Append to current results"
+              aria-label="Append to current results"
               className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
               style={{ background: "var(--color-success)", color: "var(--color-bg)" }}
             >
@@ -452,6 +453,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
               onClick={handleClear}
               disabled={isLoading || results === null}
               title="Clear results"
+              aria-label="Clear results"
               className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
               style={{ background: "var(--color-danger)", color: "white" }}
             >

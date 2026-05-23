@@ -46,6 +46,7 @@ export function SearchSection() {
           type="button"
           role="switch"
           aria-checked={historyEnabled}
+          aria-label="Search history"
           onClick={handleToggle}
           className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors"
           style={{ background: historyEnabled ? "var(--color-accent)" : "var(--color-border)" }}

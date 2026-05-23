@@ -15,7 +15,7 @@ class PdfMetadataWorker(QThread):
 
     def run(self) -> None:
         try:
-            meta = resolve_pdf_metadata(self._path)
+            meta, _external = resolve_pdf_metadata(self._path)
             self.finished.emit(meta, self._path)
         except Exception as e:
             print(f"[PdfMetadataWorker] {e}")

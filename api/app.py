@@ -242,7 +242,7 @@ def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
         raise HTTPException(status_code=404, detail="Paper not found")
     path = _resolve_local_pdf(paper, source_id, version)
     if path:
-        return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
+        return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path), content_disposition_type="inline")
     if paper.has_pdf:
         # Database says a PDF should be on disk but the file is missing — don't
         # silently fall through to the remote URL, which would mask the data drift.

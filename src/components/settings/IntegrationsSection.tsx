@@ -9,6 +9,7 @@ import {
   uninstallMcp,
   type MpcClientStatus,
 } from "../../api/integrations";
+import { isTauri } from "../../api/client";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Section } from "./Section";
@@ -75,16 +76,22 @@ function IntegrationRow({
 export function IntegrationsSection() {
   const qc = useQueryClient();
 
+  // CLI/MCP install operations invoke Tauri commands directly. In a plain
+  // browser (the Vite dev server outside of `tauri dev`) those calls throw
+  // "Not running in Tauri", so we render the subsections in a disabled
+  // read-only state instead of letting the buttons fire.
   const { data: cliInstalled = false, isLoading: cliLoading } = useQuery({
     queryKey: ["cli_installed"],
     queryFn: isCliInstalled,
     staleTime: 10_000,
+    enabled: isTauri,
   });
 
   const { data: mcpClients = [], isLoading: mcpLoading } = useQuery({
     queryKey: ["mcp_clients"],
     queryFn: listMcpClients,
     staleTime: 10_000,
+    enabled: isTauri,
   });
 
   const [cliPending, setCliPending] = useState(false);
@@ -122,6 +129,13 @@ export function IntegrationsSection() {
         Install linXiv tools so other apps can use them outside the GUI.
       </p>
 
+      {!isTauri && (
+        <p className="text-xs text-muted mb-4 italic">
+          Available in the desktop app. The browser dev build can't install
+          system-level integrations.
+        </p>
+      )}
+
       <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1">
         Command Line
       </p>
@@ -129,7 +143,7 @@ export function IntegrationsSection() {
         label="linxiv CLI"
         description="Adds the `linxiv` command to your terminal PATH."
         installed={cliInstalled}
-        available={true}
+        available={isTauri}
         loading={cliLoading || cliPending}
         onInstall={() => handleCli("install")}
         onUninstall={() => handleCli("uninstall")}
@@ -138,7 +152,17 @@ export function IntegrationsSection() {
       <p className="text-xs font-semibold text-muted uppercase tracking-wide mt-4 mb-1">
         MCP Clients
       </p>
-      {mcpLoading ? (
+      {!isTauri ? (
+        <IntegrationRow
+          label="MCP clients"
+          description="Register linXiv with Claude Desktop, Cursor, or Windsurf."
+          installed={false}
+          available={false}
+          loading={false}
+          onInstall={() => {}}
+          onUninstall={() => {}}
+        />
+      ) : mcpLoading ? (
         <div className="flex items-center gap-2 py-3 text-sm text-muted">
           <Spinner size={14} /> Detecting clients…
         </div>

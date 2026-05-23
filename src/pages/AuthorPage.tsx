@@ -45,10 +45,10 @@ function AuthorIndexView() {
     ? authors.filter((a) => {
         const q = search.toLowerCase();
         return (
-          authorDetail.full_name?.toLowerCase().includes(q) ||
-          authorDetail.first_name?.toLowerCase().includes(q) ||
-          authorDetail.last_name?.toLowerCase().includes(q) ||
-          authorDetail.orcid?.toLowerCase().includes(q)
+          a.full_name?.toLowerCase().includes(q) ||
+          a.first_name?.toLowerCase().includes(q) ||
+          a.last_name?.toLowerCase().includes(q) ||
+          a.orcid?.toLowerCase().includes(q)
         );
       })
     : authors;

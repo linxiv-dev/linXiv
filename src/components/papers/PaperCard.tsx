@@ -1,7 +1,6 @@
 import { memo } from "react";
 import type { Paper } from "../../types/api";
 import { Badge } from "../ui/badge";
-import { TagBadge } from "../tags/TagBadge";
 import { useSelectionStore } from "../../stores/selection";
 import { normalizeAuthors } from "../../lib/papers";
 

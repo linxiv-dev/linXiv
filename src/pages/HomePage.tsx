@@ -7,11 +7,20 @@ import { PaperCard } from "../components/papers/PaperCard";
 interface StatCardProps {
   label: string;
   value: number | undefined;
+  to?: string;
 }
 
-function StatCard({ label, value }: StatCardProps) {
-  return (
-    <div className="bg-panel rounded-lg border border-border p-5 flex flex-col gap-1">
+function StatCard({ label, value, to }: StatCardProps) {
+  const navigate = useNavigate();
+  const interactive = to !== undefined;
+  const className =
+    "bg-panel rounded-lg border border-border p-5 flex flex-col gap-1 text-left" +
+    (interactive
+      ? " cursor-pointer transition-colors hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+      : "");
+
+  const content = (
+    <>
       <span
         className="text-3xl font-bold"
         style={{ color: "var(--color-accent)" }}
@@ -19,8 +28,17 @@ function StatCard({ label, value }: StatCardProps) {
         {value ?? "—"}
       </span>
       <span className="text-sm text-muted">{label}</span>
-    </div>
+    </>
   );
+
+  if (interactive) {
+    return (
+      <button type="button" className={className} onClick={() => navigate(to!)}>
+        {content}
+      </button>
+    );
+  }
+  return <div className={className}>{content}</div>;
 }
 
 export default function HomePage() {
@@ -54,10 +72,10 @@ export default function HomePage() {
     <div className="p-8 space-y-8 overflow-y-auto">
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Papers" value={data?.paper_count} />
-        <StatCard label="PDFs" value={data?.pdf_count} />
+        <StatCard label="Papers" value={data?.paper_count} to="/library" />
+        <StatCard label="PDFs" value={data?.pdf_count} to="/library" />
         <StatCard label="Categories" value={data?.category_count} />
-        <StatCard label="Tags" value={data?.tag_count} />
+        <StatCard label="Tags" value={data?.tag_count} to="/tags" />
       </div>
 
       {/* Recent papers */}
