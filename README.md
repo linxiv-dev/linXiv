@@ -16,6 +16,10 @@ Upload your pdfs, create projects, manage notes, tags, and more to organize your
   - [Install dependencies](#install-dependencies)
   - [Environment variables](#environment-variables)
   - [Run](#run)
+- [Building the Tauri App](#building-the-tauri-app)
+  - [Tauri prerequisites](#tauri-prerequisites)
+  - [Development](#development)
+  - [Production build](#production-build)
 - [App Shell](#app-shell)
 - [Usage](#usage)
   - [Projects](#projects)
@@ -268,6 +272,58 @@ Or add it manually to `.claude/settings.json`:
 > ```
 
 Once registered, Claude can call these tools directly in conversation: `search_papers`, `fetch_paper`, `list_papers`, `get_paper`, `search_full_text`, `tag_paper`, `list_projects`, `create_project`, `add_paper_to_project`, `remove_paper_from_project`, `create_note`, `get_notes_for_paper`, `get_notes_for_project`.
+
+## Building the Tauri App
+
+The Tauri desktop app wraps the React/Vite frontend and bundles the Python backend as sidecar binaries (via PyInstaller). It replaces the PyQt6 GUI with a native webview shell.
+
+### Tauri prerequisites
+
+- [Node.js](https://nodejs.org/) 18+
+- [Rust toolchain](https://rustup.rs/) (stable)
+- [uv](https://github.com/astral-sh/uv) — used for the Python sidecar build
+- System Tauri dependencies — follow the [Tauri v2 prerequisites guide](https://tauri.app/start/prerequisites/) for your OS (WebKit2GTK on Linux, Xcode Command Line Tools on macOS, Microsoft C++ Build Tools on Windows)
+
+### Development
+
+Install Node dependencies, then start both the Python API and the Tauri dev window in separate terminals:
+
+```bash
+# terminal 1 — Python backend
+python -m api          # http://127.0.0.1:8000
+
+# terminal 2 — Tauri dev window (also starts Vite, hot-reloads on frontend changes)
+npm install
+npm run tauri dev
+```
+
+The Python API sidecar is **not** bundled in dev mode — the app talks to the locally running API on port 8000.
+
+### Production build
+
+The Python entry points (API, CLI, MCP server) are compiled to self-contained binaries with PyInstaller and staged into `src-tauri/binaries/` before Tauri bundles the app.
+
+**1. Build and stage the Python sidecars:**
+
+```bash
+npm run build:sidecar
+```
+
+This runs PyInstaller on `linxiv-api.spec`, `linxiv-cli.spec`, and `linxiv-mcp.spec`, then copies the outputs to `src-tauri/binaries/` with the correct Tauri target-triple suffix.
+
+**2. Build the Tauri app:**
+
+```bash
+npm run tauri build
+```
+
+Or run both steps at once:
+
+```bash
+npm run build:all
+```
+
+The final installer/bundle is written to `src-tauri/target/release/bundle/`.
 
 ## App Shell
 

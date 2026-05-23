@@ -234,6 +234,19 @@ def api_search_papers(
     return {"papers": [p.to_dict() for p in papers]}
 
 
+@app.get("/api/papers/{source_id:path}/pdf", response_model=None)
+def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
+    paper = get_paper_details(Paper(source_id=source_id, version=version))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    path = _resolve_local_pdf(source_id, version)
+    if path:
+        return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
+    if paper.url:
+        return RedirectResponse(paper.url)
+    raise HTTPException(status_code=404, detail="No PDF available")
+
+
 @app.get("/api/papers/{source_id:path}")
 def api_get_paper(source_id: str) -> dict:
     paper = get_paper_details(Paper(source_id=source_id))
@@ -894,19 +907,6 @@ def api_env_patch(body: EnvUpdate) -> dict:
     set_key(str(ENV_PATH), body.key, body.value)
     os.environ[body.key] = body.value
     return {"ok": True}
-
-
-@app.get("/api/papers/{source_id:path}/pdf", response_model=None)
-def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
-    paper = get_paper_details(Paper(source_id=source_id, version=version))
-    if not paper:
-        raise HTTPException(status_code=404, detail="Paper not found")
-    path = _resolve_local_pdf(source_id, version)
-    if path:
-        return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path))
-    if paper.url:
-        return RedirectResponse(paper.url)
-    raise HTTPException(status_code=404, detail="No PDF available")
 
 
 # Graph viewer static bundle (used by PyQt, external frontends via iframe/proxy)
