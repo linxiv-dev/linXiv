@@ -5,7 +5,7 @@ Completed items live in DONE.md.
 
 ## Architecture & Backend Integrity
 - [ ] Authors page for editing author details. May require full backend implemetation besides existing author table.
-- [ ] **PDF import lifecycle in route handler** — `api/app.py:api_import_pdf` contains ~58 lines of file I/O, DB save, path rename, `has_pdf`/`pdf_path` flag updates, rollback on failure, and project linking inline in the route. Extract to `service/paper.py` as `import_pdf(content: bytes, project_id: int | None) -> PaperImportResult`; route becomes a 5-line delegate. Matches the async groundwork already in place.
+- [x] **PDF import lifecycle in route handler** — `api/app.py:api_import_pdf` contains ~58 lines of file I/O, DB save, path rename, `has_pdf`/`pdf_path` flag updates, rollback on failure, and project linking inline in the route. Extract to `service/paper.py` as `import_pdf(content: bytes, project_id: int | None) -> PaperImportResult`; route becomes a 5-line delegate. Matches the async groundwork already in place.
 - [ ] **Project create/update missing from service layer** — `service/project.py` handles lifecycle (delete, restore, purge) but has no `create` or `update` function. Both live inline in route handlers in `api/app.py`, including tag-sync coordination (`_sync_project_tags`, `_normalize_tags`). Extract `create(project_in: ProjectIn)` and `update(project_fk, ...)` into the service layer so project mutations are testable without HTTP.
 
 ## Deferred
