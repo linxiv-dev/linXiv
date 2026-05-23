@@ -3,9 +3,11 @@
 Items flagged during design review. Grouped by area.
 Completed items live in DONE.md.
 
+### Paper Detail Deferred
+- [ ] **PDF viewing** — verify the current "Open PDF" link actually works (local file + external viewer). If broken, fix it to open local PDFs in the OS native viewer. If behaviour differs between dev and installed, add a Settings toggle. In-app viewer tab is not a decided direction yet.
+
 ## Architecture & Backend Integrity
 - [ ] Authors page for editing author details. May require full backend implemetation besides existing author table.
-- [x] **PDF import lifecycle in route handler** — `api/app.py:api_import_pdf` contains ~58 lines of file I/O, DB save, path rename, `has_pdf`/`pdf_path` flag updates, rollback on failure, and project linking inline in the route. Extract to `service/paper.py` as `import_pdf(content: bytes, project_id: int | None) -> PaperImportResult`; route becomes a 5-line delegate. Matches the async groundwork already in place.
 - [ ] **Project create/update missing from service layer** — `service/project.py` handles lifecycle (delete, restore, purge) but has no `create` or `update` function. Both live inline in route handlers in `api/app.py`, including tag-sync coordination (`_sync_project_tags`, `_normalize_tags`). Extract `create(project_in: ProjectIn)` and `update(project_fk, ...)` into the service layer so project mutations are testable without HTTP.
 
 ## Deferred
@@ -14,9 +16,7 @@ Completed items live in DONE.md.
 - [ ] Keyboard shortcut remapping (UX design and defaults TBD before implementation)
 - [ ] Notes Editor as optional sidebar page (plugin-tier, off by default)
 - [ ] Graph performance: SVG rendering + cluster nodes for large datasets
-- [ ] Version monitoring / RSS-style polling for new arXiv versions (separate from opportunistic capture)
+- [ ] Version monitoring (already kind of exists)/ RSS-style polling for new arXiv versions (separate from opportunistic capture)
 
-### Paper Detail Deferred
-- [ ] In-app PDF viewer tab (currently only "Open PDF" external link + download)
 - [ ] TeX rendering in result titles and abstracts (library choice TBD — see Deferred)
-- [ ] Notes tab: markdown editor, project scope picker defaulting to navigation context, optional version pin. Blocked by choice of latex renderer
+- [ ] **Notes tab** — simple markdown editor, project scope picker defaulting to navigation context, optional version pin. Not blocked by TeX choice — basic tab is implementable now; TeX rendering inside notes is a later layer. See ADR 0003.
