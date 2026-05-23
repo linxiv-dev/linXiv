@@ -199,7 +199,7 @@ modes; they didn't cause the immediate bug we were chasing
 
 #### [latent-medium] Hardcoded port 8000
 
-- [ ] **Dynamic port discovery for API ↔ Tauri webview**
+- [x] **Dynamic port discovery for API ↔ Tauri webview**
 
 `src/api/client.ts:9` is `BASE_URL = isTauri ? "http://127.0.0.1:8000" : ""`
 and `api/run_api.py:27` binds uvicorn to a literal `8000`. If port 8000
