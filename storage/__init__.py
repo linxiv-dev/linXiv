@@ -13,6 +13,7 @@ from .db import (
     get_paper,
     get_paper_by_id,
     get_paper_by_source_fk,
+    get_papers_by_source_fks,
     get_paper_root,
     get_all_versions,
     soft_delete_paper,
@@ -48,13 +49,15 @@ from .notes import (
     count_project_notes,
     count_paper_notes,
     note_counts_by_paper_for_project,
+    search_notes_source_fks,
 )
 
 __all__ = [
     # db
     "DB_PATH", "_connect", "init_db", "init_table", "parse_entry_id",
     "save_paper", "save_papers", "save_paper_metadata", "save_papers_metadata",
-    "get_paper", "get_paper_by_id", "get_paper_by_source_fk", "get_paper_root",
+    "get_paper", "get_paper_by_id", "get_paper_by_source_fk", "get_papers_by_source_fks",
+    "get_paper_root",
     "get_all_versions",
     "soft_delete_paper", "restore_paper", "hard_delete_paper",
     "list_deleted_papers", "is_paper_deleted",
@@ -69,4 +72,5 @@ __all__ = [
     "get_note", "get_notes", "get_project_notes",
     "count_project_notes", "count_paper_notes",
     "note_counts_by_paper_for_project",
+    "search_notes_source_fks",
 ]

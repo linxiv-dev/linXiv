@@ -54,6 +54,7 @@ from service.paper import (
     save_papers_metadata,
     get_categories,
     init_db,
+    search_papers,
 )
 from service.tag import list_all_tags
 import user_settings
@@ -216,6 +217,18 @@ def api_get_paper_by_sfk(
         if not paper:
             raise HTTPException(status_code=404, detail="Paper not found")
     return paper.to_dict()
+
+
+@app.get("/api/papers/search")
+def api_search_papers(
+    q: str = Query(),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> dict:
+    q = q.strip()
+    if len(q) < 3:
+        raise HTTPException(status_code=422, detail="Query must contain at least 3 non-whitespace characters")
+    papers = search_papers(q, limit)
+    return {"papers": [p.to_dict() for p in papers]}
 
 
 @app.get("/api/papers/{source_id:path}")

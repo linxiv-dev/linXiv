@@ -219,3 +219,27 @@ def note_counts_by_paper_for_project(project_id: int) -> dict[int, int]:
             (project_id, project_id),
         ).fetchall()
     return {int(row["source_fk"]): int(row["note_count"]) for row in rows}
+
+
+def _escape_like(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search_notes_source_fks(query: str, limit: int = 50) -> list[int]:
+    """Return distinct SOURCE_FKs of active papers whose note title or content contains query."""
+    pattern = f"%{_escape_like(query)}%"
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT n.SOURCE_FK
+            FROM NOTE n
+            JOIN PAPER_ROOTS r ON r.SOURCE_FK = n.SOURCE_FK
+            WHERE r.STATUS = 'active'
+              AND (n.TITLE LIKE ? ESCAPE '\\' OR n.NOTE LIKE ? ESCAPE '\\')
+            GROUP BY n.SOURCE_FK
+            ORDER BY MAX(n.UPDATED_AT) DESC
+            LIMIT ?
+            """,
+            (pattern, pattern, limit),
+        ).fetchall()
+    return [int(row["SOURCE_FK"]) for row in rows]

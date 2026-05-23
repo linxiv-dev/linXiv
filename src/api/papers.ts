@@ -52,6 +52,15 @@ export async function repairPaper(sfk: number, body: PaperRepairBody): Promise<P
   });
 }
 
+export async function searchLibrary(
+  q: string,
+  limit = 50
+): Promise<{ papers: Paper[] }> {
+  return apiFetch<{ papers: Paper[] }>(
+    `/api/papers/search?q=${encodeURIComponent(q)}&limit=${limit}`
+  );
+}
+
 /**
  * Returns the URL to stream/download the PDF for a paper. In Tauri this hits
  * the backend directly; in browser dev it goes through the Vite proxy.

@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 import storage.db as db
+import storage.notes as _notes_storage
 import storage.projects as _proj_storage
 from service.models.paper import PaperDetails, PaperDetailsAll
 from sources.base import PaperMetadata
@@ -530,6 +531,39 @@ def search_full_text(query: str, limit: int = 20) -> list[sqlite3.Row]:
 
 def search_full_text_details(query: str, limit: int = 20) -> list[PaperDetails]:
     return [_row_to_paper_details(r) for r in db.search_full_text(query, limit)]
+
+
+def search_papers(query: str, limit: int = 50) -> list[PaperDetails]:
+    """Search papers by FTS (TeX source) and note content; merge, deduplicate, cap at limit.
+
+    Runs two independent searches, then merges results:
+      - FTS5 MATCH on papers_fts (TeX full-text, ranked by relevance)
+      - LIKE on NOTE title/content (ranked by note recency; fills remaining slots)
+
+    FTS results are added first. On FTS5 syntax error the FTS path falls back to []
+    so note results still populate. Returns at most *limit* papers total.
+    """
+    try:
+        fts_rows = db.search_full_text(query, limit)
+    except sqlite3.OperationalError as exc:
+        _log.warning("FTS search failed for query=%r: %s", query, exc)
+        fts_rows = []
+    papers: list[PaperDetails] = [_row_to_paper_details(r) for r in fts_rows]
+    seen_ids: set[str] = {p.source_id for p in papers}
+
+    notes_sfks = _notes_storage.search_notes_source_fks(query, limit)
+    if notes_sfks:
+        sfk_rank = {sfk: i for i, sfk in enumerate(notes_sfks)}
+        note_rows = sorted(
+            db.get_papers_by_source_fks(notes_sfks),
+            key=lambda r: sfk_rank.get(int(r["source_fk"]), len(notes_sfks)),
+        )
+        for row in note_rows:
+            if row["source_id"] not in seen_ids:
+                seen_ids.add(row["source_id"])
+                papers.append(_row_to_paper_details(row))
+
+    return papers[:limit]
 
 
 # ---------------------------------------------------------------------------
