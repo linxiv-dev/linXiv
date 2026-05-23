@@ -61,8 +61,6 @@ import service.note as _service_note
 from storage.projects import (
     Project,
     Status,
-    color_from_hex,
-    color_to_hex,
     ensure_projects_db,
     filter_projects,
     get_project,
@@ -70,12 +68,17 @@ from storage.projects import (
 )
 from service.project import (
     Project as SvcProject,
+    ProjectIn as SvcProjectIn,
+    color_from_hex,
+    color_to_hex,
+    create as create_project_svc,
+    update as update_project_svc,
     hard_delete as hard_delete_project,
     list_deleted as list_deleted_projects,
     purge_old as purge_old_projects,
     restore as restore_project_svc,
 )
-from storage.tags import add_project_tags, get_project_tags, remove_project_tags
+from storage.tags import get_project_tags
 from storage.config.queries import Q, list_project_tags_bulk, list_project_source_ids_bulk, list_projects_by_tag, get_tag_by_label
 import storage.search_history as _search_history
 import storage.search_state as _search_state
@@ -410,30 +413,6 @@ def api_graph_project_options() -> dict:
     return {"projects": project_filter_options()}
 
 
-def _normalize_tags(tags: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for t in tags:
-        label = t.strip().lower()
-        if label and label not in seen:
-            seen.add(label)
-            result.append(label)
-    return result
-
-
-def _sync_project_tags(project_id: int, new_tags: list[str]) -> None:
-    normalized = _normalize_tags(new_tags)
-    current = get_project_tags(project_id)
-    current_lower = {t.lower() for t in current}
-    new_lower = {t.lower() for t in normalized}
-    to_remove = [t for t in current if t.lower() not in new_lower]
-    to_add = [t for t in normalized if t.lower() not in current_lower]
-    if to_remove:
-        remove_project_tags(project_id, to_remove)
-    if to_add:
-        add_project_tags(project_id, to_add)
-
-
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1)
     description: str = ""
@@ -451,13 +430,21 @@ class ProjectUpdate(BaseModel):
 
 @app.post("/api/projects")
 def api_project_create(body: ProjectCreate) -> dict:
-    color = color_from_hex(body.color_hex) if body.color_hex else None
-    p = Project(name=body.name.strip(), description=body.description.strip(), color=color)
-    p.save()
-    assert p.id
-    if body.project_tags:
-        add_project_tags(p.id, _normalize_tags(body.project_tags))
-    return {"project": {"id": p.id, "name": p.name}}
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name cannot be blank")
+    try:
+        color = color_from_hex(body.color_hex) if body.color_hex else None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid color_hex") from e
+    # source_fks intentionally omitted: papers are linked via POST /projects/{id}/papers
+    fk = create_project_svc(SvcProjectIn(
+        name        = name,
+        description = body.description.strip(),
+        color       = color,
+        tags        = body.project_tags,
+    ))
+    return {"project": {"id": fk, "name": name}}
 
 
 @app.get("/api/projects/{project_id}")
@@ -478,32 +465,41 @@ def api_project_get(project_id: int) -> dict:
 
 @app.patch("/api/projects/{project_id}")
 def api_project_patch(project_id: int, body: ProjectUpdate) -> dict:
-    p = get_project(project_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if body.name:
-        p.name = body.name.strip()
-    if body.description:
-        p.description = body.description
-    if body.color_hex:
-        p.color = color_from_hex(body.color_hex)
-    if body.project_tags is not None and p.id is not None:
-        _sync_project_tags(p.id, body.project_tags)
-    if body.status:
+    status: Status | None = None
+    if body.status is not None:
         try:
-            new_status = Status(body.status)
+            status = Status(body.status)
         except ValueError as e:
             raise HTTPException(status_code=400, detail="Invalid status") from e
-        # archive/restore/delete call p.save() internally, which persists ALL
-        # fields on p — including any name/description/color already set above.
-        if new_status == Status.ARCHIVED:
-            p.archive()
-        elif new_status == Status.ACTIVE:
-            p.restore()
-        elif new_status == Status.DELETED:
-            p.delete()
-        return {"ok": True}
-    p.save()
+    # Build color kwarg only when color_hex was explicitly sent so that omitting
+    # the field is a no-op while sending null explicitly clears the color.
+    color_kwarg: dict = {}
+    if "color_hex" in body.model_fields_set:
+        try:
+            color_kwarg["color"] = color_from_hex(body.color_hex) if body.color_hex else None
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Invalid color_hex") from e
+    name: str | None = None
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name cannot be blank")
+    try:
+        update_project_svc(
+            project_fk   = project_id,
+            name         = name,
+            # description is a non-nullable string (never NULL in DB); clients
+            # clear it with "" not null, so None here safely means "no change".
+            # color_hex uses model_fields_set because its DB column IS nullable.
+            description  = body.description.strip() if body.description is not None else None,
+            project_tags = body.project_tags,
+            status       = status,
+            **color_kwarg,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail="Project not found") from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True}
 
 
