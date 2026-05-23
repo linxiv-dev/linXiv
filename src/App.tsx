@@ -11,6 +11,7 @@ const DoiPage = lazy(() => import("./pages/DoiPage"));
 const SearchPage = lazy(() => import("./pages/SearchPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const TagPage = lazy(() => import("./pages/TagPage"));
+const AuthorPage = lazy(() => import("./pages/AuthorPage"));
 
 // Forces a full remount of PaperDetailPage when sfk changes, so all
 // useState initializers run fresh and no stale state drives incorrect queries.
@@ -33,6 +34,8 @@ const router = createBrowserRouter([
       { path: "search", element: <SearchPage /> },
       { path: "tags", element: <TagPage /> },
       { path: "tags/:label", element: <TagPage /> },
+      { path: "authors", element: <AuthorPage /> },
+      { path: "authors/:id", element: <AuthorPage /> },
       { path: "notes", element: null },
       { path: "doi", element: <DoiPage /> },
       { path: "settings", element: <SettingsPage /> },

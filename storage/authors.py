@@ -44,6 +44,85 @@ def list_authors(
     return [_row_to_details(row) for row in rows]
 
 
+def list_authors_with_paper_count() -> list[dict]:
+    """Return all authors ordered by last name, counting distinct active papers only."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT a.AUTHOR_FK, a.AUTHOR_FULL_NAME, a.AUTHOR_FIRST, a.AUTHOR_LAST, a.AUTHOR_ORCID,
+                   COUNT(DISTINCT
+                       CASE WHEN pr.STATUS = 'active' THEN p.SOURCE_FK END
+                   ) AS paper_count
+            FROM AUTHOR a
+            LEFT JOIN PAPER_TO_AUTHOR pta ON a.AUTHOR_FK = pta.AUTHOR_FK
+            LEFT JOIN PAPER p             ON p.PAPER_ID  = pta.PAPER_ID
+            LEFT JOIN PAPER_ROOTS pr      ON pr.SOURCE_FK = p.SOURCE_FK
+            GROUP BY a.AUTHOR_FK
+            ORDER BY (a.AUTHOR_LAST IS NULL), a.AUTHOR_LAST,
+                     (a.AUTHOR_FIRST IS NULL), a.AUTHOR_FIRST
+            """,
+        ).fetchall()
+    return [
+        {
+            "author_id":   row["AUTHOR_FK"],
+            "full_name":   row["AUTHOR_FULL_NAME"],
+            "first_name":  row["AUTHOR_FIRST"],
+            "last_name":   row["AUTHOR_LAST"],
+            "orcid":       row["AUTHOR_ORCID"],
+            "paper_count": row["paper_count"],
+        }
+        for row in rows
+    ]
+
+
+def get_author_paper_previews(author_id: int) -> list[dict]:
+    """Return latest-version paper fields for active papers linked to an author.
+
+    Looks up via PAPER_ROOTS to avoid version-mismatch when PAPER_TO_AUTHOR stores
+    a specific version's PAPER_ID while a newer version exists.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT lp.paper_id, lp.source_id, lp.source_fk, lp.version, lp.title
+            FROM latest_papers lp
+            WHERE lp.source_fk IN (
+                SELECT DISTINCT p.SOURCE_FK
+                FROM PAPER p
+                JOIN PAPER_TO_AUTHOR pta ON pta.PAPER_ID = p.PAPER_ID
+                WHERE pta.AUTHOR_FK = ?
+            )
+            ORDER BY (lp.title IS NULL), lp.title
+            """,
+            (author_id,),
+        ).fetchall()
+    return [
+        {
+            "paper_id":  row["paper_id"],
+            "source_id": row["source_id"],
+            "source_fk": row["source_fk"],
+            "version":   row["version"],
+            "title":     row["title"],
+        }
+        for row in rows
+    ]
+
+
+def count_author_paper_links(author_id: int) -> int:
+    """Return distinct paper roots linked to this author, regardless of paper status."""
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT p.SOURCE_FK)
+            FROM PAPER_TO_AUTHOR pta
+            JOIN PAPER p ON p.PAPER_ID = pta.PAPER_ID
+            WHERE pta.AUTHOR_FK = ?
+            """,
+            (author_id,),
+        ).fetchone()
+    return row[0]
+
+
 def get_author_papers(author_id: int) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(

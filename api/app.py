@@ -783,6 +783,95 @@ def api_note_delete(note_id: int) -> dict:
     return {"ok": True}
 
 
+import service.author as _service_author
+
+
+class AuthorUpdate(BaseModel):
+    full_name:  str | None = None
+    first_name: str | None = None
+    last_name:  str | None = None
+    orcid:      str | None = None
+
+
+def _author_ref(author_id: int) -> _service_author.Author:
+    return _service_author.Author(author_id=author_id)
+
+
+def _author_detail_response(author_id: int) -> dict:
+    """Build the full author detail dict (used by GET and PATCH)."""
+    author = _service_author.get(_author_ref(author_id))
+    if author is None:
+        raise HTTPException(status_code=404, detail="Author not found")
+    papers = _service_author.get_paper_previews(author_id)
+    return {
+        "author_id":   author.author_id,
+        "full_name":   author.full_name,
+        "first_name":  author.first_name,
+        "last_name":   author.last_name,
+        "orcid":       author.orcid,
+        "paper_count": len(papers),
+        "papers": [
+            {
+                "paper_id":  p.paper_id,
+                "source_id": p.source_id,
+                "source_fk": p.source_fk,
+                "version":   p.version,
+                "title":     p.title,
+            }
+            for p in papers
+        ],
+    }
+
+
+@app.get("/api/authors")
+def api_authors_list() -> dict:
+    authors = _service_author.list_with_paper_count()
+    return {
+        "authors": [
+            {
+                "author_id":   a.author_id,
+                "full_name":   a.full_name,
+                "first_name":  a.first_name,
+                "last_name":   a.last_name,
+                "orcid":       a.orcid,
+                "paper_count": a.paper_count,
+            }
+            for a in authors
+        ]
+    }
+
+
+@app.get("/api/authors/{author_id}")
+def api_author_get(author_id: int) -> dict:
+    return _author_detail_response(author_id)
+
+
+@app.patch("/api/authors/{author_id}")
+def api_author_update(author_id: int, body: AuthorUpdate) -> dict:
+    _service_author.update_fields(
+        author_id  = author_id,
+        full_name  = body.full_name,
+        first_name = body.first_name,
+        last_name  = body.last_name,
+        orcid      = body.orcid,
+    )
+    return _author_detail_response(author_id)
+
+
+@app.delete("/api/authors/{author_id}")
+def api_author_delete(author_id: int) -> dict:
+    if _service_author.get(_author_ref(author_id)) is None:
+        raise HTTPException(status_code=404, detail="Author not found")
+    total_links = _service_author.count_paper_links(author_id)
+    if total_links > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Author is linked to {total_links} paper(s); unlink before deleting.",
+        )
+    _service_author.delete_author(author_id)
+    return {"ok": True}
+
+
 @app.get("/api/settings")
 def api_settings_get() -> dict:
     return user_settings.all_settings()
