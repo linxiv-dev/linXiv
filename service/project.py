@@ -17,6 +17,48 @@ from storage.projects import (
 import storage.tags as _tags_storage
 
 
+class Unset:
+    """Sentinel type for "caller did not supply this argument".
+
+    Distinct from None, which explicitly clears a nullable field (e.g. color).
+    """
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+UNSET = Unset()
+
+
+# ---------------------------------------------------------------------------
+# Tag helpers (shared by create, update, and upsert)
+# ---------------------------------------------------------------------------
+
+def _normalize_tags(tags: list[str]) -> list[str]:
+    """Strip and deduplicate tags (case-insensitive dedup, case-preserving)."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for t in tags:
+        label = t.strip()
+        if label and label.lower() not in seen:
+            seen.add(label.lower())
+            result.append(label)
+    return result
+
+
+def _sync_tags(project_id: int, new_tags: list[str]) -> None:
+    """Diff-based tag sync: only add new tags and remove dropped ones."""
+    normalized = _normalize_tags(new_tags)
+    current = _tags_storage.get_project_tags(project_id)
+    current_lower = {t.lower() for t in current}
+    new_lower = {t.lower() for t in normalized}
+    to_remove = [t for t in current if t.lower() not in new_lower]
+    to_add = [t for t in normalized if t.lower() not in current_lower]
+    if to_remove:
+        _tags_storage.remove_project_tags(project_id, to_remove)
+    if to_add:
+        _tags_storage.add_project_tags(project_id, to_add)
+
+
 @dataclass
 class Project:
     project_fk: int | None = None
@@ -87,32 +129,106 @@ def get_many(projects: Projects) -> list[ProjectDetails]:
 def upsert(project: ProjectIn, project_fk: int | None = None) -> int:
     """Insert a new project or update an existing one. Returns PROJECT_FK."""
     if project_fk is None:
+        name = project.name.strip()
+        if not name:
+            raise ValueError("name cannot be blank")
         p = _StorageProject(
-            name         = project.name,
+            name         = name,
             description  = project.description,
             color        = project.color,
             source_fks   = project.source_fks,
         )
         p.save()
-        assert p.id
-        if project.tags:
-            _tags_storage.add_project_tags(p.id, project.tags)
+        if p.id is None:
+            raise RuntimeError("Project.save() did not set an id")
+        tags = _normalize_tags(project.tags)
+        if tags:
+            _tags_storage.add_project_tags(p.id, tags)
         return p.id
     else:
         p = _get_project(project_fk)
         if p is None:
-            raise ValueError(f"Project with id={project_fk} not found")
-        p.name         = project.name
+            raise LookupError(f"Project with id={project_fk} not found")
+        name = project.name.strip()
+        if not name:
+            raise ValueError("name cannot be blank")
+        if p.status == Status.DELETED:
+            raise ValueError("cannot update a deleted project")
+        p.name         = name
         p.description  = project.description
         p.color        = project.color
         p.source_fks   = project.source_fks
+        # Project row saved before tag sync (opposite order to update()): on
+        # partial failure, field changes are committed but tag changes are not.
         p.save()
-        assert p.id
-        existing = _tags_storage.get_project_tags(p.id)
-        _tags_storage.remove_project_tags(p.id, existing)
-        if project.tags:
-            _tags_storage.add_project_tags(p.id, project.tags)
+        if p.id is None:
+            raise RuntimeError("Project.save() did not set an id")
+        _sync_tags(p.id, project.tags)
         return p.id
+
+
+def create(project: ProjectIn) -> int:
+    """Insert a new project and return PROJECT_FK."""
+    return upsert(project, project_fk=None)
+
+
+def update(
+    project_fk: int,
+    name: str | None = None,
+    description: str | None = None,
+    color: int | None | Unset = UNSET,
+    project_tags: list[str] | None = None,
+    status: Status | None = None,
+) -> None:
+    """Partial update of a project. Raises LookupError if project not found.
+
+    Pass ``color=None`` to explicitly clear an existing color.
+    Omit ``color`` (or pass the default) to leave it unchanged.
+    """
+    p = _get_project(project_fk)
+    if p is None:
+        raise LookupError(f"Project {project_fk} not found")
+    if p.status == Status.DELETED and status != Status.ACTIVE:
+        raise ValueError("cannot update a deleted project")
+    dirty = False
+    if name is not None:
+        stripped = name.strip()
+        if not stripped:
+            raise ValueError("name cannot be blank")
+        p.name = stripped
+        dirty = True
+    if description is not None:
+        p.description = description
+        dirty = True
+    if not isinstance(color, Unset):
+        p.color = color
+        dirty = True
+    if project_tags is not None:
+        if p.id is None:
+            raise RuntimeError("Project has no id after fetch — data integrity error")
+        # Tag sync and project save are separate transactions. A failure between
+        # them leaves tags updated but project fields unchanged.
+        # dirty=True here so UPDATED_AT is bumped to reflect the tag change.
+        _sync_tags(p.id, project_tags)
+        dirty = True
+    if status is not None:
+        if status == p.status:
+            # Already in requested state; only save if there are field changes.
+            if dirty:
+                p.save()
+        elif status == Status.ARCHIVED:
+            # archive/restore/delete call p.save() internally, persisting any
+            # name/description/color mutations applied above.
+            p.archive()
+        elif status == Status.ACTIVE:
+            p.restore()
+        elif status == Status.DELETED:
+            p.delete()
+        else:
+            raise ValueError(f"Unhandled status: {status!r}")
+        return
+    if dirty:
+        p.save()
 
 
 def delete(project: Project) -> None:
@@ -200,29 +316,6 @@ class ProjectPage:
     paper_counts: list[int]
     note_counts: list[int]
 
-
-@dataclass
-class ProjectClass:
-    id: int | None
-
-
-@dataclass
-class ProjectUpdate(ProjectClass):
-    """
-    Data class for updating the data of a project, should never be passed with no
-    values, besides project id number, ProjectClass should be used for calling
-    for updates
-    """
-    name:         str|None            = None
-    description:  str|None           = ""
-    color:        Optional[int]|None = None
-    project_tags: list[str]|None     = field(default_factory=list)
-    source_fks:   list[int]|None     = field(default_factory=list)
-    status:       Status|None       = Status.ACTIVE
-    id:           Optional[int]      = None
-    created_at:   Optional[datetime] = None
-    updated_at:   Optional[datetime] = None
-    archived_at:  Optional[datetime] = None
 
 def get_projects(status: Status = Status.ACTIVE) -> ProjectPage:
     projects = _filter_projects(Q("status = ?", status))
