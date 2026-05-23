@@ -9,14 +9,12 @@ Completed items live in DONE.md.
 - [ ] **Project create/update missing from service layer** — `service/project.py` handles lifecycle (delete, restore, purge) but has no `create` or `update` function. Both live inline in route handlers in `api/app.py`, including tag-sync coordination (`_sync_project_tags`, `_normalize_tags`). Extract `create(project_in: ProjectIn)` and `update(project_fk, ...)` into the service layer so project mutations are testable without HTTP.
 
 ## Deferred
-- [x] **`pdf_url` rename in `SearchResultOut`** — `pdf_url` is misnamed for OpenAlex results, which return a DOI landing page or OpenAlex work URL, not a PDF URL. Fixing it requires updating the frontend `SearchResult` TypeScript interface. See ADR 0011.
 - [ ] **OpenAlex polite pool `mailto:`** — `_USER_AGENT` in `sources/openalex_source.py` is `"linXiv/1.0"` with no `mailto:` address, so requests hit the unprioritized pool. Should be sourced from user settings when that infrastructure is available.
 - [ ] TeX rendering library decision (KaTeX vs MathJax — must be compatible with future Notes Editor)
 - [ ] Keyboard shortcut remapping (UX design and defaults TBD before implementation)
 - [ ] Notes Editor as optional sidebar page (plugin-tier, off by default)
 - [ ] Graph performance: SVG rendering + cluster nodes for large datasets
 - [ ] Version monitoring / RSS-style polling for new arXiv versions (separate from opportunistic capture)
-- [ ] Library: search across abstract and notes via `papers_fts` (backend ready)
 
 ### Paper Detail Deferred
 - [ ] In-app PDF viewer tab (currently only "Open PDF" external link + download)
