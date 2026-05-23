@@ -250,7 +250,7 @@ def _commit_import_body(
             if row:
                 paper_id = row["paper_id"]
 
-        _note.upsert(
+        _note.create(
             _note.NoteIn(
                 source_fk  = source_fk,
                 title      = nd.get("title", ""),

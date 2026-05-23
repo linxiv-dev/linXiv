@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Badge } from "../ui/badge";
 import { Spinner } from "../ui/spinner";
 import type { SearchResult } from "../../types/api";
+import { isArxivId } from "../../lib/papers";
 
 interface ResultRowProps {
   result: SearchResult;
@@ -29,6 +30,10 @@ export function ResultRow({ result, saved, onSave }: ResultRowProps) {
     try {
       await onSave(result.source_id);
       setLocalSaved(true);
+    } catch (err) {
+      // No toast system available; log so devtools surfaces the failure.
+      // The checkbox reverts visually (localSaved stays false), which is correct UX.
+      console.error("Failed to save paper:", err);
     } finally {
       setSaving(false);
     }
@@ -111,16 +116,15 @@ export function ResultRow({ result, saved, onSave }: ResultRowProps) {
             {result.summary}
           </p>
 
-          {/* PDF link */}
-          {result.pdf_url && (
+          {result.paper_url && (
             <a
-              href={result.pdf_url}
+              href={result.paper_url}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block mt-2 text-xs text-[var(--color-accent)] hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
-              PDF →
+              {isArxivId(result.source_id) ? "PDF →" : "Open →"}
             </a>
           )}
         </div>

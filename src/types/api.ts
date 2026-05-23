@@ -76,7 +76,7 @@ export interface SearchResult {
   summary: string;
   authors: string[];
   published: string;
-  pdf_url: string;
+  paper_url: string;
   primary_category: string;
   entry_id: string;
 }

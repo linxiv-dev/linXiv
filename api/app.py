@@ -551,7 +551,7 @@ class SearchResultOut(BaseModel):
     summary: str
     authors: list[str]
     published: str
-    pdf_url: str
+    paper_url: str
     primary_category: str
     entry_id: str
 
@@ -564,7 +564,7 @@ class SearchResultOut(BaseModel):
             summary=meta.summary,
             authors=meta.authors,
             published="" if meta.published == datetime.date.min else meta.published.isoformat(),
-            pdf_url=meta.url or "",
+            paper_url=meta.url or "",
             primary_category=meta.category or "",
             entry_id=meta.source_id,
         )

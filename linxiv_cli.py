@@ -345,7 +345,7 @@ def cmd_note_create(args: argparse.Namespace) -> None:
         print(json.dumps({"error": f"Paper {source_id} not found in DB"}), file=sys.stderr)
         sys.exit(1)
     source_fk = int(root["SOURCE_FK"])
-    note_id = svc_note.upsert(NoteIn(
+    note_id = svc_note.create(NoteIn(
         source_fk=source_fk,
         title=args.title or "",
         content=args.content,
