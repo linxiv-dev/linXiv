@@ -10,6 +10,7 @@ import {
   Settings,
   Tag,
   FileText,
+  Users,
   PanelLeftClose,
   PanelLeftOpen,
   Upload,
@@ -35,6 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/search", label: "Search", icon: <Search size={16} />, pageKey: "search" },
   { to: "/doi", label: "DOI", icon: <Link2 size={16} />, pageKey: "doi" },
   { to: "/tags", label: "Tags", icon: <Tag size={16} />, pageKey: "tags" },
+  { to: "/authors", label: "Authors", icon: <Users size={16} /> },
   { to: "/notes", label: "Notes", icon: <FileText size={16} />, pageKey: "notes" },
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
