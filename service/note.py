@@ -8,6 +8,7 @@ from storage.notes import (
     get_notes as _get_notes,
     get_notes_by_paper_id as _get_notes_by_paper_id,
     get_project_notes as _get_project_notes,
+    list_all_notes as _list_all_notes,
     count_paper_notes as _count_paper_notes,
     count_project_notes as _count_project_notes,
     ensure_notes_db as _ensure_notes_db,
@@ -66,10 +67,16 @@ def get(note: Note) -> NoteDetails | None:
     return _get_note(note.note_id)
 
 
+def list_all() -> list[NoteDetails]:
+    """Return every note in the database, ordered by creation time."""
+    return _list_all_notes()
+
+
 def get_many(notes: Notes) -> list[NoteDetails]:
     """Fetch notes by the given filter. Valid combinations:
     source_fk (+ optional project_fk / all_projects), paper_id alone, or project_fk alone.
     Raises ValueError if no key is set or if paper_id is combined with source_fk/project_fk.
+    Use list_all() to fetch every note without a filter.
     """
     if notes.paper_id is not None and (notes.source_fk is not None or notes.project_fk is not None):
         raise ValueError("paper_id cannot be combined with source_fk or project_fk")
