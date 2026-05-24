@@ -371,7 +371,10 @@ def cmd_note_list(args: argparse.Namespace) -> None:
             print(json.dumps({"error": f"Paper {sid!r} not found in DB"}), file=sys.stderr)
             sys.exit(1)
         source_fk = int(root["SOURCE_FK"])
-    notes = svc_note.get_many(Notes(source_fk=source_fk, project_fk=args.project_id))
+    if source_fk is None and args.project_id is None:
+        notes = svc_note.list_all()
+    else:
+        notes = svc_note.get_many(Notes(source_fk=source_fk, project_fk=args.project_id))
     _output([_details_to_dict(n) for n in notes])
 
 
