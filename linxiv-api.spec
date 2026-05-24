@@ -63,6 +63,9 @@ a = Analysis(
         "email.mime.nonmultipart",
         # python-dotenv
         "dotenv",
+        # python-multipart (required by fastapi File/UploadFile and starlette form parsing)
+        "multipart",
+        "multipart.multipart",
         # httpx / httpcore (used by arxiv client)
         "httpx",
         "httpcore",
