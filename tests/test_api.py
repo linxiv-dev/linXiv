@@ -7,7 +7,7 @@ database or external network calls are made (external calls are mocked).
 from __future__ import annotations
 
 import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -62,21 +62,6 @@ def _meta(**kwargs) -> PaperMetadata:
     )
 
 
-def _arxiv_result(source_id="2204.12985", version=1) -> MagicMock:
-    r = MagicMock()
-    r.entry_id = f"http://arxiv.org/abs/{source_id}v{version}"
-    r.title = "Mock Paper"
-    r.summary = "Mock abstract."
-    author = MagicMock()
-    author.name = "Mock Author"
-    r.authors = [author]
-    r.published = MagicMock()
-    r.published.date.return_value = datetime.date(2022, 4, 1)
-    r.pdf_url = f"https://arxiv.org/pdf/{source_id}v{version}"
-    r.primary_category = "cs.AI"
-    return r
-
-
 # ---------------------------------------------------------------------------
 # Root / Health
 # ---------------------------------------------------------------------------
@@ -92,7 +77,9 @@ class TestRootAndHealth:
     def test_health(self, client):
         r = client.get("/api/health")
         assert r.status_code == 200
-        assert r.json() == {"ok": True}
+        data = r.json()
+        assert data["ok"] is True
+        assert data["service"] == "linxiv-api"
 
 
 # ---------------------------------------------------------------------------
@@ -319,10 +306,10 @@ class TestProjects:
         client.patch(f"/api/projects/{pid}", json={"project_tags": []})
         assert client.get(f"/api/projects/{pid}").json()["project_tags"] == []
 
-    def test_patch_project_tags_normalized_to_lowercase(self, client):
+    def test_patch_project_tags_preserves_case(self, client):
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
         client.patch(f"/api/projects/{pid}", json={"project_tags": ["ML", "NLP"]})
-        assert set(client.get(f"/api/projects/{pid}").json()["project_tags"]) == {"ml", "nlp"}
+        assert set(client.get(f"/api/projects/{pid}").json()["project_tags"]) == {"ML", "NLP"}
 
     def test_patch_project_tags_api_normalizes_and_deduplicates(self, client):
         pid = client.post("/api/projects", json={"name": "P"}).json()["project"]["id"]
@@ -435,8 +422,8 @@ class TestNotes:
 
 class TestArxivEndpoints:
     def test_search_success(self, client):
-        result = _arxiv_result()
-        with patch("api.app.search_papers", return_value=[result]):
+        meta = _meta(source_id="arxiv:2204.12985", title="Mock Paper")
+        with patch("api.app._arxiv_source.search", return_value=[meta]):
             r = client.post("/api/arxiv/search", json={"query": "transformers"})
         assert r.status_code == 200
         data = r.json()
@@ -445,21 +432,21 @@ class TestArxivEndpoints:
         assert data["saved_source_ids"] == []
 
     def test_search_save_flag(self, client):
-        result = _arxiv_result()
-        with patch("api.app.search_papers", return_value=[result]), \
-             patch("api.app.save_papers"):
+        meta = _meta(source_id="arxiv:2204.12985", title="Mock Paper")
+        with patch("api.app._arxiv_source.search", return_value=[meta]), \
+             patch("api.app.save_papers_metadata", return_value=[("arxiv:2204.12985", 1)]):
             r = client.post("/api/arxiv/search", json={"query": "test", "save": True})
         assert r.status_code == 200
         assert len(r.json()["saved_source_ids"]) == 1
 
     def test_search_empty_results(self, client):
-        with patch("api.app.search_papers", return_value=[]):
+        with patch("api.app._arxiv_source.search", return_value=[]):
             r = client.post("/api/arxiv/search", json={"query": "xyzxyzxyz"})
         assert r.status_code == 200
         assert r.json()["results"] == []
 
     def test_search_error_returns_502(self, client):
-        with patch("api.app.search_papers", side_effect=Exception("timeout")):
+        with patch("api.app._arxiv_source.search", side_effect=Exception("timeout")):
             r = client.post("/api/arxiv/search", json={"query": "test"})
         assert r.status_code == 502
 
@@ -468,8 +455,8 @@ class TestArxivEndpoints:
         assert r.status_code == 422
 
     def test_fetch_success(self, client):
-        result = _arxiv_result()
-        with patch("api.app.fetch_paper_metadata", return_value=result):
+        meta = _meta(source_id="arxiv:2204.12985", title="Mock Paper")
+        with patch("api.app._arxiv_source.fetch_by_id", return_value=meta):
             r = client.post("/api/arxiv/fetch", json={"source_id": "2204.12985", "save": False})
         assert r.status_code == 200
         data = r.json()
@@ -478,7 +465,7 @@ class TestArxivEndpoints:
         assert data["saved"] is False
 
     def test_fetch_error_returns_502(self, client):
-        with patch("api.app.fetch_paper_metadata", side_effect=Exception("not found")):
+        with patch("api.app._arxiv_source.fetch_by_id", side_effect=Exception("not found")):
             r = client.post("/api/arxiv/fetch", json={"source_id": "9999.99999"})
         assert r.status_code == 502
 
