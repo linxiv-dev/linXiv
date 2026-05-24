@@ -9,8 +9,18 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from sources.base import PaperMetadata
-from sources.arxiv_source import _parse_arxiv_id, _result_to_metadata, ArxivSource
-from sources.openalex_source import _reconstruct_abstract, _work_to_metadata, OpenAlexSource
+from sources.arxiv_source import (
+    _parse_arxiv_id,
+    _result_to_metadata,
+    ArxivSource,
+    ArxivNotFoundError,
+)
+from sources.openalex_source import (
+    _reconstruct_abstract,
+    _work_to_metadata,
+    OpenAlexSource,
+    OpenAlexHTTPError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +121,10 @@ class TestArxivSource:
             with pytest.raises(Exception, match="429"):
                 source.search("attention mechanism")
 
-    def test_fetch_by_id_raises_value_error_when_not_found(self):
+    def test_fetch_by_id_raises_not_found_error_when_missing(self):
         source = ArxivSource()
         with patch.object(source._client, "results", return_value=iter([])):
-            with pytest.raises(ValueError, match="not found"):
+            with pytest.raises(ArxivNotFoundError, match="not found"):
                 source.fetch_by_id("9999.99999")
 
     def test_fetch_by_id_raises_on_network_error(self):
@@ -288,14 +298,14 @@ class TestOpenAlexSourceSearch:
             with pytest.raises(ValueError, match="OpenAlex search failed"):
                 source.search("test query")
 
-    def test_search_raises_value_error_on_http_error(self):
+    def test_search_raises_http_error_on_http_status(self):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "503", request=MagicMock(), response=MagicMock()
+            "503", request=MagicMock(), response=MagicMock(status_code=503)
         )
         source = OpenAlexSource()
         with patch.object(source._http, "get", return_value=mock_resp):
-            with pytest.raises(ValueError, match="OpenAlex search failed"):
+            with pytest.raises(OpenAlexHTTPError, match="OpenAlex search failed"):
                 source.search("test query")
 
     def test_search_passes_correct_params(self):
@@ -344,4 +354,5 @@ class TestOpenAlexSourceFetchById:
         with patch.object(source._http, "get", return_value=mock_resp) as mock_get:
             source.fetch_by_id("https://openalex.org/W1234")
         called_url = mock_get.call_args[0][0]
-        assert "openalex.org" in called_url
+        assert "W1234" in called_url
+        assert "openalex.org" in str(source._http.base_url)

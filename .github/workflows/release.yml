@@ -17,12 +17,16 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux-x86_64
+            args: "--bundles deb,appimage,rpm"
           - os: macos-latest
             platform: macos-arm64
+            args: ""
           - os: macos-13
             platform: macos-x86_64
+            args: ""
           - os: windows-latest
             platform: windows-x86_64
+            args: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +78,7 @@ jobs:
           releaseDraft: true
           prerelease: false
           generateReleaseNotes: true
+          args: ${{ matrix.args }}
           # macOS and Windows builds are unsigned.
           # macOS: right-click → Open to bypass Gatekeeper.
           # Windows: More info → Run anyway on the SmartScreen prompt.

@@ -10,4 +10,6 @@ pybtex
 pydantic
 pypdf>=6.10.2
 python-dotenv
+python-multipart>=0.0.26
+starlette<1.0
 uvicorn[standard]
