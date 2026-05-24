@@ -60,7 +60,7 @@ pub fn is_cli_installed() -> bool {
     }
 }
 
-/// Install the bundled `linxiv-cli` sidecar so it is accessible as `linxiv`
+/// Install the bundled `linxiv` CLI sidecar so it is accessible as `linxiv`
 /// on the user's PATH.
 ///
 /// - Linux/macOS: creates a symlink `~/.local/bin/linxiv` → binary path.
@@ -68,7 +68,7 @@ pub fn is_cli_installed() -> bool {
 ///   adds that directory to the user's PATH registry key.
 #[tauri::command]
 pub fn install_cli(app: AppHandle) -> Result<(), String> {
-    let binary = sidecar_path(&app, "linxiv-cli")?;
+    let binary = sidecar_path(&app, "linxiv")?;
 
     #[cfg(not(target_os = "windows"))]
     {

@@ -39,7 +39,7 @@
     ],
     "externalBin": [
       "binaries/linxiv-api",
-      "binaries/linxiv-cli",
+      "binaries/linxiv",
       "binaries/linxiv-mcp"
     ]
   },
