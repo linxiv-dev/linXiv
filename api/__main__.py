@@ -1,3 +1,3 @@
-from . import run
+from api.run_api import run
 
 run()
