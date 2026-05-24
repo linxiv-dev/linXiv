@@ -6,7 +6,7 @@ authors = ["jakeuribe"]
 edition = "2021"
 
 [[bin]]
-name = "linxiv"
+name = "linxiv-app"
 path = "src/main.rs"
 
 [build-dependencies]

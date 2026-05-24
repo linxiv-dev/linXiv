@@ -29,20 +29,15 @@ mcp = ["mcp[cli]"]
 [project.scripts]
 linxiv = "linxiv_cli:main"
 linxiv-mcp = "linxiv_mcp:main"
-linxiv-gui = "main_shell:main"
 linxiv-migrate = "migrate_db:main"
 [tool.hatch.build.targets.wheel]
 include = [
     "linxiv_cli.py",
     "linxiv_mcp.py",
-    "main_shell.py",
     "migrate_db.py",
-    "pdf.py",
-    "search.py",
     "AI_tools.py",
     "api",
     "formats",
-    "gui",
     "sources",
     "storage",
 ]
@@ -52,10 +47,6 @@ dev = [
     "pluggy>=1.6",
     "pytest>=8.3,<9",
 ]
-gui = [
-    "PyQt6",
-    "PyQt6-WebEngine",
-]
 
 [tool.uv]
-default-groups = ["dev", "gui"]
+default-groups = ["dev"]
