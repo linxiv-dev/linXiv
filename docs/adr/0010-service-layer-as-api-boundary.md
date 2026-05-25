@@ -26,11 +26,11 @@ Functions that previously lived only in `storage.db` are re-exported from `servi
 - BibTeX import now runs `save_papers_metadata` in a single transaction (the service-layer version) rather than a per-row loop.
 
 ### Negative / limits
-- The service-layer delegates are thin wrappers that add no logic today; they exist solely to enforce the boundary. This is intentional overhead.
+- The service-layer delegates are thin wrappers that add no logic today; they exist solely to enforce the boundary. This is intentional overhead we have chosen to adopt.
 - `storage.notes`, `storage.projects`, and `storage.tags` are still imported directly from `api/app.py`; the rule is not yet uniformly enforced across all domains.
 
 ## References
 
 - `api/app.py` — imports from `service.paper`, `service.tag`
 - `service/paper.py` — delegate wrappers at lines 372–384, 359, 82–91
-- TODO.md — remaining open items: PDF import lifecycle, project create/update, note mutations
+- TODO.md — remaining open items: note mutations

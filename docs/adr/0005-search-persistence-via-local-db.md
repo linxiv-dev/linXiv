@@ -38,6 +38,5 @@ Users can configure how many result batches to retain in advanced settings (defa
 
 ## References
 
-- `CONTEXT.md` — Search History, Search Results definitions
 - `storage/db.py` — where the new tables will live
 - `src/pages/SearchPage.tsx` — consumer

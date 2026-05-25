@@ -58,7 +58,6 @@ As part of this change, typed exceptions were added to the source modules to giv
 
 ### Negative / limits
 - `entry_id` now consistently holds the namespaced source_id string (e.g. `"arxiv:2204.12985"`). Previously the arXiv fetch route returned the full abs URL. Any external consumer that stored `entry_id` as a URL will see a different format. The frontend is unaffected (it treats the fields as equivalent), but this is a silent breaking change for hypothetical external API clients.
-- `pdf_url` in `SearchResultOut` is misnamed for OpenAlex results, which return a DOI landing page or OpenAlex work URL — not a PDF URL. This was true before this change (the old inline dict also used `pdf_url`). Fixing it requires updating the frontend `SearchResult` TypeScript interface and is deferred.
 - The `_USER_AGENT` in `openalex_source.py` does not include a `mailto:` address, which means OpenAlex requests hit the unprioritized pool. This should be sourced from user settings when that infrastructure is available.
 
 ## References
@@ -66,6 +65,5 @@ As part of this change, typed exceptions were added to the source modules to giv
 - `api/app.py` — `SearchResultOut`, `_strip_namespace`, updated routes
 - `sources/arxiv_source.py` — `ArxivNotFoundError`, `_ARXIV_EMPTY_PAGE_ERROR` compat shim
 - `sources/openalex_source.py` — `OpenAlexNotFoundError`, `OpenAlexHTTPError`, `OpenAlexInputError`
-- TODO.md — "Implicit search result contract" (now closed)
 - ADR 0002 — namespaced source IDs (`"arxiv:..."`, `"openalex:..."` convention)
 - ADR 0010 — service layer as the only write boundary for `api/app.py`
