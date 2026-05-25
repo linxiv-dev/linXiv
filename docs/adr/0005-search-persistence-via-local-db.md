@@ -14,14 +14,15 @@ The user's workflow often involves large batch searches (100+ results) against r
 
 Search state is persisted in two local SQLite tables:
 
-- **`search_history`**: a log of past searches (clauses, source, maxResults, timestamp). Surfaced as autocomplete suggestions in the clause input field after typing one character.
-- **`search_results`**: the current working set of results, which can be a mix accumulated from multiple searches (deduplicated by source ID). Persists across restarts. Cleared explicitly by the user.
+- **`search_history`**: a log of past searches (clauses, source, maxResults, timestamp). Surfaced as autocomplete suggestions in the clause input field after typing characters.
+- **`search_results`**: the current working set of results, which can be a mix accumulated from multiple searches (deduplicated by source ID). Persists across restarts. Cleared explicitly by the user. Append is also a second class behavior, users choose to use, papers don't pile up with out them being aware.
 
-The Search page restores from `search_results` on mount — it no longer needs to be keep-alive. The Graph page remains keep-alive (iframe reload is unavoidable).
+The Search page restores from `search_results` on mount — it no longer needs to be keep-alive. 
+The Graph page remains keep-alive (iframe reload is unavoidable). But this is being reconsidered, a refresh button doesn't look good in UI, manually refreshing via right-click is impractical.
 
-A plain **Search** button replaces the current working set. A **+** button adjacent to it appends new results to the existing set.
+A plain **Search** button replaces the current working set. A **+** button adjacent to it appends new results to the existing set. Minus (-) for clearing results, to match.
 
-Users can configure how many result batches to retain in advanced settings (default: 1).
+Users can configure how many result batches to retain in advanced settings (default: 1). Not implemented, and not sure if I want to implement before reducing complexity of UX overall.
 
 ## Consequences
 
@@ -33,7 +34,7 @@ Users can configure how many result batches to retain in advanced settings (defa
 
 ### Negative / limits
 - Requires a local db migration to add the two tables.
-- Result set can grow stale (paper may have been updated since it was fetched); users must be aware results are cached.
+- Result set can grow stale (paper may have been updated since it was fetched); this is a nitpicky complaint, and what most users would expect explicitly. 
 
 ## References
 

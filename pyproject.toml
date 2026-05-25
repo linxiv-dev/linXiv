@@ -12,14 +12,12 @@ dependencies = [
     "fastapi",
     "google-genai",
     "httpx",
-    "markdown",
     "openai",
     "pydantic>=2.0,<2.13",
     "pybtex",
     "python-dotenv",
     "uvicorn[standard]",
     "pypdf>=6.10.2",
-    "starlette<1.0",
     "python-multipart>=0.0.26",
 ]
 

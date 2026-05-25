@@ -35,11 +35,10 @@ Several modules bypass this — `service/paper.py` calls `db._connect()` directl
 - Future architecture reviews have a clear rule: if it queries the database, it goes through `queries.py`.
 
 ### Negative / limits
-- Very complex dynamic queries (e.g. multi-filter paper search with optional clauses) can produce verbose `Q` chains. For these, a named SQL constant with a Python-side conditional is acceptable when the `Q` approach becomes harder to read than the SQL itself.
+- Very complex dynamic queries (e.g. multi-filter paper search with optional clauses) can produce verbose `Q` chains. For these, a named SQL constant with a Python-side conditional becomes acceptable when the `Q` approach becomes harder to read than the SQL itself.
 - The `_fetch_all` runner uses `SELECT *` — callers receive `sqlite3.Row` objects and must know the column names. This is consistent with the existing codebase but means column renames require grep-and-fix, not a type error.
 
 ## References
 
 - `storage/config/queries.py` — `Q` class, `_in`, `_fetch_one`, `_fetch_all`, `_count`, existing JOIN constants
-- `api/app.py` — N+1 project listing endpoint (the motivating case)
-- `service/paper.py` — three functions that currently call `db._connect()` directly (violates this decision; fix tracked in TODO.md)
+- `service/paper.py` — three functions that currently call `db._connect()` directly (violates this decision; fix tracked and completed )

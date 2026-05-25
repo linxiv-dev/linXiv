@@ -18,7 +18,7 @@ Specific instances that triggered this decision:
 
 1. **Overflow menu (`···`) for destructive actions on detail pages.** On `ProjectDetailPage`, Archive and Delete are collapsed into a `···` ghost button that reveals a small dropdown. The dropdown dismisses on outside click. This pattern should be applied to any future detail page that needs status-change or delete actions.
 
-2. **No inline actions on list cards.** `ProjectCard` is navigation-only — clicking it opens the detail page where the `···` menu is available. Cards must not contain action buttons.
+2. **No inline actions on list cards.** `ProjectCard` is navigation-only — clicking it opens the detail page where the `···` menu is available. Cards must not contain first-class action buttons.
 
 3. **Secondary views as subtle links, not tabs.** The Archived projects view is accessible via a small muted `"N archived"` count link next to the page heading rather than a tab. The link only appears when archived projects exist. This pattern applies to any secondary filtered view that is not part of the primary workflow.
 
@@ -31,7 +31,7 @@ Specific instances that triggered this decision:
 - Secondary views (archived, deleted) are discoverable without being prominent.
 
 ### Negative / limits
-- Archive/Delete are slightly harder to reach — intentional, but may frustrate power users who use them frequently.
+- Archive/Delete are slightly harder to reach — intentional, but may frustrate heavy users who use them frequently.
 - The `···` overflow pattern must be implemented per-page; there is no shared dropdown component yet.
 
 ## References

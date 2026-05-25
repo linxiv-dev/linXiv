@@ -27,13 +27,13 @@ Three operations create orphan risk:
 
 **On hard delete:** `hard_delete_paper` relies solely on schema CASCADE to remove `PAPER_TO_AUTHOR` rows when `PAPER_ROOTS` is deleted. It does not call `_sync_paper_authors` and does not clean up orphaned AUTHOR rows. The AUTHOR rows remain as inert entries in the lookup table.
 
-**Accepted trade-off:** AUTHOR orphans on hard delete are allowed. The cleanup code in `_sync_paper_authors` is tied to the repair workflow where author names change incrementally. Calling it during hard delete would require extracting a helper and changing the deletion transaction — added complexity for a low-priority housekeeping win. An orphaned AUTHOR row has no functional consequence: it never appears in the UI and wastes negligible space.
+**Accepted trade-off:** AUTHOR orphans on hard delete are allowed. The cleanup code in `_sync_paper_authors` is tied to the repair workflow where author names change incrementally. Calling it during hard delete would require extracting a helper and changing the deletion transaction — added complexity for a low-priority housekeeping win. An orphaned AUTHOR row has no functional consequence: it never appears in the UI and wastes negligible space. Introduce orphan cleanup if usecase of linxiv changes, but vanishingly small consequences for current usecases.
 
 ### TAG rows
 
 TAG orphans are never cleaned up automatically — not on repair, not on hard delete, not on project delete. `_sync_paper_tags` replaces a paper's tag associations but does not delete TAG rows from the lookup table. `hard_delete_project` deletes `PROJECT_TO_TAG` rows but not the TAG entries.
 
-**Accepted trade-off:** TAG rows are shared vocabulary across papers and projects. A TAG that is no longer used by any paper or project is still a valid user-defined label that may be reused in the future. Aggressive cleanup risks deleting a tag a user intended to keep. Orphan TAG rows have no functional consequence and waste negligible space.
+**Accepted trade-off:** TAG rows are shared vocabulary across papers and projects. A TAG that is no longer used by any paper or project is still a valid user-defined label that may be reused in the future. Aggressive cleanup risks deleting a tag a user intended to keep. Orphan TAG rows have no functional consequence and waste negligible space. Same as author, will be revisited for edge cases.
 
 ### NOTE rows on project delete
 

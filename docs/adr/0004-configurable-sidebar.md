@@ -10,7 +10,7 @@ The sidebar is the primary navigation. As the app gains more pages (Tags, Notes 
 
 ## Decision
 
-The sidebar is split into a **fixed core** (Library, Projects, Settings — always visible) and **optional pages** that can be individually toggled in Settings. Optional pages and their defaults:
+The sidebar is split into a **fixed core** (Currently Library, Projects, Settings) and **optional pages** that can be individually toggled in Settings. Optional pages and their defaults:
 
 | Page | Default |
 |---|---|
@@ -20,21 +20,19 @@ The sidebar is split into a **fixed core** (Library, Projects, Settings — alwa
 | Tags | off |
 | Notes Editor | off |
 
-Future optional pages follow the same pattern: on by default if broadly useful, off by default if niche.
+Future optional pages follow the same pattern: on by default if broadly useful (or at least a feauture we want users to be immediately aware of) and off by default if niche.
 
 ## Consequences
 
 ### Positive
-- Clean navigation for new users; power users can enable everything.
+- Clean navigation and tool discovery for new users; users can enable everything.
 - Tags and Notes Editor can ship without cluttering the default experience.
 - Sets a consistent pattern for future additions.
 
 ### Negative / limits
-- Settings page must maintain the toggle list as pages are added.
 - A user who disables a page and forgets may think a feature is missing.
 
 ## References
 
-- `CONTEXT.md` — Sidebar definition
 - `src/components/layout/Sidebar.tsx` — where toggle state will be consumed
 - `src/stores/` — sidebar visibility state will be persisted here

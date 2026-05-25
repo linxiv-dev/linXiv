@@ -18,9 +18,11 @@ Local-only papers — PDFs uploaded without a known external ID — also need a 
 - `"openalex:W3123456789"`
 - `"local:{uuid}"` — fallback for papers that cannot be identified against any known provider; used only when existing deduplication logic has no match
 
-`"local"` is a fallback namespace, not a first-class provider. Existing deduplication catches most papers before they reach the local fallback.
+`"local"` is a fallback namespace,
+    - Previously, "local" was not a first-class provider. 
+    - Existing deduplication catches many papers before they reach the local fallback, however, distinguishing between locally and externally sourced files, is extraordinarily beneficial
 
-The alternative considered was a two-column `UNIQUE(PROVIDER, RAW_ID)` constraint on `PAPER_ROOTS`. The single namespaced string was preferred because `source_id` is used as an opaque token throughout the codebase (FTS index, tag join table, query parameters) — a single column is simpler to pass around, and the prefix makes the origin self-describing in logs and debug output.
+The alternative used was a two-column `UNIQUE(PROVIDER, RAW_ID)` constraint on `PAPER_ROOTS`, when the project was solely focused on managing arxiv papers. Namespaced covers all currently possible and near term cases required
 
 ## Consequences
 
@@ -33,8 +35,8 @@ The alternative considered was a two-column `UNIQUE(PROVIDER, RAW_ID)` constrain
 ### Negative / limits
 
 - All stored `source_id` values must be migrated in a one-time schema migration.
-- Every caller that constructs or parses a `source_id` string must be updated.
-- If a user has a `"local:{uuid}"` and an `"arxiv:..."` root for the same physical paper, Paper Repair re-keys one but does not merge two existing roots. A **Merge Papers** workflow is needed to consolidate notes, project memberships, and version history before the losing root is deleted.
+- If a user has a `"local:{uuid}"` and an `"arxiv:..."` root for the same physical paper, Paper Repair re-keys one but does not merge two existing roots. 
+- A **Merge Papers** workflow is needed to consolidate notes, project memberships, and version history before the losing root is deleted.
 
 ## References
 

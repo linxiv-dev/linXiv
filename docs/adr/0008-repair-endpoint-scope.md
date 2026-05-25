@@ -26,7 +26,7 @@ Two design questions needed resolution before shipping:
 
 `api_repair_paper` constructs `PaperMetadata` with `source_id=paper.source_id` (the existing ID, never from the request body). This makes the `if new_id != old_id:` migration branch in `db.repair_paper` unreachable through HTTP.
 
-**Reason:** Renaming a paper's identity key is a dangerous operation that changes the FTS index, all version rows, and all tag associations in a single transaction. It is only needed for import/export workflows (e.g. resolving a DOI that maps to a different arXiv ID during an import). Exposing it via a general-purpose metadata editor would allow accidental identity corruption with no undo path. If source_id migration is ever needed via HTTP, it should be a dedicated endpoint with explicit conflict detection and confirmation semantics — not the general repair endpoint.
+**Reason:** Renaming a paper's identity key is a dangerous operation that changes the FTS index, all version rows, and all tag associations in a single transaction. It is only needed for import/export workflows (e.g. resolving a DOI that maps to a different arXiv ID during an import). Exposing it via a general-purpose metadata editor would allow accidental identity corruption with no undo path. If source_id migration is ever needed via HTTP, it should be a dedicated endpoint with explicit conflict detection and confirmation semantics, not the general repair endpoint.
 
 ### 3. Conflict detection returns 409
 

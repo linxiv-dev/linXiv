@@ -1,9 +1,14 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { Document, Page, pdfjs } from "react-pdf";
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
 import { getPaperBySfk, getPaperVersions, getPaperPdfUrl } from "../api/papers";
 import { getNotes, deleteNote } from "../api/notes";
 import { fetchArxiv } from "../api/search";
+import { apiFetch, BASE_URL } from "../api/client";
 import type { Note, Paper } from "../types/api";
 import { Spinner } from "../components/ui/spinner";
 import { Button } from "../components/ui/button";
@@ -15,6 +20,11 @@ import { PaperMetadataEditor } from "../components/papers/PaperMetadataEditor";
 import { normalizeAuthors } from "../lib/papers";
 import { TagBadge } from "../components/tags/TagBadge";
 import { openPath } from "@tauri-apps/plugin-opener";
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url,
+).toString();
 
 const LATEST_VERSION_KEY = "latest" as const;
 
@@ -47,6 +57,28 @@ export default function PaperDetailPage() {
   const [openNativeError, setOpenNativeError] = useState<string | null>(null);
   // null means "latest"; a number means a specific stored version
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+
+  const [previewNumPages, setPreviewNumPages] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [useProxy, setUseProxy] = useState(false);
+  const [pdfPreviewLoaded, setPdfPreviewLoaded] = useState(false);
+  const pdfPreviewDocRef = useRef<PDFDocumentProxy | null>(null);
+  const linkPdfInputRef = useRef<HTMLInputElement>(null);
+  const _pdfObsRef = useRef<ResizeObserver | null>(null);
+  const pdfContainerRef = useCallback((el: HTMLDivElement | null) => {
+    if (_pdfObsRef.current) {
+      _pdfObsRef.current.disconnect();
+      _pdfObsRef.current = null;
+    }
+    if (!el) return;
+    const obs = new ResizeObserver((entries) => {
+      setContainerWidth(entries[0].contentRect.width);
+    });
+    obs.observe(el);
+    _pdfObsRef.current = obs;
+  }, []);
 
   const {
     data: paper,
@@ -81,6 +113,37 @@ export default function PaperDetailPage() {
   const downloadPdfMutation = useMutation({
     mutationFn: (sourceId: string) => fetchArxiv(sourceId, true),
     onSuccess: () => {
+      setShowPdfPreview(true);
+      queryClient.invalidateQueries({ queryKey: ["paper", "sfk", sfk] });
+      queryClient.invalidateQueries({ queryKey: ["paper", "versions", sfk] });
+      queryClient.invalidateQueries({ queryKey: ["papers"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+
+  const savePdfMutation = useMutation({
+    mutationFn: async (sourceId: string) => {
+      if (!pdfPreviewDocRef.current) throw new Error("PDF not loaded");
+      const bytes = await pdfPreviewDocRef.current.getData();
+      const form = new FormData();
+      form.append("file", new Blob([bytes.slice()], { type: "application/pdf" }), `${sourceId}.pdf`);
+      await apiFetch(`/api/papers/${encodeURIComponent(sourceId)}/pdf`, { method: "PUT", body: form });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["paper", "sfk", sfk] });
+      queryClient.invalidateQueries({ queryKey: ["paper", "versions", sfk] });
+      queryClient.invalidateQueries({ queryKey: ["papers"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+
+  const linkPdfMutation = useMutation({
+    mutationFn: async ({ sourceId, file }: { sourceId: string; file: File }) => {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      await apiFetch(`/api/papers/${encodeURIComponent(sourceId)}/pdf`, { method: "PUT", body: form });
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["paper", "sfk", sfk] });
       queryClient.invalidateQueries({ queryKey: ["paper", "versions", sfk] });
       queryClient.invalidateQueries({ queryKey: ["papers"] });
@@ -94,6 +157,32 @@ export default function PaperDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["notes", paper?.source_id] });
     },
   });
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  const { reset: resetDownloadPdf } = downloadPdfMutation;
+  const { reset: resetSavePdf } = savePdfMutation;
+  const { reset: resetLinkPdf } = linkPdfMutation;
+
+  useEffect(() => {
+    setPreviewNumPages(0);
+    setShowPdfPreview(false);
+    setUseProxy(false);
+    setPdfPreviewLoaded(false);
+    pdfPreviewDocRef.current = null;
+    resetDownloadPdf();
+    resetSavePdf();
+    resetLinkPdf();
+  }, [sfk, selectedVersion, paper?.has_pdf, resetDownloadPdf, resetSavePdf, resetLinkPdf]);
 
   function handleNotesSaved() {
     queryClient.invalidateQueries({ queryKey: ["notes", paper?.source_id] });
@@ -359,8 +448,8 @@ export default function PaperDetailPage() {
             )}
           </TabsContent>
 
-          {/* PDF tab */}
-          <TabsContent value="pdf" className="pt-5 space-y-4">
+          {/* PDF tab: forceMount keeps the preview PDF in memory across tab switches. */}
+          <TabsContent value="pdf" forceMount className="pt-5 space-y-4 data-[state=inactive]:hidden">
             {paper.has_pdf ? (
               <>
                 <div className="flex items-center gap-3 flex-wrap">
@@ -388,42 +477,180 @@ export default function PaperDetailPage() {
               </>
             ) : (
               <div className="space-y-3">
-                {paper.source === "arxiv" && isViewingLatest && (
+                {paper.source === "arxiv" && isViewingLatest ? (
+                  <>
+                    {!showPdfPreview && (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <Button
+                          variant="muted"
+                          onClick={() => downloadPdfMutation.mutate(paper.source_id)}
+                          disabled={downloadPdfMutation.isPending || !isOnline}
+                        >
+                          {downloadPdfMutation.isPending ? "Fetching…" : "Preview PDF"}
+                        </Button>
+                        {!isOnline && (
+                          <span className="text-xs text-muted">Offline</span>
+                        )}
+                        {downloadPdfMutation.isError && (
+                          <span className="text-xs" style={{ color: "var(--color-danger)" }}>
+                            {downloadPdfMutation.error instanceof Error
+                              ? downloadPdfMutation.error.message
+                              : "Failed to fetch PDF"}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {paper.url && (
+                      <a
+                        href={paper.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm hover:underline"
+                        style={{ color: "var(--color-accent)" }}
+                      >
+                        View online ↗
+                      </a>
+                    )}
+                    {showPdfPreview && (
+                      paper.url ? (
+                        <>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={savePdfMutation.isPending || savePdfMutation.isSuccess || !pdfPreviewLoaded}
+                              onClick={() => savePdfMutation.mutate(paper.source_id)}
+                            >
+                              {savePdfMutation.isPending ? (
+                                <span className="flex items-center gap-1.5">
+                                  <Spinner size={12} /> Saving…
+                                </span>
+                              ) : savePdfMutation.isSuccess ? (
+                                "Saved!"
+                              ) : (
+                                "Save PDF to library"
+                              )}
+                            </Button>
+                            {savePdfMutation.isError && (
+                              <span className="text-xs" style={{ color: "var(--color-danger)" }}>
+                                {savePdfMutation.error instanceof Error
+                                  ? savePdfMutation.error.message
+                                  : "Save failed"}
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            ref={pdfContainerRef}
+                            className="w-full rounded overflow-y-auto bg-[#525659]"
+                            style={{ height: "70vh" }}
+                          >
+                            <Document
+                              file={useProxy ? `${BASE_URL}/api/pdf/proxy?url=${encodeURIComponent(paper.url)}` : paper.url}
+                              onLoadSuccess={(pdf) => {
+                                setPreviewNumPages(pdf.numPages);
+                                pdfPreviewDocRef.current = pdf;
+                                setPdfPreviewLoaded(true);
+                              }}
+                              loading={
+                                <div className="flex items-center justify-center gap-2 py-16 text-white/60 text-sm">
+                                  <Spinner size={16} /> Loading PDF…
+                                </div>
+                              }
+                              error={
+                                <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm">
+                                  {!useProxy ? (
+                                    <>
+                                      <span className="text-white/60">Could not load PDF directly (CORS).</span>
+                                      <Button
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={() => { setPreviewNumPages(0); setPdfPreviewLoaded(false); pdfPreviewDocRef.current = null; setUseProxy(true); }}
+                                      >
+                                        Load via proxy
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="text-danger">Failed to load PDF.</span>
+                                      <a
+                                        href={paper.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-accent hover:underline"
+                                      >
+                                        Open in browser
+                                      </a>
+                                    </>
+                                  )}
+                                </div>
+                              }
+                            >
+                              {Array.from({ length: previewNumPages }, (_, i) => (
+                                <Page
+                                  key={i + 1}
+                                  pageNumber={i + 1}
+                                  width={containerWidth ? containerWidth - 32 : undefined}
+                                  className="mx-auto my-2 shadow-md"
+                                  renderTextLayer
+                                  renderAnnotationLayer
+                                />
+                              ))}
+                            </Document>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-muted text-sm">No PDF URL available for preview.</p>
+                      )
+                    )}
+                  </>
+                ) : (
                   <div className="flex items-center gap-3 flex-wrap">
+                    {paper.url && (
+                      <a
+                        href={paper.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-1.5 font-medium transition-colors px-3.5 py-1.5 text-sm rounded-md bg-[var(--color-panel)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                      >
+                        Open PDF ↗
+                      </a>
+                    )}
+                    <input
+                      ref={linkPdfInputRef}
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) linkPdfMutation.mutate({ sourceId: paper.source_id, file });
+                        e.target.value = "";
+                      }}
+                    />
                     <Button
                       variant="muted"
-                      onClick={() => downloadPdfMutation.mutate(paper.source_id)}
-                      disabled={downloadPdfMutation.isPending}
+                      size="sm"
+                      disabled={linkPdfMutation.isPending}
+                      onClick={() => linkPdfInputRef.current?.click()}
                     >
-                      {downloadPdfMutation.isPending ? "Fetching…" : "Download PDF"}
+                      {linkPdfMutation.isPending ? (
+                        <span className="flex items-center gap-1.5">
+                          <Spinner size={12} /> Linking…
+                        </span>
+                      ) : (
+                        "Link PDF"
+                      )}
                     </Button>
-                    {downloadPdfMutation.isError && (
+                    {linkPdfMutation.isError && (
                       <span className="text-xs" style={{ color: "var(--color-danger)" }}>
-                        {downloadPdfMutation.error instanceof Error
-                          ? downloadPdfMutation.error.message
-                          : "Failed to fetch PDF"}
+                        {linkPdfMutation.error instanceof Error
+                          ? linkPdfMutation.error.message
+                          : "Link failed"}
                       </span>
                     )}
-                    {downloadPdfMutation.isSuccess && (
-                      <span className="text-xs" style={{ color: "var(--color-success)" }}>
-                        PDF saved
-                      </span>
+                    {!paper.url && !linkPdfMutation.isPending && !linkPdfMutation.isError && (
+                      <span className="text-muted text-sm">No PDF available for this version.</span>
                     )}
                   </div>
-                )}
-                {paper.url && (
-                  <a
-                    href={paper.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm hover:underline"
-                    style={{ color: "var(--color-accent)" }}
-                  >
-                    View online ↗
-                  </a>
-                )}
-                {!paper.url && (paper.source !== "arxiv" || !isViewingLatest) && (
-                  <p className="text-muted text-sm">No PDF available for this version.</p>
                 )}
               </div>
             )}

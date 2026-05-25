@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 from typing import Literal
 from pathlib import Path
 
+import httpx
+
 from dotenv import load_dotenv
 
 from config import ENV_PATH
@@ -21,7 +23,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.background import BackgroundTasks
 from dotenv import set_key
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .graph_payload import get_augmented_graph_data, project_filter_options
@@ -54,6 +56,8 @@ from service.paper import (
     import_pdf as svc_import_pdf,
     PdfImportError,
     pdf_on_disk_name,
+    set_has_pdf,
+    set_pdf_path,
 )
 from service.models.paper import PaperDetails
 from service.tag import list_all_tags
@@ -250,6 +254,31 @@ def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
     if paper.url:
         return RedirectResponse(paper.url)
     raise HTTPException(status_code=404, detail="No PDF available")
+
+
+@app.put("/api/papers/{source_id:path}/pdf", response_model=None)
+async def api_attach_pdf(source_id: str, file: UploadFile = File(...)) -> dict:
+    """Store the PDF bytes already fetched by the client for a saved paper."""
+    paper = get_paper_details(Paper(source_id=source_id))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if file.size is not None and file.size > _MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail="PDF exceeds size limit")
+    content = await file.read()
+    if len(content) > _MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail="PDF exceeds size limit")
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Not a valid PDF")
+    ver = paper.version
+    dest = PDF_DIR / pdf_on_disk_name(source_id, ver)
+    try:
+        dest.resolve().relative_to(PDF_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid source_id")
+    dest.write_bytes(content)
+    set_pdf_path(source_id, str(dest), ver)
+    set_has_pdf(source_id, ver, True)
+    return {"ok": True}
 
 
 @app.get("/api/papers/{source_id:path}")
@@ -1206,6 +1235,61 @@ async def api_import_pdf(
         raise HTTPException(status_code=500, detail="PDF import failed") from e
     return {"source_id": result.source_id, "title": result.title}
 
+
+# ── PDF proxy ─────────────────────────────────────────────────────────────────
+
+_ALLOWED_PDF_HOSTS = {"arxiv.org", "ar5iv.labs.arxiv.org", "export.arxiv.org"}
+_PDF_PROXY_TIMEOUT = 30.0
+
+
+@app.get("/api/pdf/proxy")
+async def api_pdf_proxy(url: str = Query(...)) -> StreamingResponse:
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ""
+    if not any(host == h or host.endswith("." + h) for h in _ALLOWED_PDF_HOSTS):
+        raise HTTPException(status_code=400, detail="URL host not allowed")
+    async def _guard_redirect(request: httpx.Request) -> None:
+        rhost = request.url.host
+        if not any(rhost == h or rhost.endswith("." + h) for h in _ALLOWED_PDF_HOSTS):
+            raise httpx.RequestError(f"Redirect to disallowed host: {rhost}", request=request)
+
+    client = httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=_PDF_PROXY_TIMEOUT,
+        event_hooks={"request": [_guard_redirect]},
+    )
+    resp = None
+    try:
+        req = client.build_request("GET", url, headers={"User-Agent": "linXiv/1.0"})
+        resp = await client.send(req, stream=True)
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if resp is not None:
+            await resp.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Upstream returned {e.response.status_code}") from e
+    except httpx.RequestError as e:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Could not reach PDF host: {e}") from e
+    except Exception:
+        if resp is not None:
+            await resp.aclose()
+        await client.aclose()
+        raise
+
+    async def stream():
+        try:
+            async for chunk in resp.aiter_bytes(chunk_size=65536):
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
 
 # ── OpenAlex save ─────────────────────────────────────────────────────────────
 

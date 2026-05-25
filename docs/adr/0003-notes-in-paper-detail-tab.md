@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Notes are project-scoped markdown blocks attached to a paper. The question was whether to surface note editing as a tab within the Paper Detail view or as a top-level Notes page in the sidebar navigation.
+Notes are project-scoped/(project+paper)-scoped markdown blocks attached to a paper. The question was whether to surface note editing as a tab within the Paper Detail view or as a top-level Notes page in the sidebar navigation.
 
 linxiv's core goal is research paper management. Notes are a supporting feature. A richer text editor (block editor, bidirectional links, etc.) is a future goal but is explicitly out of scope until the core is stable — adding it now would introduce unnecessary complexity.
 
@@ -14,7 +14,7 @@ linxiv's core goal is research paper management. Notes are a supporting feature.
 
 Notes are a tab within **Paper Detail** (e.g. Overview | Notes | PDF). The Notes tab contains a simple markdown editor. A scope picker at the top pre-selects the project the user navigated from; it can be changed to any other project the paper belongs to, or set to global (unscoped).
 
-A standalone Notes page and any advanced editor features are deferred until the core app is stable and can be treated as a plugin or extension.
+A standalone Notes page and any advanced editor features are deferred until the core app is stable and can be treated as a "plugin" or update.
 
 ## Consequences
 
@@ -26,10 +26,9 @@ A standalone Notes page and any advanced editor features are deferred until the 
 
 ### Negative / limits
 - When the richer editor is eventually built, the tab UI will need to be revisited.
-- Explicitly choosing to need to do some low level migration and refactoring when text editor
+- Explicitly choosing to require minor migration and refactoring when text editor
 is introduced.
 
 ## References
 
-- `CONTEXT.md` — Note, Paper, Project definitions
 - `src/pages/PaperDetailPage.tsx` — where the tab will live

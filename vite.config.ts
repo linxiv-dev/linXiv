@@ -15,7 +15,7 @@ export default defineConfig({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 5183 } : undefined,
-    watch: { ignored: ["**/src-tauri/**"] },
+    watch: { ignored: ["**/src-tauri/**", "**/.venv/**", "**/node_modules/**"] },
     proxy: {
       "/api": "http://127.0.0.1:8000",
     },

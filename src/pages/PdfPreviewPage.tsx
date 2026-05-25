@@ -1,12 +1,22 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Document, Page, pdfjs } from "react-pdf";
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
 import { fetchArxiv } from "../api/search";
 import { appendSavedId } from "../api/searchState";
+import { apiFetch } from "../api/client";
 import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import type { SearchResult } from "../types/api";
 import { isArxivId } from "../lib/papers";
+
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url,
+).toString();
 
 interface PdfPreviewState {
   result: SearchResult;
@@ -33,16 +43,39 @@ export default function PdfPreviewPage() {
 
   const state = isValidPdfPreviewState(location.state) ? location.state : null;
   const [saved, setSaved] = useState(state?.isSaved ?? false);
+  const [numPages, setNumPages] = useState(0);
+  const [useProxy, setUseProxy] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const pdfDocRef = useRef<PDFDocumentProxy | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver((entries) => {
+      setContainerWidth(entries[0].contentRect.width);
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   const saveMutation = useMutation({
-    mutationFn: (sourceId: string) => fetchArxiv(sourceId, true),
+    mutationFn: async (sourceId: string) => {
+      const result = await fetchArxiv(sourceId, true);
+      if (pdfDocRef.current) {
+        try {
+          const bytes = await pdfDocRef.current.getData();
+          const form = new FormData();
+          form.append("file", new Blob([bytes.slice()], { type: "application/pdf" }), `${sourceId}.pdf`);
+          await apiFetch(`/api/papers/${encodeURIComponent(sourceId)}/pdf`, { method: "PUT", body: form });
+        } catch (e) {
+          console.error("PDF attach failed (non-fatal):", e);
+        }
+      }
+      return result;
+    },
     onSuccess: (data) => {
       if (data.saved) {
-        // setSaved reflects the backend's confirmed save. appendSavedId syncs the
-        // persisted search state so SearchPage shows this paper as saved on remount.
-        // If appendSavedId fails the library is still correct (fetchArxiv persisted it);
-        // only the search state cache is stale — the user will see the paper as unsaved
-        // in search results until the next search. Tracked in TODO.md (deferred).
         setSaved(true);
         appendSavedId(data.source_id).catch((e) =>
           console.error("appendSavedId failed:", e)
@@ -69,10 +102,12 @@ export default function PdfPreviewPage() {
   }
 
   const { result } = state;
+  const pdfSrc = useProxy
+    ? `/api/pdf/proxy?url=${encodeURIComponent(result.paper_url)}`
+    : result.paper_url;
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header bar */}
       <div
         className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-border"
         style={{ background: "var(--color-bg)" }}
@@ -126,17 +161,59 @@ export default function PdfPreviewPage() {
         )}
       </div>
 
-      {/* PDF iframe — only rendered when there is a URL to load.
-          allow-scripts is omitted to prevent script execution regardless of content type.
-          allow-same-origin without allow-scripts carries no sandbox escape risk and is
-          retained so WebKit PDF downloads work correctly. */}
       {result.paper_url ? (
-        <iframe
-          src={result.paper_url}
-          className="flex-1 w-full border-0"
-          title={result.title}
-          sandbox="allow-forms allow-popups allow-downloads allow-same-origin"
-        />
+        <div ref={containerRef} className="flex-1 overflow-y-auto bg-[#525659]">
+          <Document
+            file={pdfSrc}
+            onLoadSuccess={(pdf) => { setNumPages(pdf.numPages); pdfDocRef.current = pdf; }}
+            loading={
+              <div className="flex items-center justify-center gap-2 py-16 text-white/60 text-sm">
+                <Spinner size={16} /> Loading PDF…
+              </div>
+            }
+            error={
+              <div className="flex flex-col items-center justify-center gap-3 py-16 text-sm">
+                {!useProxy ? (
+                  <>
+                    <span className="text-white/60">
+                      Could not load PDF directly (CORS).
+                    </span>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => { setNumPages(0); setUseProxy(true); }}
+                    >
+                      Load via proxy
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-danger">Failed to load PDF.</span>
+                    <a
+                      href={result.paper_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent hover:underline"
+                    >
+                      Open in browser
+                    </a>
+                  </>
+                )}
+              </div>
+            }
+          >
+            {Array.from({ length: numPages }, (_, i) => (
+              <Page
+                key={i + 1}
+                pageNumber={i + 1}
+                width={containerWidth ? containerWidth - 32 : undefined}
+                className="mx-auto my-2 shadow-md"
+                renderTextLayer
+                renderAnnotationLayer
+              />
+            ))}
+          </Document>
+        </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-muted text-sm">
           No PDF URL available for this paper.
