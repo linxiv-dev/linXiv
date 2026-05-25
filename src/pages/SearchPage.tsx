@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Spinner } from "../components/ui/spinner";
 import { QueryBuilder, makeClause } from "../components/search/QueryBuilder";
 import { ResultRow } from "../components/search/ResultRow";
@@ -107,6 +108,7 @@ const MAX_RESULT_OPTIONS = [10, 25, 50, 100] as const;
 // ── component ────────────────────────────────────────────────────────────────
 
 export default function SearchPage() {
+  const navigate = useNavigate();
   const [queryText, setQueryText] = useState("");
   const [source, setSource] = useState<Source>("arxiv");
   const [maxResults, setMaxResults] = useState<number>(25);
@@ -275,6 +277,10 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
     }
     setSavedIds((prev) => new Set([...prev, sourceId]));
   }, []);
+
+  const handleViewPdf = useCallback((result: SearchResult, isSaved: boolean) => {
+    navigate("/pdf-preview", { state: { result, isSaved } });
+  }, [navigate]);
 
   if (!restored) {
     return (
@@ -513,6 +519,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
                 result={result}
                 saved={savedIds.has(result.source_id)}
                 onSave={handleSavePaper}
+                onViewPdf={handleViewPdf}
               />
             ))}
             {isAppending && (

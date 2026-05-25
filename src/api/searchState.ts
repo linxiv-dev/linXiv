@@ -22,6 +22,20 @@ export async function getSearchState(): Promise<SearchState | null> {
   return data.state;
 }
 
+export async function appendSavedId(sourceId: string): Promise<void> {
+  const state = await getSearchState();
+  if (!state) return;
+  if (state.saved_ids.includes(sourceId)) return;
+  await saveSearchState(
+    state.clauses,
+    state.source,
+    state.max_results,
+    state.results,
+    [...state.saved_ids, sourceId],
+    state.sort_prefs,
+  );
+}
+
 export async function saveSearchState(
   clauses: Clause[],
   source: string,

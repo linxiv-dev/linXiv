@@ -13,6 +13,7 @@ Minor Bugs
 - [ ] **Project create/update missing from service layer** — `service/project.py` handles lifecycle (delete, restore, purge) but has no `create` or `update` function. Both live inline in route handlers in `api/app.py`, including tag-sync coordination (`_sync_project_tags`, `_normalize_tags`). Extract `create(project_in: ProjectIn)` and `update(project_fk, ...)` into the service layer so project mutations are testable without HTTP.
 
 ## Deferred
+- [ ] **StorageSection PDF list** — Add a browsable list of saved PDFs in Settings → Storage with click-to-view (in-app viewer) and individual delete buttons to discard local copies.
 - [ ] Logging in via University Credentials
 - [ ] **OpenAlex polite pool `mailto:`** — `_USER_AGENT` in `sources/openalex_source.py` is `"linXiv/1.0"` with no `mailto:` address, so requests hit the unprioritized pool. Should be sourced from user settings when that infrastructure is available.
 - [ ] TeX rendering library decision (KaTeX vs MathJax — must be compatible with future Notes Editor)

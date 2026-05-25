@@ -8,9 +8,10 @@ interface ResultRowProps {
   result: SearchResult;
   saved: boolean;
   onSave: (sourceId: string) => Promise<void>;
+  onViewPdf: (result: SearchResult, isSaved: boolean) => void;
 }
 
-export function ResultRow({ result, saved, onSave }: ResultRowProps) {
+export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [localSaved, setLocalSaved] = useState(false);
@@ -117,15 +118,28 @@ export function ResultRow({ result, saved, onSave }: ResultRowProps) {
           </p>
 
           {result.paper_url && (
-            <a
-              href={result.paper_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-2 text-xs text-[var(--color-accent)] hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {isArxivId(result.source_id) ? "PDF →" : "Open →"}
-            </a>
+            isArxivId(result.source_id) ? (
+              <button
+                type="button"
+                className="inline-block mt-2 text-xs text-[var(--color-accent)] hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewPdf(result, isSaved);
+                }}
+              >
+                PDF →
+              </button>
+            ) : (
+              <a
+                href={result.paper_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block mt-2 text-xs text-[var(--color-accent)] hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Open →
+              </a>
+            )
           )}
         </div>
       )}

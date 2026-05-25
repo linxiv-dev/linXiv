@@ -1,5 +1,5 @@
 [package]
-name = "linxiv"
+name = "linxiv-app"
 version = "0.1.0"
 description = "linXiv desktop app"
 authors = ["jakeuribe"]
