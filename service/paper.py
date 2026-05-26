@@ -657,8 +657,7 @@ def import_pdf(content: bytes, project_id: int | None = None) -> PaperImportResu
         else:
             tmp_path.replace(final_path)
             wrote_final_path = True
-            set_pdf_path(source_id, str(final_path), version)
-            set_has_pdf(source_id, version, True)
+            db.mark_pdf_saved(source_id, str(final_path), version)
     except PdfImportError:
         tmp_path.unlink(missing_ok=True)
         raise

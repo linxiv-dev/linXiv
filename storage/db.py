@@ -472,6 +472,34 @@ def set_pdf_path(source_id: str, path: str, version: int | None = None) -> None:
                 print("This may incorrectly update the database, consider using different methodology")
 
 
+def mark_pdf_saved(source_id: str, path: str, version: int) -> None:
+    """Atomically write PDF_PATH and set HAS_PDF=True for a specific paper version.
+
+    Both columns are updated inside one explicit BEGIN/COMMIT block so a crash
+    between the two writes cannot leave them in a disagreeing state.
+    Raises RuntimeError if either PAPER or PAPER_META has no matching row.
+    """
+    with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        meta_cur = conn.execute(
+            "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
+            "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? AND VERSION = ?)",
+            (path, source_id, version),
+        )
+        if meta_cur.rowcount == 0:
+            raise RuntimeError(
+                f"mark_pdf_saved: no PAPER or PAPER_META row for source_id={source_id!r} version={version}"
+            )
+        paper_cur = conn.execute(
+            "UPDATE PAPER SET HAS_PDF = ? WHERE SOURCE_ID = ? AND VERSION = ?",
+            (True, source_id, version),
+        )
+        if paper_cur.rowcount == 0:
+            raise RuntimeError(
+                f"mark_pdf_saved: no PAPER row for source_id={source_id!r} version={version}"
+            )
+
+
 def soft_delete_paper(source_id: str) -> str | None:
     """Soft-delete a paper: set STATUS='deleted', remove PDF from linxiv dir if present.
 

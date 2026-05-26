@@ -26,6 +26,7 @@ import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
+import { normalizeAuthors } from "../lib/papers";
 
 // ---------------------------------------------------------------------------
 // Edit Project Dialog
@@ -321,8 +322,9 @@ function AddPapersDialog({
                   <span
                     className="text-xs truncate"
                     style={{ color: "var(--color-muted)" }}
+                    title={paper.source_id}
                   >
-                    {paper.source_id}
+                    {normalizeAuthors(paper.authors).join(", ") || paper.source_id}
                   </span>
                 </div>
               </label>
