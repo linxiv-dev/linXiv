@@ -31,14 +31,6 @@ def _sfk(label: str) -> int:
     return int(row[0])
 
 
-def _sfk(label: str) -> int:
-    """Insert or get a PAPER_ROOTS row, return its SOURCE_FK integer."""
-    with _db._connect() as conn:
-        conn.execute("INSERT OR IGNORE INTO PAPER_ROOTS (SOURCE_ID) VALUES (?)", (label,))
-        row = conn.execute("SELECT SOURCE_FK FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (label,)).fetchone()
-    return int(row[0])
-
-
 # ---------------------------------------------------------------------------
 # color_to_hex / color_from_hex — pure functions
 # ---------------------------------------------------------------------------
