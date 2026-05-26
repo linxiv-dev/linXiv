@@ -92,11 +92,12 @@ linXiv/
 ├── formats/
 │   ├── table_format.md        # YAML frontmatter template for Obsidian notes
 │   └── arxiv_paper.md         # Plain-text paper card template
+├── public/
+│   └── graph/                 # Graph viewer (graph.js + graph.css) served by the API
 ├── src/                       # React + TypeScript frontend (Vite)
 ├── src-tauri/                 # Tauri shell (Rust) + bundled sidecar binaries
 ├── tests/                     # pytest suite (API, CLI, DB, sources, DOI, notes, projects)
 ├── docs/                      # Development notes and technical debt log
-├── obsidian_vault/            # Generated markdown notes (gitignored)
 └── pdfs/                      # Downloaded PDFs (gitignored)
 ```
 
