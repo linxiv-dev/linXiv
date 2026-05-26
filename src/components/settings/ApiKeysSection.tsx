@@ -44,12 +44,12 @@ function PasswordField({
   );
 }
 
-export function ApiKeysSection() {
+export function ApiKeysSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const [geminiKey, setGeminiKey] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
 
   return (
-    <Section title="API Keys">
+    <Section title="API Keys" defaultOpen={defaultOpen}>
       <PasswordField
         label="Gemini API Key"
         value={geminiKey}

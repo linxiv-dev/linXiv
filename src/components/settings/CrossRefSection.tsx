@@ -5,7 +5,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Section } from "./Section";
 
-export function CrossRefSection() {
+export function CrossRefSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const { data: settings } = useQuery({
     queryKey: ["settings"],
     queryFn: getSettings,
@@ -21,7 +21,7 @@ export function CrossRefSection() {
   }
 
   return (
-    <Section title="CrossRef">
+    <Section title="CrossRef" defaultOpen={defaultOpen}>
       <div className="flex flex-col gap-1 mb-2">
         <label className="text-sm text-muted font-medium">Contact Email</label>
         <p className="text-xs text-muted mb-2">

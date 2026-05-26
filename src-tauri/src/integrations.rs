@@ -193,11 +193,11 @@ fn mcp_config_path(client_id: &str) -> Result<PathBuf, String> {
                 return Ok(PathBuf::from(appdata).join("Cursor").join("mcp.json"));
             }
         }
-        "windsurf" => {
+        "antigravity" => {
             #[cfg(not(target_os = "windows"))]
             return Ok(home
                 .join(".codeium")
-                .join("windsurf")
+                .join("antigravity")
                 .join("mcp_config.json"));
 
             #[cfg(target_os = "windows")]
@@ -206,10 +206,11 @@ fn mcp_config_path(client_id: &str) -> Result<PathBuf, String> {
                     .map_err(|_| "APPDATA not set".to_string())?;
                 return Ok(PathBuf::from(appdata)
                     .join("Codeium")
-                    .join("Windsurf")
+                    .join("Antigravity")
                     .join("mcp_config.json"));
             }
         }
+        "claude-code" => Ok(home.join(".claude.json")),
         _ => Err(format!("Unknown MCP client: {}", client_id)),
     }
 }
@@ -242,6 +243,24 @@ fn write_mcp_config(path: &PathBuf, value: &serde_json::Value) -> Result<(), Str
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
+/// Return `true` when a client application appears to be present on this machine.
+///
+/// Most clients are detected by checking whether their config directory exists.
+/// Claude Code is detected by looking for the `claude` binary on PATH, because
+/// its config file lives directly in `~` (which always exists).
+fn is_client_available(client_id: &str) -> bool {
+    if client_id == "claude-code" {
+        #[cfg(target_os = "windows")]
+        let result = std::process::Command::new("where").arg("claude").output();
+        #[cfg(not(target_os = "windows"))]
+        let result = std::process::Command::new("which").arg("claude").output();
+        return matches!(result, Ok(o) if o.status.success());
+    }
+    mcp_config_dir(client_id)
+        .map(|d| d.exists())
+        .unwrap_or(false)
+}
+
 /// Return `true` when a config file contains `mcpServers.linxiv`.
 fn config_has_linxiv(path: &PathBuf) -> bool {
     if !path.exists() {
@@ -265,8 +284,9 @@ fn config_has_linxiv(path: &PathBuf) -> bool {
 pub fn list_mcp_clients() -> Vec<MpcClientStatus> {
     let clients = [
         ("claude", "Claude Desktop"),
+        ("claude-code", "Claude Code"),
         ("cursor", "Cursor"),
-        ("windsurf", "Windsurf"),
+        ("antigravity", "Antigravity"),
     ];
 
     clients
@@ -277,9 +297,7 @@ pub fn list_mcp_clients() -> Vec<MpcClientStatus> {
                 .as_ref()
                 .map(config_has_linxiv)
                 .unwrap_or(false);
-            let available = mcp_config_dir(id)
-                .map(|d| d.exists())
-                .unwrap_or(false);
+            let available = is_client_available(id);
 
             MpcClientStatus {
                 id: id.to_string(),

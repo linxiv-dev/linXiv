@@ -9,11 +9,11 @@ const SIDEBAR_PAGE_OPTIONS: { key: SidebarPageKey; label: string; description: s
   { key: "notes",  label: "Notes",      description: "Notes editor (coming soon)" },
 ];
 
-export function SidebarSection() {
+export function SidebarSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const { sidebarPages, setSidebarPage } = useUiStore();
 
   return (
-    <Section title="Sidebar">
+    <Section title="Sidebar" defaultOpen={defaultOpen}>
       <p className="text-xs text-muted mb-4">
         Choose which pages appear in the sidebar navigation.
       </p>

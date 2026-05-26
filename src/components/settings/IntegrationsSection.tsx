@@ -73,7 +73,14 @@ function IntegrationRow({
   );
 }
 
-export function IntegrationsSection() {
+const mcpClientDescriptions: Record<string, string> = {
+  claude: "Registers linXiv as an MCP server in Claude Desktop.",
+  "claude-code": "Registers linXiv as an MCP server in Claude Code CLI (~/.claude.json).",
+  cursor: "Registers linXiv as an MCP server in Cursor.",
+  antigravity: "Registers linXiv as an MCP server in Antigravity.",
+};
+
+export function IntegrationsSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const qc = useQueryClient();
 
   // CLI/MCP install operations invoke Tauri commands directly. In a plain
@@ -124,7 +131,7 @@ export function IntegrationsSection() {
   }
 
   return (
-    <Section title="Integrations">
+    <Section title="Integrations" defaultOpen={defaultOpen}>
       <p className="text-xs text-muted mb-4">
         Install linXiv tools so other apps can use them outside the GUI.
       </p>
@@ -155,7 +162,7 @@ export function IntegrationsSection() {
       {!isTauri ? (
         <IntegrationRow
           label="MCP clients"
-          description="Register linXiv with Claude Desktop, Cursor, or Windsurf."
+          description="Register linXiv with Claude Desktop, Claude Code, Cursor, or Antigravity."
           installed={false}
           available={false}
           loading={false}
@@ -171,13 +178,7 @@ export function IntegrationsSection() {
           <IntegrationRow
             key={client.id}
             label={client.name}
-            description={
-              client.id === "claude"
-                ? "Registers linXiv as an MCP server in Claude Desktop."
-                : client.id === "cursor"
-                ? "Registers linXiv as an MCP server in Cursor."
-                : "Registers linXiv as an MCP server in Windsurf."
-            }
+            description={mcpClientDescriptions[client.id] ?? `Registers linXiv as an MCP server in ${client.name}.`}
             installed={client.installed}
             available={client.available}
             loading={mcpPending === client.id}
