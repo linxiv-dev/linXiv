@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import storage.authors as _authors_storage
-from service.models.author import BasicAuthorDetails, FullAuthorDetails
+from service.models.author import BasicAuthorDetails, FullAuthorDetails, AuthorWithCount, AuthorPaperPreview
 
 
 # ---------------------------------------------------------------------------
@@ -55,9 +55,9 @@ def _get_author_papers(author_id: int) -> list[dict]:
 
 def get(author: Author) -> Optional[BasicAuthorDetails]:
     """Fetch a single author. Resolution order: author_id → orcid."""
-    if author.author_id is not None:
+    if author.author_id:
         return _get_author(author.author_id)
-    if author.orcid is not None:
+    if author.orcid:
         for row in _list_authors():
             if row.orcid == author.orcid:
                 return row
@@ -87,7 +87,7 @@ def upsert(author: AuthorIn) -> int | None:
 
 
 def delete(author: Author) -> None:
-    if author.author_id is not None:
+    if author.author_id:
         _authors_storage.delete_author(author.author_id)
 
 
@@ -145,8 +145,26 @@ def create_author(author: AuthorIn) -> int | None:
     )
 
 
-def update_author(author_id: int, update: AuthorIn) -> None:
+def update_fields(
+    author_id:  int,
+    full_name:  str | None = None,
+    first_name: str | None = None,
+    last_name:  str | None = None,
+    orcid:      str | None = None,
+) -> None:
+    """Partial field update — only non-None fields are written."""
     _authors_storage.update_author(
+        author_id  = author_id,
+        full_name  = full_name,
+        first_name = first_name,
+        last_name  = last_name,
+        orcid      = orcid,
+    )
+
+
+def update_author(author_id: int, update: AuthorIn) -> None:
+    """Full-record update convenience wrapper."""
+    update_fields(
         author_id  = author_id,
         full_name  = update.full_name,
         first_name = update.first_name,
@@ -157,6 +175,40 @@ def update_author(author_id: int, update: AuthorIn) -> None:
 
 def delete_author(author_id: int) -> None:
     _authors_storage.delete_author(author_id)
+
+
+def list_with_paper_count() -> list[AuthorWithCount]:
+    """Return all authors with their active paper count."""
+    return [
+        AuthorWithCount(
+            author_id   = d["author_id"],
+            full_name   = d["full_name"],
+            first_name  = d["first_name"],
+            last_name   = d["last_name"],
+            orcid       = d["orcid"],
+            paper_count = d["paper_count"],
+        )
+        for d in _authors_storage.list_authors_with_paper_count()
+    ]
+
+
+def get_paper_previews(author_id: int) -> list[AuthorPaperPreview]:
+    """Return latest-version display fields for active papers linked to an author."""
+    return [
+        AuthorPaperPreview(
+            paper_id  = d["paper_id"],
+            source_id = d["source_id"],
+            source_fk = d["source_fk"],
+            version   = d["version"],
+            title     = d["title"],
+        )
+        for d in _authors_storage.get_author_paper_previews(author_id)
+    ]
+
+
+def count_paper_links(author_id: int) -> int:
+    """Total PAPER_TO_AUTHOR rows for this author, regardless of paper status."""
+    return _authors_storage.count_author_paper_links(author_id)
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,11 @@
 # linXiv
 
 <img src="assets/wide_logo.png" alt="linXiv logo"/>
-A local-first, Python application for discovering, managing, and visualizing academic papers from arXiv, and more sources. Combines a local SQLite database, OPTIONAL AI-powered tagging, Obsidian vault integration, and an interactive D3.js network graph, wrapped in a PyQt6 GUI.
+A local-first desktop application for discovering, managing, and visualizing academic papers from arXiv and other sources. Combines a local SQLite database, optional AI-powered tagging, Obsidian vault integration, and an interactive D3.js network graph, wrapped in a Tauri desktop shell (React + TypeScript frontend, Python backend).
 
-Upload your pdfs, create projects, manage notes, tags, and more to organize your files. All locally without ever sending out your data intermediately. This project aims to be a one-stop-shop for researchers who look to manage their literature, with the near-term goal of extending this to research groups who seek to share their knowledge and literature with each other, without going to the web.
+Upload your PDFs, create projects, manage notes, tags, and more to organize your files — all locally, without sending your data anywhere. This project aims to be a one-stop-shop for researchers who want to manage their literature, with the near-term goal of extending to research groups who seek to share knowledge without going to the web.
+
+> **Development status:** The database schema and paper identifier format are actively changing. `source_id` values are being migrated to a namespaced format (`arxiv:2204.12985`, `doi:10.48550/…`, `openalex:W3123456789`, `local:{hash}`). Until that work lands, existing `papers.db` files will not be compatible with new builds — delete `papers.db` and let it rebuild on first run. No stable release has been cut yet. Migrations from version 0.1.0 to 0.1.1 will be accounted for.
 
 ## Table of Contents
 
@@ -14,7 +16,10 @@ Upload your pdfs, create projects, manage notes, tags, and more to organize your
   - [Install dependencies](#install-dependencies)
   - [Environment variables](#environment-variables)
   - [Run](#run)
-- [App Shell](#app-shell)
+- [Building the Tauri App](#building-the-tauri-app)
+  - [Tauri prerequisites](#tauri-prerequisites)
+  - [Development](#development)
+  - [Production build](#production-build)
 - [Usage](#usage)
   - [Projects](#projects)
   - [Notes](#notes)
@@ -32,7 +37,6 @@ Upload your pdfs, create projects, manage notes, tags, and more to organize your
 - **Interactive graph** — Force-directed D3.js visualization of papers and authors; real-time force controls (gravity, repulsion, link strength)
 - **Projects** — Organise papers into projects; add notes per paper scoped to a project; composable SQL query builder (`Q`) for filtering
 - **TeX rendering** — KaTeX renders LaTeX math in titles and abstracts inside the search UI
-- **PDF viewer** — Native Qt PDF viewer (`QPdfView`) with zoom and page navigation
 - **AI tools** — Google Gemini structured output for tag generation, paper summarization, and semantic similarity
 - **Obsidian integration** — Auto-generate markdown notes with YAML frontmatter for your vault
 - **PDF & TeX downloads** — Batch download PDFs and TeX source tarballs
@@ -41,16 +45,12 @@ Upload your pdfs, create projects, manage notes, tags, and more to organize your
 
 ```
 linXiv/
-├── main_shell.py              # Launch full app shell (recommended)
 ├── AI_tools.py                # Gemini: tag(), summarize(), find_related(); PaperContent input type
 ├── linxiv_cli.py              # CLI entry point (linxiv command via pyproject.toml)
 ├── linxiv_mcp.py              # MCP server for Claude integration
 ├── config.py                  # App-wide configuration constants
 ├── user_settings.py           # User-editable settings (API keys, paths)
-├── search.py                  # Standalone search script
-├── pdf.py                     # PDF utility helpers
 ├── pyproject.toml             # Package metadata + CLI/MCP entry points
-├── requirements.txt           # Pip-compatible dependency list
 ├── assets/
 │   ├── app_icon.png           # Application icon
 │   └── wide_logo.png          # Wide logo (README header)
@@ -92,32 +92,8 @@ linXiv/
 ├── formats/
 │   ├── table_format.md        # YAML frontmatter template for Obsidian notes
 │   └── arxiv_paper.md         # Plain-text paper card template
-├── gui/
-│   ├── app.py                 # QApplication bootstrap
-│   ├── app_shell.py           # AppShell wiring (run via main_shell.py)
-│   ├── shell.py               # AppShell: sidebar nav + QStackedWidget page container
-│   ├── main_window.py         # Main window with paper list panel
-│   ├── theme.py               # Shared colours, fonts, spacing constants
-│   ├── qt_assets/             # Reusable Qt widgets (cards, dialogs, selection bar, styles)
-│   ├── home/page.py           # Home: stat cards, recent papers list
-│   ├── graph/
-│   │   ├── page.py            # Graph page (embedded in shell)
-│   │   ├── view.py            # QWebEngineView wrapper for D3/Cytoscape graph
-│   │   └── web/               # Graph assets (D3, Cytoscape, HTML/JS/CSS)
-│   ├── library/page.py        # Library: full paper list with filtering
-│   ├── projects/page.py       # Projects: list, detail view, add paper/note dialogs
-│   ├── doi/page.py            # Add by DOI: three-strategy resolution + save to library
-│   ├── settings/page.py       # Settings: user-configurable application preferences
-│   ├── setup/page.py          # Setup: API key instructions and status
-│   ├── search/
-│   │   ├── _window.py         # Search page: tri-pane with TeX rendering and PDF button
-│   │   ├── _widgets.py        # Reusable search widget components
-│   │   └── _workers.py        # QThread workers for async search
-│   └── views/
-│       ├── pdf_window.py      # QPdfView PDF viewer with toolbar
-│       ├── tex_view.py        # QWebEngineView wrapper for KaTeX rendering
-│       ├── markdown_view.py   # QWebEngineView wrapper for markdown rendering
-│       └── web/               # KaTeX assets + fonts (offline)
+├── src/                       # React + TypeScript frontend (Vite)
+├── src-tauri/                 # Tauri shell (Rust) + bundled sidecar binaries
 ├── tests/                     # pytest suite (API, CLI, DB, sources, DOI, notes, projects)
 ├── docs/                      # Development notes and technical debt log
 ├── obsidian_vault/            # Generated markdown notes (gitignored)
@@ -129,19 +105,18 @@ linXiv/
 ### Prerequisites
 
 - Python 3.10+
-- PyQt6 with WebEngine and PDF support (`PyQt6-WebEngine`, `PyQt6` ≥ 6.4)
+- [Node.js](https://nodejs.org/) 18+ (for frontend / Tauri dev)
+- [Rust toolchain](https://rustup.rs/) (for Tauri)
+- [uv](https://github.com/astral-sh/uv) (recommended Python package manager)
 
 ### Install dependencies
 
 ```bash
-uv sync   # recommended (uses uv); includes PyQt6 via the default `gui` group
-# headless / CI (CLI + API only, no Qt):
-uv sync --no-group gui
-# or
-pip install -r requirements.txt
+uv sync          # Python dependencies (backend + dev)
+npm install      # Node dependencies (frontend)
 ```
 
-> **Note:** Add `--extra mcp` if you need the MCP server (`mcp[cli]`). Plain `pip install -e .` does not install dependency groups; use `uv sync` or `pip install -r requirements.txt` if you need the desktop stack.
+> Add `--extra mcp` if you need the MCP server: `uv pip install -e ".[mcp]"`
 
 ### Environment variables
 
@@ -153,21 +128,11 @@ GENAI_API_KEY_TAG_GEN=your_google_gemini_api_key
 
 ### Run
 
-**Desktop (PyQt6)**
+**HTTP API (JSON backend)**
 
 ```bash
-linxiv-gui            # after uv sync (includes `gui` group by default)
-# or without installing:
-python main_shell.py
+uv run python -m api   # http://127.0.0.1:8000 — see /docs for OpenAPI
 ```
-
-**HTTP API (JSON backend for a separate frontend)**
-
-```bash
-python -m api         # http://127.0.0.1:8000 — see /docs for OpenAPI
-```
-
-The API serves JSON under `/api/…` and the bundled graph viewer under `/assets/graph/` (for iframe or dev-server proxy).
 
 **CLI**
 
@@ -236,19 +201,19 @@ All commands output JSON (or a formatted markdown card for `fetch`). Pass `--hel
 
 **MCP server (Claude integration)**
 
-To expose linXiv as tools that Claude can call directly, install with the `mcp` extra:
+Install with the `mcp` extra:
 
 ```bash
 uv pip install -e ".[mcp]"
 ```
 
-Then register it with Claude Code:
+Register with Claude Code:
 
 ```bash
 claude mcp add linxiv -- linxiv-mcp
 ```
 
-Or add it manually to `.claude/settings.json`:
+Or add manually to `.claude/settings.json`:
 
 ```json
 {
@@ -260,37 +225,67 @@ Or add it manually to `.claude/settings.json`:
 }
 ```
 
-> **Note:** if you haven't done an editable install, fall back to `uv run` with an explicit `cwd`:
+> Without an editable install, fall back to `uv run`:
 > ```json
 > { "command": "uv", "args": ["run", "linxiv_mcp.py"], "cwd": "/absolute/path/to/linxiv" }
 > ```
 
-Once registered, Claude can call these tools directly in conversation: `search_papers`, `fetch_paper`, `list_papers`, `get_paper`, `search_full_text`, `tag_paper`, `list_projects`, `create_project`, `add_paper_to_project`, `remove_paper_from_project`, `create_note`, `get_notes_for_paper`, `get_notes_for_project`.
+Once registered, Claude can call these tools directly: `search_papers`, `fetch_paper`, `list_papers`, `get_paper`, `search_full_text`, `tag_paper`, `list_projects`, `create_project`, `add_paper_to_project`, `remove_paper_from_project`, `create_note`, `get_notes_for_paper`, `get_notes_for_project`.
 
-## App Shell
+## Building the Tauri App
 
-The shell (`gui/shell.py`) is a `QMainWindow` with a fixed 120px sidebar and a `QStackedWidget` that fills the remaining space. Pages and launchers are registered at startup in `gui/app_shell.py`:
+The Tauri desktop app wraps the React/Vite frontend and bundles the Python backend as sidecar binaries compiled with PyInstaller.
 
+### Tauri prerequisites
+
+- [Node.js](https://nodejs.org/) 18+
+- [Rust toolchain](https://rustup.rs/) (stable)
+- [uv](https://github.com/astral-sh/uv)
+- System Tauri dependencies — follow the [Tauri v2 prerequisites guide](https://tauri.app/start/prerequisites/) for your OS (WebKit2GTK on Linux, Xcode Command Line Tools on macOS, Microsoft C++ Build Tools on Windows)
+
+### Development
+
+Start the Python API and the Tauri dev window in separate terminals:
+
+```bash
+# terminal 1 — Python backend
+uv run python -m api   # http://127.0.0.1:8000
+
+# terminal 2 — Tauri dev window (also starts Vite, hot-reloads on frontend changes)
+npm run tauri dev
 ```
-AppShell
-├── Sidebar (fixed, dark)
-│   ├── Home        → HomePage      (stat cards, recent papers)
-│   ├── Graph       → GraphPage     (D3 force graph + paper list)
-│   ├── Projects    → ProjectsPage  (project list + detail view)
-│   ├── Add by DOI  → DoiPage       (DOI resolution + save)
-│   ├── Setup       → SetupPage     (API key instructions)
-│   └── Search      → SearchWindow  (floating, not embedded)
-└── QStackedWidget (page content)
+
+The Python API sidecar is not bundled in dev mode — the app talks to the locally running API on port 8000.
+
+### Production build
+
+The Python entry points (API, CLI, MCP server) are compiled to self-contained binaries with PyInstaller and staged into `src-tauri/binaries/` before Tauri bundles the app.
+
+**1. Build and stage the Python sidecars:**
+
+```bash
+npm run build:sidecar
 ```
 
-New pages and launchers can be added in one line:
+This runs PyInstaller on `linxiv-api.spec`, `linxiv-cli.spec`, and `linxiv-mcp.spec`, then copies the outputs to `src-tauri/binaries/` with the correct Tauri target-triple suffix.
 
-```python
-shell.add_page("Stats", StatsWidget())        # embedded, switchable
-shell.add_launcher("Settings", open_settings) # opens a floating window
+**2. Build the Tauri app:**
+
+```bash
+npm run tauri build
 ```
 
-`add_page` returns the stack index. `add_launcher` buttons are not checkable and do not affect the stack.
+Or run both steps at once:
+
+```bash
+npm run build:all
+```
+
+The final installer/bundle is written to `src-tauri/target/release/bundle/`.
+
+**Installing the CLI**
+
+After installing the desktop app, open Settings and click **Install CLI** to symlink the bundled `linxiv` binary to `~/.local/bin/linxiv` (Linux/macOS) or add a shim to your PATH (Windows).
 
 ## Usage
 
@@ -344,8 +339,6 @@ papers = search_papers("lattice QCD", max_results=25)  # auto-saves to DB
 ```
 
 ### Add by DOI
-
-Use the "Add by DOI" page in the app shell, or resolve programmatically:
 
 ```python
 from sources import resolve_doi
@@ -409,7 +402,7 @@ Papers (blue circles) and authors (gold diamonds) form a force-directed network.
 
 - arXiv requests are rate-limited to one every 3 seconds per arXiv's API policy.
 - `papers.db`, `pdfs/`, `source/`, and vault contents are gitignored.
-- KaTeX, D3, and all fonts are bundled locally — the GUI works fully offline after first run.
+- KaTeX, D3, and all fonts are bundled locally — the app works fully offline after first run.
 - `PaperContent` accepts `abstract`, `full_text` (TeX source), or `pdf` (bytes) — Gemini will use the richest available source.
 
 ## Acknowledgements

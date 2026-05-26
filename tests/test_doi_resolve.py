@@ -133,7 +133,7 @@ class TestTrySemanticScholar:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=s2_data):
             result = _try_semantic_scholar("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.title == "A Test Paper"
         assert result.authors == ["Jane Doe"]
         assert result.source == "semanticscholar"
@@ -177,7 +177,7 @@ class TestTrySemanticScholar:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=s2_data):
             result = _try_semantic_scholar("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.published.year == 2019
 
     def test_uses_today_when_no_date_or_year(self):
@@ -191,7 +191,7 @@ class TestTrySemanticScholar:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=s2_data):
             result = _try_semantic_scholar("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.published == datetime.date.today()
 
 
@@ -221,7 +221,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.title == "A CrossRef Paper"
         assert result.authors == ["John Smith"]
         assert result.published == datetime.date(2021, 3, 15)
@@ -239,7 +239,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
         assert "<" not in result.summary
         assert "Clean" in result.summary
 
@@ -255,7 +255,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
 
     def test_handles_partial_date_year_only(self):
         cr_data = {
@@ -269,7 +269,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.published.year == 2020
         assert result.published.month == 1
         assert result.published.day == 1

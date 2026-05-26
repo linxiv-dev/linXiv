@@ -79,9 +79,9 @@ def export_project(
         if source_id is None:
             continue
         version = None
-        if n.paper_id_fk is not None:
+        if n.paper_id_fk:
             pinned = _paper.get(_paper.Paper(paper_id=n.paper_id_fk))
-            if pinned is not None:
+            if pinned:
                 version = pinned.version
         note_dicts.append({
             "paper_source_id": source_id,
@@ -102,7 +102,7 @@ def export_project(
             if local.exists():
                 pdf_files[f"pdfs/{p.source_id}_v{p.version}.pdf"] = local
 
-    color_hex = _project.color_to_hex(details.color) if details.color is not None else None
+    color_hex = _project.color_to_hex(details.color) if details.color else None
 
     manifest = {
         "format_version": _FORMAT_VERSION,
@@ -204,13 +204,17 @@ def _commit_import_body(
         source_id    = pd["source_id"]
         existing_root = _paper.get_paper_root(source_id)
 
-        if existing_root is not None and on_conflict == "merge":
+        if existing_root and on_conflict == "merge":
             source_fk = int(existing_root["SOURCE_FK"])
+            if str(existing_root["STATUS"]) == "deleted":
+                _paper.restore(_paper.Paper(source_fk=source_fk))
             # Union any tags from the import that the existing paper doesn't have
             if pd.get("tags"):
                 _paper.add_paper_tags(source_id, pd["tags"])
-        elif existing_root is not None:  # on_conflict == "overwrite"
+        elif existing_root:  # on_conflict == "overwrite"
             source_fk = int(existing_root["SOURCE_FK"])
+            if str(existing_root["STATUS"]) == "deleted":
+                _paper.restore(_paper.Paper(source_fk=source_fk))
             meta = _deserialize_paper(pd)
             _paper.repair_paper(source_fk, meta)
             if pd.get("tags"):
@@ -224,7 +228,7 @@ def _commit_import_body(
 
     # Link all papers to the newly created project in order
     proj = _get_storage_project(project_fk)
-    if proj is not None and source_id_to_fk:
+    if proj and source_id_to_fk:
         proj.add_papers(list(source_id_to_fk.values()))
 
     # Copy any bundled PDFs into the local pdf directory
@@ -241,12 +245,12 @@ def _commit_import_body(
 
         paper_id = None
         pinned_version = nd.get("paper_version")
-        if pinned_version is not None:
+        if pinned_version:
             row = _paper.get_paper(paper_source_id, pinned_version)
-            if row is not None:
+            if row:
                 paper_id = row["paper_id"]
 
-        _note.upsert(
+        _note.create(
             _note.NoteIn(
                 source_fk  = source_fk,
                 title      = nd.get("title", ""),

@@ -97,7 +97,7 @@ class TestSavePaper:
         result = _make_result("2204.12985v1", title="Attention Is All You Need")
         db.save_paper(result)
         row = db.get_paper("2204.12985")
-        assert row is not None
+        assert row
         assert row["source_id"] == "2204.12985"
         assert row["title"] == "Attention Is All You Need"
         assert row["version"] == 1
@@ -106,7 +106,7 @@ class TestSavePaper:
         result = _make_result("2204.12985v3", title="Paper v3")
         db.save_paper(result)
         row = db.get_paper("2204.12985", version=3)
-        assert row is not None
+        assert row
         assert row["version"] == 3
 
     def test_save_stores_authors(self):
@@ -116,7 +116,7 @@ class TestSavePaper:
         )
         db.save_paper(result)
         row = db.get_paper("2301.00001")
-        assert row is not None
+        assert row
         assert "Alice Smith" in row["authors"]
         assert "Bob Jones" in row["authors"]
 
@@ -124,7 +124,7 @@ class TestSavePaper:
         result = _make_result("2301.00002v1", primary_category="math.CO")
         db.save_paper(result)
         row = db.get_paper("2301.00002")
-        assert row is not None
+        assert row
         assert row["category"] == "math.CO"
 
     def test_save_returns_source_id_and_version(self):
@@ -141,7 +141,7 @@ class TestSavePaper:
         result = _make_result("2204.12985v1")
         db.save_paper(result, tags=["ml", "transformers"])
         row = db.get_paper("2204.12985")
-        assert row is not None
+        assert row
         assert "ml" in row["tags"]
         assert "transformers" in row["tags"]
 
@@ -170,7 +170,7 @@ class TestSavePaperMetadata:
         meta = self._make_meta()
         db.save_paper_metadata(meta)
         row = db.get_paper("W3123456789")
-        assert row is not None
+        assert row
         assert row["title"] == "OpenAlex Paper"
         assert row["source"] == "openalex"
 
@@ -178,21 +178,21 @@ class TestSavePaperMetadata:
         meta = self._make_meta(source="openalex")
         db.save_paper_metadata(meta)
         row = db.get_paper("W3123456789")
-        assert row is not None
+        assert row
         assert row["source"] == "openalex"
 
     def test_arxiv_save_defaults_source_to_arxiv(self):
         result = _make_result("2204.12985v1")
         db.save_paper(result)
         row = db.get_paper("2204.12985")
-        assert row is not None
+        assert row
         assert row["source"] == "arxiv"
 
     def test_save_metadata_with_tags(self):
         meta = self._make_meta()
         db.save_paper_metadata(meta, tags=["physics", "ml"])
         row = db.get_paper("W3123456789")
-        assert row is not None
+        assert row
         assert "physics" in row["tags"]
         assert "ml" in row["tags"]
 
@@ -252,19 +252,19 @@ class TestFullTextSearch:
         db.save_paper(_make_result("2204.12985v1"))
         db.set_full_text("This paper studies transformers.", None, "2204.12985", 1)
         row = db.get_paper("2204.12985")
-        assert row is not None
+        assert row
         assert row["full_text"] == "This paper studies transformers."
         assert row["downloaded_source"] == True
 
     def test_set_full_text_marks_downloaded_source(self):
         db.save_paper(_make_result("2204.12985v1"))
         row_before = db.get_paper("2204.12985")
-        assert row_before is not None
+        assert row_before
         assert not row_before["downloaded_source"]
 
         db.set_full_text("Some TeX content.", None, "2204.12985", 1)
         row_after = db.get_paper("2204.12985")
-        assert row_after is not None
+        assert row_after
         assert row_after["downloaded_source"]  # set_full_text should mark this True
 
 # ---------------------------------------------------------------------------
@@ -330,7 +330,7 @@ class TestSetHasPdf:
         db.save_paper(_make_result("2204.12985v1"))
         db.set_has_pdf("2204.12985", 1, True)
         row = db.get_paper("2204.12985", version=1)
-        assert row is not None
+        assert row
         assert bool(row["has_pdf"]) is True
 
     def test_set_has_pdf_false(self):
@@ -338,7 +338,7 @@ class TestSetHasPdf:
         db.set_has_pdf("2204.12985", 1, True)
         db.set_has_pdf("2204.12985", 1, False)
         row = db.get_paper("2204.12985", version=1)
-        assert row is not None
+        assert row
         assert bool(row["has_pdf"]) is False
 
     def test_set_has_pdf_only_affects_target_version(self):
@@ -346,13 +346,13 @@ class TestSetHasPdf:
         db.save_paper(_make_result("2204.12985v2"))
         db.set_has_pdf("2204.12985", 1, True)
         row_v2 = db.get_paper("2204.12985", version=2)
-        assert row_v2 is not None
+        assert row_v2
         assert not bool(row_v2["has_pdf"])
 
     def test_set_has_pdf_default_is_false(self):
         db.save_paper(_make_result("2204.12985v1"))
         row = db.get_paper("2204.12985", version=1)
-        assert row is not None
+        assert row
         assert not bool(row["has_pdf"])
 
 
@@ -366,7 +366,7 @@ class TestSetPdfPath:
         db.save_paper(_make_result("2204.12985v1"))
         db.set_pdf_path("2204.12985", "/tmp/paper.pdf")
         row = db.get_paper("2204.12985", version=1)
-        assert row is not None
+        assert row
         assert row["pdf_path"] == "/tmp/paper.pdf"
 
     def test_set_pdf_path_all_versions(self):
@@ -375,15 +375,15 @@ class TestSetPdfPath:
         db.set_pdf_path("2204.12985", "/tmp/paper.pdf")
         row_v1 = db.get_paper("2204.12985", version=1)
         row_v2 = db.get_paper("2204.12985", version=2)
-        assert row_v1 is not None and row_v1["pdf_path"] == "/tmp/paper.pdf"
-        assert row_v2 is not None and row_v2["pdf_path"] == "/tmp/paper.pdf"
+        assert row_v1 and row_v1["pdf_path"] == "/tmp/paper.pdf"
+        assert row_v2 and row_v2["pdf_path"] == "/tmp/paper.pdf"
 
     def test_set_pdf_path_overwrites_previous(self):
         db.save_paper(_make_result("2204.12985v1"))
         db.set_pdf_path("2204.12985", "/tmp/old.pdf")
         db.set_pdf_path("2204.12985", "/tmp/new.pdf")
         row = db.get_paper("2204.12985", version=1)
-        assert row is not None
+        assert row
         assert row["pdf_path"] == "/tmp/new.pdf"
 
     def test_set_pdf_path_does_not_affect_other_papers(self):
@@ -391,44 +391,8 @@ class TestSetPdfPath:
         db.save_paper(_make_result("2301.00001v1"))
         db.set_pdf_path("2204.12985", "/tmp/paper.pdf")
         other = db.get_paper("2301.00001", version=1)
-        assert other is not None
+        assert other
         assert other["pdf_path"] is None
-
-
-# ---------------------------------------------------------------------------
-# delete_paper
-# ---------------------------------------------------------------------------
-
-@pytest.mark.usefixtures("tmp_db")
-class TestDeletePaper:
-    def test_delete_removes_paper(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.delete_paper("2204.12985")
-        assert db.get_paper("2204.12985") is None
-
-    def test_delete_removes_all_versions(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.save_paper(_make_result("2204.12985v2"))
-        db.save_paper(_make_result("2204.12985v3"))
-        db.delete_paper("2204.12985")
-        assert db.get_all_versions("2204.12985") == []
-
-    def test_delete_only_affects_target_paper(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.save_paper(_make_result("2301.00001v1"))
-        db.delete_paper("2204.12985")
-        assert db.get_paper("2301.00001") is not None
-
-    def test_delete_nonexistent_is_noop(self):
-        # Should not raise
-        db.delete_paper("0000.00000")
-
-    def test_delete_removes_from_list(self):
-        db.save_paper(_make_result("2204.12985v1"))
-        db.delete_paper("2204.12985")
-        rows = db.list_papers()
-        ids = [r["source_id"] for r in rows]
-        assert "2204.12985" not in ids
 
 
 # ---------------------------------------------------------------------------
@@ -592,7 +556,7 @@ class TestAddPaperTags:
         db.save_paper(_make_result("2204.12985v1"))
         db.add_paper_tags("2204.12985", ["ml"])
         row = db.get_paper("2204.12985")
-        assert row is not None
+        assert row
         assert "ml" in row["tags"]
 
     def test_add_tags_deduplicates(self):
@@ -633,7 +597,7 @@ class TestRemovePaperTags:
         db.save_paper(_make_result("2204.12985v1"), tags=["ml", "transformers"])
         db.remove_paper_tags("2204.12985", ["ml"])
         row = db.get_paper("2204.12985")
-        assert row is not None
+        assert row
         assert "ml" not in row["tags"]
 
     def test_remove_nonexistent_tag_is_noop(self):

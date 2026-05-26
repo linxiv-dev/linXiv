@@ -26,7 +26,7 @@ class PaperContent:
     pdf: bytes | None = None      # PDF bytes
 
     def best_text(self) -> str:
-        if self.full_text is not None:
+        if self.full_text:
             return self.full_text
         return self.abstract
 
@@ -91,9 +91,9 @@ class GeminiProvider(AIProvider):
 
     def _generate(self, prompt: str, content: PaperContent, schema: type[BaseModel]) -> BaseModel:
         parts: list = [types.Part.from_text(text=prompt)]
-        if content.pdf is not None:
+        if content.pdf:
             parts.append(types.Part.from_bytes(data=content.pdf, mime_type="application/pdf"))
-        elif content.full_text is not None:
+        elif content.full_text:
             parts.append(types.Part.from_text(text=content.full_text))
         else:
             parts.append(types.Part.from_text(text=content.abstract))
@@ -223,7 +223,7 @@ def set_provider(provider: AIProvider) -> None:
 def tag(content: PaperContent, file_path: str | None = None) -> list[str]:
     """Generate 3-5 Obsidian tags. Optionally append to file_path."""
     tags = _get_provider().tag(content)
-    if file_path is not None:
+    if file_path:
         with open(file_path, "a", encoding="utf-8") as f:
             f.write("\n" + " ".join(tags))
     return tags

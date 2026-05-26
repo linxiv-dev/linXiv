@@ -16,3 +16,17 @@ class BasicAuthorDetails:
 @dataclass
 class FullAuthorDetails(BasicAuthorDetails):
     paper_ids: Optional[list[int]] = None
+
+
+@dataclass
+class AuthorWithCount(BasicAuthorDetails):
+    paper_count: int = 0
+
+
+@dataclass
+class AuthorPaperPreview:
+    paper_id:  int
+    source_id: str
+    source_fk: int
+    version:   int
+    title:     str | None = None

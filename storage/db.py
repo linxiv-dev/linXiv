@@ -10,12 +10,14 @@ from typing import Optional, TYPE_CHECKING
 import arxiv
 
 from storage.config.core import apply_sql_schema
+from storage.config.queries import _TAG_FK_BY_LABEL_SQL, list_papers as _queries_list_papers
 from storage.paths import old_pdf_dir, pdf_dir
 
 if TYPE_CHECKING:
     from sources.base import PaperMetadata
 
-DB_PATH = str(Path(__file__).parent.parent / "papers.db")
+from storage.paths import db_path as _db_path_fn
+DB_PATH = str(_db_path_fn())
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # --- adapters: Python → SQLite storage ---
@@ -80,7 +82,8 @@ def _connect(db_path: str = DB_PATH) -> sqlite3.Connection:
 def ensure_paper_root(source_id: str) -> int:
     """Insert PAPER_ROOTS row if absent. Returns SOURCE_FK."""
     with _connect() as conn:
-        return _ensure_paper_root_row(conn, source_id)
+        source_fk, _ = _ensure_paper_root_row(conn, source_id)
+        return source_fk
 
 
 def get_source_id(source_fk: int) -> str | None:
@@ -92,11 +95,20 @@ def get_source_id(source_fk: int) -> str | None:
     return str(row["SOURCE_ID"]) if row else None
 
 
-def _ensure_paper_root_row(conn: sqlite3.Connection, source_id: str) -> int:
+def _ensure_paper_root_row(conn: sqlite3.Connection, source_id: str) -> tuple[int, bool]:
     conn.execute("INSERT OR IGNORE INTO PAPER_ROOTS (SOURCE_ID) VALUES (?)", (source_id,))
-    row = conn.execute("SELECT SOURCE_FK FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,)).fetchone()
-    assert row is not None
-    return int(row[0])
+    row = conn.execute(
+        "SELECT SOURCE_FK, STATUS FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,)
+    ).fetchone()
+    assert row
+    was_restored = False
+    if str(row["STATUS"]) == "deleted":
+        conn.execute(
+            "UPDATE PAPER_ROOTS SET STATUS = 'active', DELETED_AT = NULL, UPDATED_AT = datetime('now') WHERE SOURCE_ID = ?",
+            (source_id,),
+        )
+        was_restored = True
+    return int(row[0]), was_restored
 
 
 def _author_fk_for_name(conn: sqlite3.Connection, full_name: str) -> int | None:
@@ -104,7 +116,7 @@ def _author_fk_for_name(conn: sqlite3.Connection, full_name: str) -> int | None:
         "SELECT AUTHOR_FK FROM AUTHOR WHERE AUTHOR_FULL_NAME = ? COLLATE NOCASE LIMIT 1",
         (full_name,),
     ).fetchone()
-    if row is not None:
+    if row:
         return int(row[0])
     cur = conn.execute(
         "INSERT INTO AUTHOR (AUTHOR_FULL_NAME) VALUES (?)",
@@ -114,11 +126,8 @@ def _author_fk_for_name(conn: sqlite3.Connection, full_name: str) -> int | None:
 
 
 def _tag_fk_for_label(conn: sqlite3.Connection, label: str) -> int|None:
-    row = conn.execute(
-        "SELECT TAG_FK FROM TAG WHERE TAG = ? COLLATE NOCASE LIMIT 1",
-        (label,),
-    ).fetchone()
-    if row is not None:
+    row = conn.execute(_TAG_FK_BY_LABEL_SQL, (label,)).fetchone()
+    if row:
         return int(row[0])
     cur = conn.execute("INSERT INTO TAG (TAG) VALUES (?)", (label,))
     if cur.lastrowid:
@@ -132,15 +141,28 @@ def _sync_paper_authors(
     paper_id: int,
     authors: list[str] | None,
 ) -> None:
+    old_fks = {
+        int(r["AUTHOR_FK"]) for r in conn.execute(
+            "SELECT AUTHOR_FK FROM PAPER_TO_AUTHOR WHERE PAPER_ID = ?", (paper_id,)
+        ).fetchall()
+    }
     conn.execute("DELETE FROM PAPER_TO_AUTHOR WHERE PAPER_ID = ?", (paper_id,))
-    if not authors:
-        return
-    for i, name in enumerate(authors):
-        aid = _author_fk_for_name(conn, name)
-        conn.execute(
-            "INSERT INTO PAPER_TO_AUTHOR (PAPER_ID, AUTHOR_FK, AUTHOR_INDEX) VALUES (?, ?, ?)",
-            (paper_id, aid, i),
-        )
+    if authors:
+        for i, name in enumerate(authors):
+            aid = _author_fk_for_name(conn, name)
+            conn.execute(
+                "INSERT INTO PAPER_TO_AUTHOR (PAPER_ID, AUTHOR_FK, AUTHOR_INDEX) VALUES (?, ?, ?)",
+                (paper_id, aid, i),
+            )
+    # Clean up AUTHOR rows that are no longer referenced by any paper after this sync.
+    # hard_delete_paper relies on schema CASCADE for structural cleanup and does not
+    # call this — AUTHOR orphan accumulation on hard delete is an accepted trade-off
+    # (see docs/adr/0009-orphan-row-policy.md).
+    for fk in old_fks:
+        if not conn.execute(
+            "SELECT 1 FROM PAPER_TO_AUTHOR WHERE AUTHOR_FK = ? LIMIT 1", (fk,)
+        ).fetchone():
+            conn.execute("DELETE FROM AUTHOR WHERE AUTHOR_FK = ?", (fk,))
 
 
 def _sync_paper_tags(
@@ -187,19 +209,19 @@ def _write_paper_version(
     full_text: str | None,
     downloaded_source: bool | None,
 ) -> None:
-    source_fk = _ensure_paper_root_row(conn, source_id)
+    source_fk, _ = _ensure_paper_root_row(conn, source_id)
     cur = conn.execute(
-        "INSERT INTO PAPER (SOURCE_ID, VERSION, TITLE, CATEGORY, HAS_PDF, SOURCE_FK) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO PAPER (SOURCE_ID, VERSION, TITLE, CATEGORY, HAS_PDF, SOURCE_FK) VALUES (?, ?, ?, ?, ?, ?)",
         (source_id, version, title, category, has_pdf, source_fk),
     )
-    if cur.lastrowid is None:
+    if cur.rowcount == 0 or cur.lastrowid is None:
         return
     paper_id = int(cur.lastrowid)
     conn.execute(
         """
         INSERT INTO PAPER_META (
             PAPER_ID, URL, PUBLISHED, UPDATED, CATEGORIES, DOI, JOURNAL_REF,
-            COMMENT, SUMMARY, SOURCE, PDF_PATH, FULL_TEXT, DOWNLOADED_SOURCE, AUTHORS, TAGS
+            COMMENT, SUMMARY, PROVIDER, PDF_PATH, FULL_TEXT, DOWNLOADED_SOURCE, AUTHORS, TAGS
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
@@ -217,19 +239,19 @@ def init_db() -> None:
     with _connect() as conn:
         apply_sql_schema(conn)
 
-    wrong_path_rows = _get_deprecated_path_rows()
-    if wrong_path_rows:
-        for rows in wrong_path_rows:
-            try:
-                curr_path = rows["PDF_PATH"]
-                if Path(curr_path).is_file() and Path(curr_path).rename(curr_path.replace(str(old_pdf_dir()), str(pdf_dir()))).exists():
-                    set_pdf_path(rows["source_id"], curr_path.replace(str(old_pdf_dir()), str(pdf_dir())))
-                    print(f"File [ {curr_path} ] moved and verified!")
-                else:
-                    print(f"File [ {curr_path} ] could not be moved")
-            except Exception as e:
-                print(f"An error occured while trying to parse file {rows['PDF_PATH']}:\n{e}")
     if old_pdf_dir().is_dir():
+        wrong_path_rows = _get_deprecated_path_rows()
+        if wrong_path_rows:
+            for rows in wrong_path_rows:
+                try:
+                    curr_path = rows["PDF_PATH"]
+                    if Path(curr_path).is_file() and Path(curr_path).rename(curr_path.replace(str(old_pdf_dir()), str(pdf_dir()))).exists():
+                        set_pdf_path(rows["source_id"], curr_path.replace(str(old_pdf_dir()), str(pdf_dir())))
+                        print(f"File [ {curr_path} ] moved and verified!")
+                    else:
+                        print(f"File [ {curr_path} ] could not be moved")
+                except Exception as e:
+                    print(f"An error occured while trying to parse file {rows['PDF_PATH']}:\n{e}")
         _remove_gui_pdf_dir(old_pdf_dir())
 
 def _remove_gui_pdf_dir(path: Path):
@@ -250,7 +272,7 @@ def parse_entry_id(entry_id: str) -> tuple[str, int]:
     """EX:Split 'http://arxiv.org/abs/2204.12985v4' into ('2204.12985', 4)."""
     raw = entry_id.split('/')[-1]
     match = re.match(r'^(.+?)(?:v(\d+))?$', raw)
-    assert match is not None
+    assert match
     source_id = match.group(1)
     version = int(match.group(2)) if match.group(2) else 1
     return source_id, version
@@ -353,35 +375,49 @@ def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
             return
         old_id = str(root["SOURCE_ID"])
         if new_id != old_id:
-            # PAPER_TO_TAG references (SOURCE_ID, VERSION) — update before PAPER
-            # so the FK constraint isn't violated mid-transaction.
+            # PAPER must be updated before PAPER_TO_TAG: PAPER_TO_TAG has a FK on
+            # (SOURCE_ID, VERSION) referencing PAPER, so the new SOURCE_ID must
+            # exist in PAPER before PAPER_TO_TAG rows are renamed.
+            # PAPER_ROOTS order relative to PAPER is unconstrained — the FK between
+            # them is the integer SOURCE_FK, which is not being changed here.
             conn.execute(
-                "UPDATE PAPER_TO_TAG SET SOURCE_ID = ? WHERE SOURCE_ID = ?",
-                (new_id, old_id),
+                "UPDATE PAPER SET SOURCE_ID = ? WHERE SOURCE_FK = ?",
+                (new_id, source_fk),
             )
             conn.execute(
                 "UPDATE PAPER_ROOTS SET SOURCE_ID = ? WHERE SOURCE_FK = ?",
                 (new_id, source_fk),
             )
             conn.execute(
-                "UPDATE PAPER SET SOURCE_ID = ? WHERE SOURCE_FK = ?",
-                (new_id, source_fk),
+                "UPDATE PAPER_TO_TAG SET SOURCE_ID = ? WHERE SOURCE_ID = ?",
+                (new_id, old_id),
             )
-            # PROJECT_TO_PAPER uses SOURCE_FK (integer) so no rename needed here
-            if conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
-            ).fetchone():
-                conn.execute(
-                    "UPDATE papers_fts SET paper_id = ? WHERE paper_id = ?",
-                    (new_id, old_id),
-                )
 
         row = conn.execute(
-            "SELECT PAPER_ID FROM PAPER WHERE SOURCE_FK = ? ORDER BY VERSION DESC LIMIT 1",
+            "SELECT PAPER_ID, VERSION FROM PAPER WHERE SOURCE_FK = ? ORDER BY VERSION DESC LIMIT 1",
             (source_fk,),
         ).fetchone()
-        if row is not None:
-            pid = row["PAPER_ID"]
+        if row:
+            pid = int(row["PAPER_ID"])
+            ver = int(row["VERSION"])
+
+            # FTS5 virtual tables do not support UPDATE; use DELETE + INSERT instead.
+            # PROJECT_TO_PAPER uses SOURCE_FK (integer) so no rename needed there.
+            # Note: papers_fts.paper_id stores source_id strings (e.g. "2204.12985"),
+            # not integer PAPER_IDs — the column name is a historical misnomer.
+            if new_id != old_id and conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+            ).fetchone():
+                full_text_row = conn.execute(
+                    "SELECT FULL_TEXT FROM PAPER_META WHERE PAPER_ID = ?", (pid,)
+                ).fetchone()
+                conn.execute("DELETE FROM papers_fts WHERE paper_id = ?", (old_id,))
+                if full_text_row and full_text_row["FULL_TEXT"]:
+                    conn.execute(
+                        "INSERT INTO papers_fts(paper_id, full_text) VALUES (?, ?)",
+                        (new_id, full_text_row["FULL_TEXT"]),
+                    )
+
             conn.execute(
                 "UPDATE PAPER SET TITLE = ?, CATEGORY = ? WHERE PAPER_ID = ?",
                 (meta.title, meta.category, pid),
@@ -390,12 +426,14 @@ def repair_paper(source_fk: int, meta: PaperMetadata) -> None:
                 """
                 UPDATE PAPER_META SET
                     AUTHORS = ?, PUBLISHED = ?, DOI = ?, URL = ?,
-                    SUMMARY = ?, TAGS = ?, UPDATED_AT = date('now')
+                    SUMMARY = ?, TAGS = ?, UPDATED_AT = datetime('now')
                 WHERE PAPER_ID = ?
                 """,
                 (meta.authors, meta.published, meta.doi, meta.url,
                  meta.summary, meta.tags, pid),
             )
+            _sync_paper_authors(conn, pid, meta.authors)
+            _sync_paper_tags(conn, pid, new_id, ver, meta.tags)
 
 
 def set_has_pdf(source_id: str, version: int, has: bool) -> None:
@@ -405,6 +443,12 @@ def set_has_pdf(source_id: str, version: int, has: bool) -> None:
             "UPDATE PAPER SET HAS_PDF = ? WHERE SOURCE_ID = ? AND VERSION = ?",
             (has, source_id, version),
         )
+
+
+def set_has_pdf_all_versions(source_id: str, has: bool) -> None:
+    """Set the has_pdf flag for every stored version of a paper."""
+    with _connect() as conn:
+        conn.execute("UPDATE PAPER SET HAS_PDF = ? WHERE SOURCE_ID = ?", (has, source_id))
 
 
 #TODO: FIX TO WORK EXPECTED WAY 
@@ -428,21 +472,154 @@ def set_pdf_path(source_id: str, path: str, version: int | None = None) -> None:
                 print("This may incorrectly update the database, consider using different methodology")
 
 
-#TODO: FIX TO WORK EXPECTED WAY 
-def delete_paper(source_id: str) -> None:
-    """Delete all versions of a paper and its root row."""
+def mark_pdf_saved(source_id: str, path: str, version: int) -> None:
+    """Atomically write PDF_PATH and set HAS_PDF=True for a specific paper version.
+
+    Both columns are updated inside one explicit BEGIN/COMMIT block so a crash
+    between the two writes cannot leave them in a disagreeing state.
+    Raises RuntimeError if either PAPER or PAPER_META has no matching row.
+    """
     with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        meta_cur = conn.execute(
+            "UPDATE PAPER_META SET PDF_PATH = ? WHERE PAPER_ID IN "
+            "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? AND VERSION = ?)",
+            (path, source_id, version),
+        )
+        if meta_cur.rowcount == 0:
+            raise RuntimeError(
+                f"mark_pdf_saved: no PAPER or PAPER_META row for source_id={source_id!r} version={version}"
+            )
+        paper_cur = conn.execute(
+            "UPDATE PAPER SET HAS_PDF = ? WHERE SOURCE_ID = ? AND VERSION = ?",
+            (True, source_id, version),
+        )
+        if paper_cur.rowcount == 0:
+            raise RuntimeError(
+                f"mark_pdf_saved: no PAPER row for source_id={source_id!r} version={version}"
+            )
+
+
+def soft_delete_paper(source_id: str) -> str | None:
+    """Soft-delete a paper: set STATUS='deleted', remove PDF from linxiv dir if present.
+
+    Returns the pdf_path that was stored (for caller reference), or None.
+    """
+    stored_path: str | None = None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT PDF_PATH FROM PAPER_META WHERE PAPER_ID IN "
+            "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? ORDER BY VERSION DESC LIMIT 1)",
+            (source_id,),
+        ).fetchone()
+        if row:
+            stored_path = row["PDF_PATH"]
+
+        if conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+        ).fetchone():
+            conn.execute("DELETE FROM papers_fts WHERE paper_id = ?", (source_id,))
+
+        conn.execute(
+            "UPDATE PAPER_ROOTS SET STATUS = 'deleted', DELETED_AT = ?, UPDATED_AT = datetime('now') WHERE SOURCE_ID = ?",
+            (datetime.datetime.now(), source_id),
+        )
+
+    if stored_path:
+        p = Path(stored_path)
+        try:
+            linxiv_dir = pdf_dir()
+            if p.is_file() and p.is_relative_to(linxiv_dir):
+                p.unlink()
+                with _connect() as conn:
+                    conn.execute(
+                        "UPDATE PAPER SET HAS_PDF = 0 WHERE SOURCE_ID = ?",
+                        (source_id,),
+                    )
+        except Exception as e:
+            print(f"[db] Could not remove PDF for {source_id}: {e}")
+
+    return stored_path
+
+
+def restore_paper(source_id: str) -> str | None:
+    """Restore a soft-deleted paper. Returns the stored pdf_path (may no longer exist)."""
+    stored_path: str | None = None
+    full_text: str | None = None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT PDF_PATH, FULL_TEXT FROM PAPER_META WHERE PAPER_ID IN "
+            "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? ORDER BY VERSION DESC LIMIT 1)",
+            (source_id,),
+        ).fetchone()
+        if row:
+            stored_path = row["PDF_PATH"]
+            full_text = row["FULL_TEXT"]
+
+        conn.execute(
+            "UPDATE PAPER_ROOTS SET STATUS = 'active', DELETED_AT = NULL, UPDATED_AT = datetime('now') WHERE SOURCE_ID = ?",
+            (source_id,),
+        )
+
+        if row and row["FULL_TEXT"]:
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+            ).fetchone():
+                conn.execute("DELETE FROM papers_fts WHERE paper_id = ?", (source_id,))
+                conn.execute(
+                    "INSERT INTO papers_fts(paper_id, full_text) VALUES (?, ?)",
+                    (source_id, full_text),
+                )
+
+    return stored_path
+
+
+def hard_delete_paper(source_id: str) -> None:
+    """Permanently delete a paper and all associated data."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT PDF_PATH FROM PAPER_META WHERE PAPER_ID IN "
+            "(SELECT PAPER_ID FROM PAPER WHERE SOURCE_ID = ? ORDER BY VERSION DESC LIMIT 1)",
+            (source_id,),
+        ).fetchone()
         if conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
         ).fetchone():
             conn.execute("DELETE FROM papers_fts WHERE paper_id = ?", (source_id,))
         conn.execute("DELETE FROM PAPER_ROOTS WHERE SOURCE_ID = ?", (source_id,))
 
+    if row and row["PDF_PATH"]:
+        p = Path(row["PDF_PATH"])
+        try:
+            linxiv_dir = pdf_dir()
+            if p.is_file() and p.is_relative_to(linxiv_dir):
+                p.unlink()
+        except Exception as e:
+            print(f"[db] Could not remove PDF for {source_id} during hard delete: {e}")
+
+
+def list_deleted_papers() -> list[sqlite3.Row]:
+    """Return all soft-deleted papers from the deleted_papers view."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT * FROM deleted_papers ORDER BY deleted_at DESC"
+        ).fetchall()
+
+
+def is_paper_deleted(source_id: str) -> bool:
+    """Return True if a PAPER_ROOTS row exists with STATUS='deleted'."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM PAPER_ROOTS WHERE SOURCE_ID = ? AND STATUS = 'deleted'",
+            (source_id,),
+        ).fetchone()
+    return row is not None
+
 
 def get_paper(source_id: str, version: Optional[int] = None) -> Optional[sqlite3.Row]:
     """Fetch a specific version, or the latest if version is None."""
     with _connect() as conn:
-        if version is not None:
+        if version:
             return conn.execute(
                 "SELECT * FROM papers WHERE source_id = ? AND version = ?",
                 (source_id, version),
@@ -472,6 +649,17 @@ def get_paper_by_source_fk(source_fk: int) -> Optional[sqlite3.Row]:
         ).fetchone()
 
 
+def get_papers_by_source_fks(source_fks: list[int]) -> list[sqlite3.Row]:
+    """Batch-fetch latest paper versions for a list of SOURCE_FKs in one query.
+
+    The empty-list guard is intentional: _queries_list_papers(source_fks=None)
+    returns the full library, which is the wrong behaviour here.
+    """
+    if not source_fks:
+        return []
+    return _queries_list_papers(source_fks=source_fks)
+
+
 #TODO: FIX TO CONTAIN TOTAL FUNCTIONALITY, get paper_root from paper_id needs to be a fetching param or name can change 
 def get_paper_root(source_id: str) -> Optional[sqlite3.Row]:
     """Return the PAPER_ROOTS row for a given source_id."""
@@ -498,10 +686,11 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
         paper_nodes = [
             {
                 "id":        row["source_fk"],
+                "source_id": row["source_id"],
                 "label":     row["title"],
                 "type":      "paper",
                 "category":  row["category"],
-                "tags":      row["tags"] if row["tags"] is not None else [],
+                "tags":      row["tags"] if row["tags"] else [],
                 "has_pdf":   bool(row["has_pdf"]),
                 "published": row["published"].isoformat() if row["published"] else None,
                 "url":       row["url"],
@@ -509,13 +698,15 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
                 "summary":   row["summary"],
             }
             for row in conn.execute("""
-                SELECT r.SOURCE_FK AS source_fk, p.TITLE AS title, p.CATEGORY AS category,
+                SELECT r.SOURCE_FK AS source_fk, r.SOURCE_ID AS source_id,
+                       p.TITLE AS title, p.CATEGORY AS category,
                        m.TAGS AS tags, p.HAS_PDF AS has_pdf, m.PUBLISHED AS published,
                        m.URL AS url, m.DOI AS doi, m.SUMMARY AS summary
                 FROM PAPER_ROOTS r
                 JOIN PAPER p ON p.SOURCE_FK = r.SOURCE_FK
                 JOIN PAPER_META m ON m.PAPER_ID = p.PAPER_ID
                 WHERE p.VERSION = (SELECT MAX(VERSION) FROM PAPER WHERE SOURCE_FK = r.SOURCE_FK)
+                  AND r.STATUS = 'active'
             """)
         ]
         author_rows = conn.execute("""
@@ -525,6 +716,7 @@ def get_graph_data() -> tuple[list[dict], list[dict]]:
             JOIN PAPER_META m ON m.PAPER_ID = p.PAPER_ID,
                  json_each(m.AUTHORS) je
             WHERE p.VERSION = (SELECT MAX(VERSION) FROM PAPER WHERE SOURCE_FK = r.SOURCE_FK)
+              AND r.STATUS = 'active'
         """).fetchall()
 
     seen_authors: set[str] = set()
@@ -547,7 +739,7 @@ def list_papers(latest_only: bool = True, limit: int | None = None, offset: int 
         table = "latest_papers" if latest_only else "papers"
         sql = f"SELECT * FROM {table} ORDER BY published DESC"
         params: list[int] = []
-        if limit is not None:
+        if limit:
             sql += " LIMIT ? OFFSET ?"
             params = [limit, offset]
         elif offset:
@@ -566,15 +758,33 @@ def get_categories() -> list[str]:
 
 
 def get_tags() -> list[str]:
-    """Return a sorted list of all distinct tags across all papers."""
+    """Return a sorted list of all distinct tag labels across papers and projects."""
     with _connect() as conn:
         rows = conn.execute("""
-            SELECT DISTINCT je.value AS tag
+            SELECT DISTINCT LOWER(je.value) AS tag
             FROM latest_papers p, json_each(p.tags) je
             WHERE p.tags IS NOT NULL
-            ORDER BY je.value
+            UNION
+            SELECT DISTINCT LOWER(t.TAG) AS tag
+            FROM TAG t
+            JOIN PROJECT_TO_TAG ptt ON ptt.TAG_FK = t.TAG_FK
+            JOIN PROJECT pr ON pr.PROJECT_FK = ptt.PROJECT_FK
+            WHERE pr.STATUS = 'active'
+            ORDER BY tag
         """).fetchall()
     return [row["tag"] for row in rows]
+
+
+def get_papers_by_json_tag(label: str) -> list[sqlite3.Row]:
+    """Return latest_papers rows whose JSON tags array contains the given label (case-insensitive)."""
+    with _connect() as conn:
+        return conn.execute("""
+            SELECT DISTINCT lp.*
+            FROM latest_papers lp, json_each(lp.tags) je
+            WHERE lp.tags IS NOT NULL
+              AND je.value = ? COLLATE NOCASE
+            ORDER BY lp.published DESC, lp.paper_id DESC
+        """, (label,)).fetchall()
 
 
 #TODO: FIX TO CONTAIN TOTAL FUNCTIONALITY 
@@ -646,9 +856,13 @@ def set_full_text(full_text: str|None, paper_id: int|None, source_id: str|None, 
 def search_full_text(query: str, limit: int = 20) -> list[sqlite3.Row]:
     """Full-text search over TeX source content. Returns matching papers."""
     with _connect() as conn:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='papers_fts'"
+        ).fetchone():
+            return []
         return conn.execute("""
-            SELECT p.* FROM papers p
-            JOIN papers_fts fts ON p.source_id = fts.PAPER_ID
+            SELECT p.* FROM latest_papers p
+            JOIN papers_fts fts ON p.source_id = fts.paper_id
             WHERE papers_fts MATCH ?
             ORDER BY rank
             LIMIT ?

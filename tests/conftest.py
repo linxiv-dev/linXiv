@@ -41,6 +41,10 @@ def tmp_db(tmp_path, monkeypatch):
     pdf_dir = tmp_path / "pdfs"
     pdf_dir.mkdir()
     monkeypatch.setattr("service.files._pdf_dir", lambda: pdf_dir)
+    # service.paper imports _pdf_dir directly from storage.paths (line 21), so
+    # patching service.files._pdf_dir alone leaves import_pdf writing to the
+    # real user data dir during tests.
+    monkeypatch.setattr("service.paper._pdf_dir", lambda: pdf_dir)
 
     yield db_file
 

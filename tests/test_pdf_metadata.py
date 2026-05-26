@@ -214,54 +214,69 @@ class TestResolvePdfMetadata:
 
     def test_arxiv_id_resolved_before_doi(self):
         expected = PaperMetadata(
-            source_id="2411.10406", version=2, title="Quantum Paper", authors=["A"],
+            source_id="arxiv:2411.10406", version=2, title="Quantum Paper", authors=["A"],
             published=datetime.date(2024, 11, 15), summary="", source="arxiv",
         )
         with self._patch_extract(arxiv_id="2411.10406v2"):
             with patch("sources.pdf_metadata.ArxivSource") as mock_cls:
                 mock_cls.return_value.fetch_by_id.return_value = expected
-                result = resolve_pdf_metadata("/fake/path.pdf")
+                with patch("sources.pdf_metadata.Path") as mock_path:
+                    mock_path.return_value.read_bytes.return_value = b"x"
+                    result, external = resolve_pdf_metadata("/fake/path.pdf")
         mock_cls.return_value.fetch_by_id.assert_called_once_with("2411.10406v2")
-        assert result.source == "arxiv"
+        # Imported papers are always stored as local; the upstream identity
+        # is surfaced separately for caller-side dedupe.
+        assert result.source == "pdf"
+        assert result.source_id.startswith("local:")
+        assert external == ("arxiv:2411.10406", 2)
 
     def test_doi_found_calls_resolve_doi(self):
         expected = PaperMetadata(
-            source_id="2204.12985", version=1, title="Resolved", authors=["A"],
+            source_id="arxiv:2204.12985", version=1, title="Resolved", authors=["A"],
             published=datetime.date(2022, 4, 1), summary="", source="arxiv",
         )
         with self._patch_extract(doi="10.48550/arXiv.2204.12985"):
             with patch("sources.pdf_metadata.resolve_doi", return_value=expected) as mock_resolve:
-                result = resolve_pdf_metadata("/fake/path.pdf")
+                with patch("sources.pdf_metadata.Path") as mock_path:
+                    mock_path.return_value.read_bytes.return_value = b"x"
+                    result, external = resolve_pdf_metadata("/fake/path.pdf")
         mock_resolve.assert_called_once_with("10.48550/arXiv.2204.12985")
-        assert result.source_id == "2204.12985"
+        assert result.source_id.startswith("local:")
+        assert external == ("arxiv:2204.12985", 1)
 
     def test_doi_resolution_failure_falls_through_to_title_search(self):
         crossref_result = PaperMetadata(
-            source_id="10.9999/x", version=1, title="Title Match", authors=[],
+            source_id="doi:10.9999/x", version=1, title="Title Match", authors=[],
             published=datetime.date(2020, 1, 1), summary="", source="crossref",
         )
         with self._patch_extract(doi="10.9999/bad", title="Title Match"):
             with patch("sources.pdf_metadata.resolve_doi", side_effect=ValueError("not found")):
                 with patch("sources.pdf_metadata.search_by_title", return_value=[crossref_result]):
-                    result = resolve_pdf_metadata("/fake/path.pdf")
-        assert result.source == "crossref"
+                    with patch("sources.pdf_metadata.Path") as mock_path:
+                        mock_path.return_value.read_bytes.return_value = b"x"
+                        result, external = resolve_pdf_metadata("/fake/path.pdf")
+        assert result.source == "pdf"
+        assert external == ("doi:10.9999/x", 1)
 
     def test_no_doi_uses_title_search(self):
         crossref_result = PaperMetadata(
-            source_id="10.1234/xyz", version=1, title="My Paper", authors=[],
+            source_id="doi:10.1234/xyz", version=1, title="My Paper", authors=[],
             published=datetime.date(2021, 6, 1), summary="", source="crossref",
         )
         with self._patch_extract(title="My Paper"):
             with patch("sources.pdf_metadata.search_by_title", return_value=[crossref_result]):
-                result = resolve_pdf_metadata("/fake/path.pdf")
+                with patch("sources.pdf_metadata.Path") as mock_path:
+                    mock_path.return_value.read_bytes.return_value = b"x"
+                    result, external = resolve_pdf_metadata("/fake/path.pdf")
         assert result.title == "My Paper"
+        assert external == ("doi:10.1234/xyz", 1)
 
     def test_all_resolution_fails_returns_partial_record(self):
         with self._patch_extract(title="Some Paper", authors="Jane Doe", year=2019):
             with patch("sources.pdf_metadata._try_crossref_title", return_value=None):
                 with patch("sources.pdf_metadata.Path") as mock_path:
                     mock_path.return_value.read_bytes.return_value = b"fake pdf bytes"
-                    result = resolve_pdf_metadata("/fake/path.pdf")
+                    result, _ = resolve_pdf_metadata("/fake/path.pdf")
         assert result.source == "pdf"
         assert result.title == "Some Paper"
         assert result.published == datetime.date(2019, 1, 1)
@@ -271,7 +286,7 @@ class TestResolvePdfMetadata:
             with patch("sources.pdf_metadata._try_crossref_title", return_value=None):
                 with patch("sources.pdf_metadata.Path") as mock_path:
                     mock_path.return_value.read_bytes.return_value = b"x"
-                    result = resolve_pdf_metadata("/fake/path.pdf")
+                    result, _ = resolve_pdf_metadata("/fake/path.pdf")
         assert result.authors == ["Jane Doe", "John Smith"]
 
     def test_partial_record_source_id_is_pdf_prefixed(self):
@@ -279,17 +294,17 @@ class TestResolvePdfMetadata:
             with patch("sources.pdf_metadata._try_crossref_title", return_value=None):
                 with patch("sources.pdf_metadata.Path") as mock_path:
                     mock_path.return_value.read_bytes.return_value = b"content"
-                    result = resolve_pdf_metadata("/fake/path.pdf")
-        assert result.source_id.startswith("pdf:")
+                    result, _ = resolve_pdf_metadata("/fake/path.pdf")
+        assert result.source_id.startswith("local:")
 
     def test_partial_record_id_is_deterministic(self):
         content = b"stable pdf bytes"
-        expected_id = "pdf:" + hashlib.sha256(content).hexdigest()[:16]
+        expected_id = "local:" + hashlib.sha256(content).hexdigest()[:16]
         with self._patch_extract():
             with patch("sources.pdf_metadata._try_crossref_title", return_value=None):
                 with patch("sources.pdf_metadata.Path") as mock_path:
                     mock_path.return_value.read_bytes.return_value = content
-                    result = resolve_pdf_metadata("/fake/path.pdf")
+                    result, _ = resolve_pdf_metadata("/fake/path.pdf")
         assert result.source_id == expected_id
 
 
@@ -354,19 +369,21 @@ class TestResolvePdfMetadataReal:
     def test_resolves_via_arxiv_id(self, real_pdf):
         with patch("sources.pdf_metadata.ArxivSource") as mock_cls:
             expected = PaperMetadata(
-                source_id="2411.10406", version=2, title="Quantum Supercomputer Paper",
+                source_id="arxiv:2411.10406", version=2, title="Quantum Supercomputer Paper",
                 authors=["A"], published=datetime.date(2024, 11, 15), summary="", source="arxiv",
             )
             mock_cls.return_value.fetch_by_id.return_value = expected
-            result = resolve_pdf_metadata(real_pdf)
+            result, external = resolve_pdf_metadata(real_pdf)
         mock_cls.return_value.fetch_by_id.assert_called_once_with("2411.10406v2")
-        assert result.source == "arxiv"
+        assert result.source == "pdf"
+        assert result.source_id.startswith("local:")
+        assert external == ("arxiv:2411.10406", 2)
 
     def test_falls_through_to_partial_when_arxiv_fails(self, real_pdf):
         with patch("sources.pdf_metadata.ArxivSource") as mock_cls:
             mock_cls.return_value.fetch_by_id.side_effect = ValueError("not found")
             with patch("sources.pdf_metadata.search_by_title", return_value=[]):
-                result = resolve_pdf_metadata(real_pdf)
+                result, _ = resolve_pdf_metadata(real_pdf)
         assert result.source == "pdf"
         assert "Quantum Supercomputer" in result.title
 
@@ -399,13 +416,15 @@ class TestResolvePdfMetadataEmbedded:
     def test_resolves_via_arxiv_id(self, pdf_embedded_meta):
         with patch("sources.pdf_metadata.ArxivSource") as mock_cls:
             expected = PaperMetadata(
-                source_id="2604.21547", version=1, title="Yang-Baxter Paper",
+                source_id="arxiv:2604.21547", version=1, title="Yang-Baxter Paper",
                 authors=["Vinayak M. Kulkarni"], published=datetime.date(2026, 4, 23),
                 summary="", source="arxiv",
             )
             mock_cls.return_value.fetch_by_id.return_value = expected
-            result = resolve_pdf_metadata(pdf_embedded_meta)
-        assert result.source == "arxiv"
+            result, external = resolve_pdf_metadata(pdf_embedded_meta)
+        assert result.source == "pdf"
+        assert result.source_id.startswith("local:")
+        assert external == ("arxiv:2604.21547", 1)
 
 
 # 2604.00068v2.pdf — no embedded title, OS-generated junk author, blank-line separator
@@ -439,5 +458,5 @@ class TestResolvePdfMetadataJunkAuthor:
 
     def test_partial_record_has_no_junk_authors(self, pdf_junk_author):
         with patch("sources.pdf_metadata.search_by_title", return_value=[]):
-            result = resolve_pdf_metadata(pdf_junk_author)
+            result, _ = resolve_pdf_metadata(pdf_junk_author)
         assert result.authors == []

@@ -150,7 +150,7 @@ class TestCommitImportProject:
 
         assert new_fk != proj_fk
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         assert proj.name        == "My Project"
         assert proj.description == "Test project"
         assert proj.color       == 0x5b8dee
@@ -163,7 +163,7 @@ class TestCommitImportProject:
         new_fk  = ei.commit_import(archive)
 
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         assert proj.color is None
 
 
@@ -178,15 +178,15 @@ class TestCommitImportPapers:
         proj_fk = _make_project("New Paper Project", [sfk])
         archive = ei.export_project(proj_fk, tmp_path / "export")
 
-        _paper.delete_paper("2204.00007")
+        _paper.delete(_paper.Paper(source_id="2204.00007"))
 
         new_fk = ei.commit_import(archive)
 
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         assert len(proj.source_fks) == 1
         paper = _paper.get(_paper.Paper(source_fk=proj.source_fks[0]))
-        assert paper is not None
+        assert paper
         assert paper.source_id == "2204.00007"
         assert paper.title     == "New Paper"
 
@@ -201,7 +201,7 @@ class TestCommitImportPapers:
         ei.commit_import(archive, on_conflict="merge")
 
         paper = _paper.get(_paper.Paper(source_id="2204.00003"))
-        assert paper is not None
+        assert paper
         assert paper.title == "Changed"  # merge skips overwrite
 
     def test_overwrite_restores_metadata(self, tmp_path):
@@ -215,7 +215,7 @@ class TestCommitImportPapers:
         ei.commit_import(archive, on_conflict="overwrite")
 
         paper = _paper.get(_paper.Paper(source_id="2204.00003"))
-        assert paper is not None
+        assert paper
         assert paper.title == "Gamma Paper"
 
     def test_merge_unions_archive_tag_onto_existing_paper(self, tmp_path):
@@ -231,7 +231,7 @@ class TestCommitImportPapers:
         ei.commit_import(archive, on_conflict="merge")
 
         paper = _paper.get(_paper.Paper(source_id="2204.00004"))
-        assert paper is not None
+        assert paper
         assert "archive-only" in (paper.tags or [])  # added from archive
         assert "db-only"      in (paper.tags or [])  # preserved from DB
 
@@ -241,7 +241,7 @@ class TestCommitImportPapers:
         archive = ei.export_project(proj_fk, tmp_path / "export")
 
         # Delete and re-import so the paper exists in DB for the overwrite branch
-        _paper.delete_paper("2204.00010")
+        _paper.delete(_paper.Paper(source_id="2204.00010"))
         ei.commit_import(archive, on_conflict="merge")
         _paper.add_paper_tags("2204.00010", ["db-tag"])
 
@@ -249,7 +249,7 @@ class TestCommitImportPapers:
         ei.commit_import(archive, on_conflict="overwrite")
 
         paper = _paper.get(_paper.Paper(source_id="2204.00010"))
-        assert paper is not None
+        assert paper
         assert "archive-tag" in  (paper.tags or [])  # archive tag applied
         assert "db-tag"      not in (paper.tags or [])  # overwrite replaces, not unions
 
@@ -259,7 +259,7 @@ class TestCommitImportPapers:
         new_fk  = ei.commit_import(archive)
 
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         assert proj.source_fks == []
 
     def test_deserialize_paper_with_updated_date(self, tmp_path):
@@ -277,9 +277,9 @@ class TestCommitImportPapers:
         new_fk  = ei.commit_import(archive)
 
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         paper = _paper.get(_paper.Paper(source_fk=proj.source_fks[0]))
-        assert paper is not None
+        assert paper
         assert paper.updated == datetime.date(2023, 6, 15)
 
     def test_deserialize_paper_published_absent_uses_today(self, tmp_path):
@@ -296,9 +296,9 @@ class TestCommitImportPapers:
         new_fk  = ei.commit_import(archive)
 
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         paper = _paper.get(_paper.Paper(source_fk=proj.source_fks[0]))
-        assert paper is not None
+        assert paper
         assert paper.published == datetime.date.today()
 
 
@@ -326,7 +326,7 @@ class TestCommitImportNotes:
         proj_fk = _make_project("Pinned Project", [sfk])
 
         paper = _paper.get(_paper.Paper(source_fk=sfk))
-        assert paper is not None
+        assert paper
         _StorageNote(
             source_fk   = sfk,
             project_id  = proj_fk,
@@ -340,7 +340,7 @@ class TestCommitImportNotes:
 
         notes = _note.get_many(_note.Notes(project_fk=new_fk))
         assert len(notes) == 1
-        assert notes[0].paper_id_fk is not None
+        assert notes[0].paper_id_fk
 
     def test_note_with_missing_paper_source_id_skipped(self, tmp_path):
         # A note dict with no paper_source_id should be silently skipped
@@ -383,7 +383,7 @@ class TestCommitImportNotes:
         proj_fk = _make_project("Version Gone Project", [sfk])
 
         paper = _paper.get(_paper.Paper(source_fk=sfk))
-        assert paper is not None
+        assert paper
         _StorageNote(
             source_fk   = sfk,
             project_id  = proj_fk,
@@ -449,17 +449,17 @@ class TestCommitImportPdfs:
         dest_dir = tmp_path / "imported_pdfs"
         monkeypatch.setattr(ei, "pdf_dir", lambda: dest_dir)
 
-        _paper.delete_paper("2204.00005")
+        _paper.delete(_paper.Paper(source_id="2204.00005"))
         new_fk = ei.commit_import(archive)
 
         assert any(dest_dir.iterdir())
 
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         paper = _paper.get(_paper.Paper(source_fk=proj.source_fks[0]))
-        assert paper is not None
+        assert paper
         assert paper.has_pdf  is True
-        assert paper.pdf_path is not None
+        assert paper.pdf_path
         assert paper.pdf_path.startswith(str(dest_dir))  # landed in the right directory
 
     def test_pdf_with_no_v_separator_in_name_is_skipped(self, tmp_path, monkeypatch):
@@ -505,9 +505,9 @@ class TestCommitImportPdfs:
 
         # Fallback to version=1 means set_has_pdf("2204.00005", 1, True) was called
         paper = _paper.get(_paper.Paper(source_id="2204.00005"))
-        assert paper is not None
+        assert paper
         assert paper.has_pdf is True
-        assert paper.pdf_path is not None
+        assert paper.pdf_path
 
 
 # ---------------------------------------------------------------------------
@@ -635,9 +635,9 @@ class TestExportProject:
         new_fk  = ei.commit_import(archive)
 
         proj = _project.get(_project.Project(project_fk=new_fk))
-        assert proj is not None
+        assert proj
         paper = _paper.get(_paper.Paper(source_fk=proj.source_fks[0]))
-        assert paper is not None
+        assert paper
         assert paper.version == 1         # pd.get("version", 1) default
         assert paper.authors == []        # pd.get("authors", []) default
         assert (paper.summary or "") == ""  # pd.get("summary", "") default

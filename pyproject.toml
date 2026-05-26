@@ -12,13 +12,13 @@ dependencies = [
     "fastapi",
     "google-genai",
     "httpx",
-    "markdown",
     "openai",
-    "pydantic",
+    "pydantic>=2.0,<2.13",
     "pybtex",
     "python-dotenv",
     "uvicorn[standard]",
     "pypdf>=6.10.2",
+    "python-multipart>=0.0.26",
 ]
 
 [project.optional-dependencies]
@@ -27,30 +27,24 @@ mcp = ["mcp[cli]"]
 [project.scripts]
 linxiv = "linxiv_cli:main"
 linxiv-mcp = "linxiv_mcp:main"
-linxiv-gui = "main_shell:main"
+linxiv-migrate = "migrate_db:main"
 [tool.hatch.build.targets.wheel]
 include = [
     "linxiv_cli.py",
     "linxiv_mcp.py",
-    "main_shell.py",
-    "pdf.py",
-    "search.py",
+    "migrate_db.py",
     "AI_tools.py",
     "api",
     "formats",
-    "gui",
     "sources",
     "storage",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
-]
-gui = [
-    "PyQt6",
-    "PyQt6-WebEngine",
+    "pluggy>=1.6",
+    "pytest>=8.3,<9",
 ]
 
 [tool.uv]
-default-groups = ["dev", "gui"]
+default-groups = ["dev"]

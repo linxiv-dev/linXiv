@@ -17,7 +17,6 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from _pytest._code import source
 from pypdf import PdfReader
 
 from .arxiv_source import ArxivSource
@@ -111,7 +110,7 @@ def _extract_title_from_text(text: str) -> Optional[str]:
 
 def _pdf_source_id(pdf_path: str) -> str:
     digest = hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest()[:16]
-    return f"pdf:{digest}"
+    return f"local:{digest}"
 
 
 def extract_pdf_metadata(pdf_path: str) -> dict:
@@ -162,10 +161,23 @@ def extract_pdf_metadata(pdf_path: str) -> dict:
     }
 
 
-def resolve_pdf_metadata(pdf_path: str) -> PaperMetadata:
+def resolve_pdf_metadata(
+    pdf_path: str,
+) -> tuple[PaperMetadata, tuple[str, int] | None]:
     """Run the full metadata pipeline for a PDF file.
 
-    Resolution order:
+    Returns ``(meta, external_identity)`` where:
+      - ``meta`` is a PaperMetadata with a ``local:<sha256>`` source_id so the
+        imported paper defaults to a local identity regardless of where it was
+        sourced. Metadata fields (title, authors, etc.) are enriched from
+        arXiv/CrossRef when an ID is found in the first-page text.
+      - ``external_identity`` is ``(source_id, version)`` of the upstream
+        record we matched (e.g. ``("arxiv:2204.12985", 4)`` or
+        ``("doi:10.1234/xyz", 1)``) when enrichment succeeded, else ``None``.
+        Callers that have DB access can use this to dedupe against existing
+        paper roots — see ``service/paper.py:import_pdf``.
+
+    Resolution order for metadata enrichment:
       1. arXiv ID found in first-page text  -> ArxivSource.fetch_by_id()
       2. DOI found in first-page text       -> resolve_doi()
       3. Title (embedded or text heuristic) -> CrossRef title search
@@ -174,23 +186,44 @@ def resolve_pdf_metadata(pdf_path: str) -> PaperMetadata:
     Raises FileNotFoundError if the path does not exist, or pypdf errors on corrupt PDFs.
     """
     raw = extract_pdf_metadata(pdf_path)
+    local_id = _pdf_source_id(pdf_path)
+
+    enriched: PaperMetadata | None = None
 
     if raw["arxiv_id"]:
         try:
-            return ArxivSource().fetch_by_id(raw["arxiv_id"])
+            enriched = ArxivSource().fetch_by_id(raw["arxiv_id"])
         except Exception:
             pass
 
-    if raw["doi"]:
+    if not enriched and raw["doi"]:
         try:
-            return resolve_doi(raw["doi"])
+            enriched = resolve_doi(raw["doi"])
         except ValueError:
             pass
 
-    if raw["title"]:
-        meta = _try_crossref_title(raw["title"])
-        if meta:
-            return meta
+    if not enriched and raw["title"]:
+        enriched = _try_crossref_title(raw["title"])
+
+    if enriched:
+        external = (
+            (enriched.source_id, enriched.version)
+            if enriched.source_id
+            else None
+        )
+        meta = PaperMetadata(
+            source_id=local_id,
+            version=1,
+            title=enriched.title or raw["title"] or "",
+            authors=enriched.authors,
+            published=enriched.published,
+            summary=enriched.summary,
+            doi=enriched.doi,
+            url=enriched.url,
+            category=enriched.category,
+            source="pdf",
+        )
+        return meta, external
 
     authors: list[str] = []
     if raw["authors"]:
@@ -202,8 +235,8 @@ def resolve_pdf_metadata(pdf_path: str) -> PaperMetadata:
     if raw["year"]:
         pub_date = datetime.date(raw["year"], 1, 1)
 
-    return PaperMetadata(
-        source_id=_pdf_source_id(pdf_path),
+    meta = PaperMetadata(
+        source_id=local_id,
         version=1,
         title=raw["title"] or "",
         authors=authors,
@@ -211,3 +244,4 @@ def resolve_pdf_metadata(pdf_path: str) -> PaperMetadata:
         summary="",
         source="pdf",
     )
+    return meta, None

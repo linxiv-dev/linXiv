@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
-def project_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+from config import data_dir
 
 
 def db_path() -> Path:
-    return project_root() / "papers.db"
+    return data_dir() / "papers.db"
 
 
 def pdf_dir() -> Path:
-    return project_root() / "pdfs"
+    return data_dir() / "pdfs"
 
-# Deprecated pdf directory for migrating pdfs
+
+# Legacy PDF location — only used for migration
 def old_pdf_dir() -> Path:
-    return project_root() / "gui" / "pdfs"
+    return data_dir() / "gui" / "pdfs"
