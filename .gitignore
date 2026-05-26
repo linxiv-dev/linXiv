@@ -49,5 +49,3 @@ selected_papers.json
 user_settings.json
 .venv
 # env state
-gui/qt_assets/paper_widgets.md
-gui/qt_assets/selection_bar.md

@@ -1,0 +1,531 @@
+from __future__ import annotations
+import os
+import urllib.parse
+
+from PyQt6.QtCore import QThread, Qt, pyqtSignal
+from PyQt6.QtGui import QFontMetrics
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
+
+from gui.qt_assets.styles import (
+    BTN_NOTE_OPEN,
+    BTN_PDF_DOWNLOAD,
+    BTN_PDF_ERROR,
+    BTN_PDF_LINK,
+    BTN_PDF_OPEN,
+)
+import gui.theme as _theme
+from gui.theme import ACCENT as ACCENT, BORDER as BORDER, MUTED as MUTED
+from gui.theme import PANEL as PANEL, TEXT as TEXT
+from gui.theme import (
+    BTN_H_SM,
+    CARD_PAD_H,
+    CARD_PAD_V,
+    FONT_BODY,
+    FONT_TERTIARY,
+    RADIUS_LG,
+    SPACE_MD,
+    SPACE_XS,
+)
+from service import paper as paper_svc
+import service.files as _files
+
+_ACCENT_HOVER = "#7ba3f5"
+
+# White checkmark on transparent (drawn over filled indicator when checked).
+_MD_CHECK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+    '<path fill="#ffffff" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>'
+)
+_MD_CHECK_DATA_URL = "data:image/svg+xml;charset=utf-8," + urllib.parse.quote(_MD_CHECK_SVG)
+
+
+def _material_checkbox_qss() -> str:
+    """Outlined / filled indicator — visible on dark panels, Material-adjacent."""
+    return f"""
+        QCheckBox {{
+            background: transparent;
+            spacing: 0px;
+        }}
+        QCheckBox::indicator {{
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: 2px solid #9aa3c7;
+            background-color: transparent;
+        }}
+        QCheckBox::indicator:hover {{
+            border-color: {_theme.ACCENT};
+            background-color: {_theme.BORDER};
+        }}
+        QCheckBox::indicator:checked {{
+            border: 2px solid {_theme.ACCENT};
+            background-color: {_theme.ACCENT};
+            image: url("{_MD_CHECK_DATA_URL}");
+        }}
+        QCheckBox::indicator:checked:hover {{
+            border: 2px solid {_ACCENT_HOVER};
+            background-color: {_ACCENT_HOVER};
+            image: url("{_MD_CHECK_DATA_URL}");
+        }}
+        QCheckBox::indicator:disabled {{
+            border: 2px solid {_theme.BORDER};
+            background-color: transparent;
+            image: none;
+        }}
+    """
+
+#TODO: USE COLOR CONFIG
+CAT_COLORS: dict[str, str] = {
+    "cs.LG": "#5b8dee", "cs.AI": "#7b6dee", "cs.CV": "#4db8c0",
+    "cs.CL": "#ee8d5b", "cs.NE": "#5bbf8a", "physics": "#bf8a5b",
+    "math":  "#bf5b8a", "stat":  "#8abf5b",
+}
+
+
+# ── Download worker ───────────────────────────────────────────────────────────
+
+class _DownloadWorker(QThread):
+    finished     = pyqtSignal(str, int, str)  # source_id, version, local_path
+    failed       = pyqtSignal(str, int, str)  # source_id, version, error
+    rate_limited = pyqtSignal(str, int)       # source_id, version — emitted before each retry sleep
+
+    _RETRY_DELAYS = (5, 15, 30)  # seconds before each retry on HTTP 429
+
+    def __init__(self, paper_id: int, source_id: str, version: int) -> None:
+        super().__init__()
+        self.paper_id  = paper_id   # PAPER.PAPER_ID integer — used for file path
+        self.source_id = source_id  # text arxiv ID — used for URL and signals
+        self.version   = version
+
+    def run(self) -> None:
+        import time
+        import urllib.error
+        from sources.fetch_paper_metadata import _check_ratelimit, _record_ratelimit
+        url = f"https://arxiv.org/pdf/{self.source_id}v{self.version}"
+        _check_ratelimit()  # wait out any rate limit recorded by prior API calls
+        for delay in (None, *self._RETRY_DELAYS):
+            if delay is not None:
+                self.rate_limited.emit(self.source_id, self.version)
+                time.sleep(delay)
+            try:
+                path = _files.download_pdf(self.paper_id, self.version, url)
+                if path is None:
+                    self.failed.emit(self.source_id, self.version, "download failed")
+                    return
+                self.finished.emit(self.source_id, self.version, path)
+                return
+            except urllib.error.HTTPError as e:
+                if e.code != 429:
+                    self.failed.emit(self.source_id, self.version, str(e))
+                    return
+                _record_ratelimit()  # inform API calls that arXiv is rate limiting
+            except Exception as e:
+                self.failed.emit(self.source_id, self.version, str(e))
+                return
+        self.failed.emit(self.source_id, self.version, "rate limited")
+
+
+# ── Elided label (row / compact modes) ───────────────────────────────────────
+
+class ElidedLabel(QLabel):
+    _MAX_LINES = 3
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full_text = text
+        self.setWordWrap(False)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self._relayout()
+
+    def setText(self, text: str) -> None:
+        self._full_text = text
+        self._relayout()
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        if not self._full_text or width <= 0:
+            return self.fontMetrics().lineSpacing()
+        fm = self.fontMetrics()
+        n = min(len(self._wrap(self._full_text, fm, width)), self._MAX_LINES)
+        return fm.lineSpacing() * n
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._relayout()
+
+    def _relayout(self) -> None:
+        if not self._full_text:
+            self._set_if_changed("")
+            return
+        w = self.width()
+        if w <= 0:
+            self._set_if_changed(self._full_text)
+            return
+        fm = self.fontMetrics()
+        lines = self._wrap(self._full_text, fm, w)
+        if len(lines) > self._MAX_LINES:
+            kept = lines[: self._MAX_LINES - 1]
+            remaining = " ".join(lines[self._MAX_LINES - 1 :])
+            kept.append(fm.elidedText(remaining, Qt.TextElideMode.ElideRight, w))
+            lines = kept
+        lines = [
+            fm.elidedText(ln, Qt.TextElideMode.ElideRight, w)
+            if fm.horizontalAdvance(ln) > w else ln
+            for ln in lines
+        ]
+        self._set_if_changed("\n".join(lines))
+
+    def _set_if_changed(self, text: str) -> None:
+        if super().text() != text:
+            super().setText(text)
+
+    @staticmethod
+    def _wrap(text: str, fm: QFontMetrics, width: int) -> list[str]:
+        words = text.split()
+        if not words:
+            return []
+        lines, current = [], words[0]
+        for word in words[1:]:
+            candidate = current + " " + word
+            if fm.horizontalAdvance(candidate) <= width:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+        return lines
+
+
+# ── Paper card ────────────────────────────────────────────────────────────────
+
+class PaperCard(QFrame):
+    """Paper widget with three modes driven by constructor kwargs:
+
+    card    (pdf_window set)  — checkbox, stripe, full metadata, PDF button
+    row     (project_id set)  — elided title, notes button
+    compact (neither set)     — elided title, date/category line, no action
+    """
+
+    selection_toggled = pyqtSignal(int, bool)   # source_fk, is_selected — card mode only
+    clicked           = pyqtSignal(object)       # emits DB row — all modes
+    double_clicked    = pyqtSignal(object)       # emits DB row — row and compact modes
+
+
+    def __init__(
+        self,
+        row,
+        *,
+        pdf_window=None,
+        project_id: int | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._row        = row
+        self._pdf_window = pdf_window
+        self._project_id = project_id
+        self._worker: _DownloadWorker | None = None
+        self._pdf_btn:  QPushButton | None = None
+        self._selected  = False
+        self._row_mode  = project_id is not None
+        self._card_mode = not self._row_mode and pdf_window is not None
+
+        self._base_style = lambda: f"""
+            QFrame#paperCard {{
+                background: {_theme.PANEL};
+                border: 1px solid {_theme.BORDER};
+                border-radius: {RADIUS_LG}px;
+            }}
+            QLabel {{ border: none; background: transparent; }}
+        """
+        self._sel_style = lambda: f"""
+            QFrame#paperCard {{
+                background: {_theme.PANEL};
+                border: 2px solid {_theme.ACCENT};
+                border-radius: {RADIUS_LG}px;
+            }}
+            QLabel {{ border: none; background: transparent; }}
+        """
+        self.setObjectName("paperCard")
+        self.setStyleSheet(self._base_style())
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        if not self._card_mode:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        outer = QHBoxLayout(self)
+        outer.setSpacing(0)
+
+        if self._card_mode:
+            outer.setContentsMargins(10, 0, CARD_PAD_H - 10, 0)
+            self._build_card(outer, row)
+        elif self._row_mode:
+            outer.setContentsMargins(CARD_PAD_H, CARD_PAD_V, CARD_PAD_H, CARD_PAD_V)
+            outer.setSpacing(SPACE_MD)
+            self._build_row(outer, row)
+        else:
+            outer.setContentsMargins(CARD_PAD_H, CARD_PAD_V, CARD_PAD_H, CARD_PAD_V)
+            outer.setSpacing(SPACE_XS)
+            self._build_compact(outer, row)
+
+    # ── Mode builders ─────────────────────────────────────────────────────────
+
+    def _build_card(self, outer: QHBoxLayout, row) -> None:
+        outer.addSpacing(CARD_PAD_H)
+
+        self._chk = QCheckBox()
+        self._chk.setFixedSize(48, 48)
+        self._chk.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._chk.setStyleSheet(_material_checkbox_qss())
+        self._chk.stateChanged.connect(self._on_checkbox)
+        outer.addWidget(self._chk, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        cat   = (row["category"] or "").split(".")[0] if row["category"] else ""
+        color = CAT_COLORS.get(row["category"] or "", CAT_COLORS.get(cat, _theme.ACCENT))
+        stripe = QWidget()
+        stripe.setFixedWidth(4)
+        stripe.setStyleSheet(f"background: {color}; border-radius: 0;")
+        outer.addWidget(stripe)
+
+        body = QVBoxLayout()
+        body.setContentsMargins(CARD_PAD_H, CARD_PAD_V, 0, CARD_PAD_V)
+        body.setSpacing(SPACE_XS)
+
+        title_lbl = QLabel(row["title"] or "(untitled)")
+        title_lbl.setWordWrap(True)
+        title_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; font-weight: 600; color: {_theme.TEXT};")
+        body.addWidget(title_lbl)
+
+        authors: list[str] = row["authors"] or []
+        if authors:
+            shown = ", ".join(authors[:3])
+            if len(authors) > 3:
+                shown += f" +{len(authors) - 3} more"
+            auth_lbl = QLabel(shown)
+            auth_lbl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED};")
+            body.addWidget(auth_lbl)
+
+        date_str = row["published"].isoformat() if row["published"] else ""
+        cat_str  = row["category"] or ""
+        meta     = "  ·  ".join(filter(None, [date_str, cat_str]))
+        if meta:
+            ml = QLabel(meta)
+            ml.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED};")
+            body.addWidget(ml)
+
+        tags: list[str] = row["tags"] or []
+        if tags:
+            tl = QLabel("  ".join(f"#{t}" for t in tags[:6]))
+            tl.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_theme.ACCENT};")
+            body.addWidget(tl)
+
+        outer.addLayout(body, stretch=1)
+
+        self._pdf_btn = QPushButton()
+        self._pdf_btn.setFixedSize(116, BTN_H_SM)
+        self._pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._refresh_pdf_btn()
+        self._pdf_btn.clicked.connect(self._on_pdf_action)
+        outer.addWidget(self._pdf_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+    def _build_row(self, outer: QHBoxLayout, row) -> None:
+        title_lbl = ElidedLabel(row["title"] or "(untitled)")
+        title_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; color: {_theme.TEXT};")
+        outer.addWidget(title_lbl, stretch=1)
+
+        self._note_btn = QPushButton(self._note_label())
+        self._note_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._note_btn.setStyleSheet(BTN_NOTE_OPEN)
+        self._note_btn.clicked.connect(self._on_open_notes)
+        outer.addWidget(self._note_btn)
+
+        if self._pdf_window is not None:
+            self._pdf_btn = QPushButton()
+            self._pdf_btn.setFixedSize(116, BTN_H_SM)
+            self._pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._refresh_pdf_btn()
+            self._pdf_btn.clicked.connect(self._on_pdf_action)
+            outer.addWidget(self._pdf_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+    def _build_compact(self, outer: QHBoxLayout, row) -> None:
+        body = QVBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(SPACE_XS)
+
+        title_lbl = ElidedLabel(row["title"] or "(untitled)")
+        title_lbl.setStyleSheet(f"font-size: {FONT_BODY}px; font-weight: 600; color: {_theme.TEXT};")
+        body.addWidget(title_lbl)
+
+        date_str = row["published"].isoformat() if row["published"] else ""
+        cat_str  = row["category"] or ""
+        meta     = "  ·  ".join(filter(None, [date_str, cat_str]))
+        if meta:
+            ml = QLabel(meta)
+            ml.setStyleSheet(f"font-size: {FONT_TERTIARY}px; color: {_theme.MUTED};")
+            body.addWidget(ml)
+
+        outer.addLayout(body, stretch=1)
+
+    # ── Selection (card mode) ─────────────────────────────────────────────────
+
+    def set_selected(self, selected: bool) -> None:
+        if self._selected == selected:
+            return
+        self._selected = selected
+        if self._card_mode:
+            self._chk.blockSignals(True)
+            self._chk.setChecked(selected)
+            self._chk.blockSignals(False)
+        self.setStyleSheet(self._sel_style() if selected else self._base_style())
+
+    def is_selected(self) -> bool:
+        return self._selected
+
+    def _on_checkbox(self, state: int) -> None:
+        checked = state == Qt.CheckState.Checked.value
+        self._selected = checked
+        self.setStyleSheet(self._sel_style() if checked else self._base_style())
+        self.selection_toggled.emit(self._row["source_fk"], checked)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and not self._card_mode:
+            self.double_clicked.emit(self._row)
+        super().mouseDoubleClickEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                self.set_selected(not self._selected)
+                self.selection_toggled.emit(self._row["source_fk"], self._selected)
+                return
+            self.clicked.emit(self._row)
+        super().mousePressEvent(event)
+
+    # ── Accessors ─────────────────────────────────────────────────────────────
+
+    def paper_id(self) -> int:
+        return self._row["source_fk"]
+
+    def is_arxiv(self) -> bool:
+        src = self._row["source"] if "source" in self._row.keys() else "arxiv"
+        return (src or "arxiv") == "arxiv"
+
+    # ── PDF (card mode) ───────────────────────────────────────────────────────
+
+    def local_pdf_path(self) -> str | None:
+        custom = self._row["pdf_path"] if "pdf_path" in self._row.keys() else None
+        return _files.pdf_path(self._row["paper_id"], self._row["version"], custom)
+
+    def _refresh_pdf_btn(self) -> None:
+        if self._pdf_btn is None:
+            return
+        path = self.local_pdf_path()
+        if path:
+            self._pdf_btn.setText("Open PDF")
+            self._pdf_btn.setStyleSheet(BTN_PDF_OPEN)
+        elif self.is_arxiv():
+            self._pdf_btn.setText("Download PDF")
+            self._pdf_btn.setStyleSheet(BTN_PDF_DOWNLOAD)
+        else:
+            self._pdf_btn.setText("Link PDF")
+            self._pdf_btn.setStyleSheet(BTN_PDF_LINK)
+
+    def _on_pdf_action(self) -> None:
+        if self._pdf_window is None:
+            return
+        path = self.local_pdf_path()
+        if path:
+            self._pdf_window.load_pdf(path)
+        elif self.is_arxiv():
+            self._start_download()
+        else:
+            self._link_pdf()
+
+    def start_download_if_needed(self) -> None:
+        """Called by bulk download. No-op if not card mode, already has PDF, or not arXiv."""
+        if not self._card_mode or self.local_pdf_path() or not self.is_arxiv():
+            return
+        self._start_download()
+
+    def _start_download(self) -> None:
+        if self._pdf_btn is None:
+            return
+        self._pdf_btn.setText("Downloading…")
+        self._pdf_btn.setEnabled(False)
+        pid, sid, ver = self._row["paper_id"], self._row["source_id"], self._row["version"]
+        self._worker = _DownloadWorker(pid, sid, ver)
+        self._worker.finished.connect(self._on_download_done)
+        self._worker.failed.connect(self._on_download_failed)
+        self._worker.rate_limited.connect(self._on_download_rate_limited)
+        self._worker.start()
+
+    def _on_download_done(self, paper_id: str, version: int, path: str) -> None:
+        paper_svc.set_pdf_path(paper_id, path)
+        paper_svc.set_has_pdf(paper_id, version, True)
+        if self._pdf_btn is not None:
+            self._pdf_btn.setEnabled(True)
+        self._refresh_pdf_btn()
+        if self._pdf_window is not None:
+            self._pdf_window.load_pdf(path)
+
+    def _on_download_rate_limited(self, _pid: str, _ver: int) -> None:
+        if self._pdf_btn is not None:
+            self._pdf_btn.setText("Rate limited — retrying…")
+
+    def _on_download_failed(self, _pid: str, _ver: int, err: str) -> None:
+        if self._pdf_btn is None:
+            return
+        self._pdf_btn.setEnabled(True)
+        self._pdf_btn.setText("Rate limited — retry?" if err == "rate limited" else "Failed — retry?")
+        self._pdf_btn.setStyleSheet(BTN_PDF_ERROR)
+
+    def _link_pdf(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Link PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+        pid, ver = self._row["paper_id"], self._row["version"]
+        paper_svc.set_pdf_path(pid, path)
+        paper_svc.set_has_pdf(pid, ver, True)
+        self._refresh_pdf_btn()
+
+    # ── Notes (row mode) ──────────────────────────────────────────────────────
+
+    def _note_count(self) -> int:
+        if self._project_id is None:
+            return 0
+        try:
+            from service.note import count_paper_notes
+            return count_paper_notes(self._row["source_fk"], self._project_id)
+        except Exception:
+            return 0
+
+    def _note_label(self) -> str:
+        n = self._note_count()
+        return f"📝 {n} {'note' if n == 1 else 'notes'}"
+
+    def _on_open_notes(self) -> None:
+        if self._project_id is None:
+            return
+        from gui.projects.page import NotesDialog
+        host = self.window()
+        dlg = NotesDialog(
+            self._row["source_fk"],
+            self._project_id,
+            self._row["title"] or self._row["source_id"],
+            host,
+        )
+        dlg.exec()
+        if host is not None:
+            host.raise_()
+            host.activateWindow()
+        self._note_btn.setText(self._note_label())

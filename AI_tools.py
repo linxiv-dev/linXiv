@@ -166,7 +166,7 @@ class OpenAIProvider(AIProvider):
             response_format=schema,
         )
         result = response.choices[0].message.parsed
-        assert result
+        assert result is not None
         return result
 
     def tag(self, content: PaperContent) -> list[str]:
