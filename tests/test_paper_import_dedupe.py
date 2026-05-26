@@ -192,7 +192,7 @@ class TestRollbackPreservesAdoptedRoot:
         # Force the import to fail after the DB save, during the on-disk PDF step.
         def boom(*_a, **_kw):
             raise RuntimeError("simulated disk failure")
-        monkeypatch.setattr("service.paper.set_pdf_path", boom)
+        monkeypatch.setattr("storage.db.mark_pdf_saved", boom)
 
         pdf_dir = paper_svc._pdf_dir()
         orphan_v2 = pdf_dir / pdf_on_disk_name("arxiv:2204.12985", 2)
@@ -206,7 +206,7 @@ class TestRollbackPreservesAdoptedRoot:
         assert db.get_paper_root("arxiv:2204.12985") is not None
         # No local:<sha> root was created either.
         assert db.get_paper_root("local:mno345") is None
-        # The v2 PDF file we briefly wrote before set_pdf_path raised should
+        # The v2 PDF file we briefly wrote before mark_pdf_saved raised should
         # also be unlinked (the wrote_final_path cleanup branch).
         assert not orphan_v2.exists()
 
@@ -255,7 +255,7 @@ class TestRollbackPreservesAdoptedRoot:
 
         def boom(*_a, **_kw):
             raise RuntimeError("simulated disk failure")
-        monkeypatch.setattr("service.paper.set_pdf_path", boom)
+        monkeypatch.setattr("storage.db.mark_pdf_saved", boom)
 
         pdf_dir = paper_svc._pdf_dir()
         canonical = pdf_dir / pdf_on_disk_name("arxiv:2204.12985", 1)
@@ -297,7 +297,7 @@ class TestRollbackPreservesAdoptedRoot:
         # before rollback runs (matches the orphan scenario the reviewer flagged).
         def boom(*_a, **_kw):
             raise RuntimeError("simulated post-write failure")
-        monkeypatch.setattr("service.paper.set_pdf_path", boom)
+        monkeypatch.setattr("storage.db.mark_pdf_saved", boom)
 
         pdf_dir = paper_svc._pdf_dir()
         orphan_path = pdf_dir / pdf_on_disk_name("arxiv:2204.12985", 2)
