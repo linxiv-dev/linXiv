@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Upload } from "lucide-react";
 import { listPapers, deletePaper, searchLibrary } from "../api/papers";
-import { listProjects, addPaperToProject } from "../api/projects";
+import { listProjects, addPaperToProject, createProject } from "../api/projects";
 import { useSelectionStore } from "../stores/selection";
 import type { Paper } from "../types/api";
 import { normalizeAuthors } from "../lib/papers";
@@ -50,6 +50,7 @@ export default function LibraryPage() {
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectPickerError, setProjectPickerError] = useState<string | null>(null);
+  const [newProjectName, setNewProjectName] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -135,6 +136,25 @@ export default function LibraryPage() {
       setProjectPickerError(
         err instanceof Error ? err.message : "Failed to add papers to project"
       );
+    },
+  });
+
+  const createProjectMutation = useMutation({
+    mutationFn: async ({ name, sourceIds }: { name: string; sourceIds: string[] }) => {
+      const result = await createProject({ name });
+      for (const id of sourceIds) {
+        await addPaperToProject(result.project.id, id);
+      }
+    },
+    onSuccess: () => {
+      setNewProjectName("");
+      setProjectPickerOpen(false);
+      setProjectPickerError(null);
+      clear();
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onError: (err) => {
+      setProjectPickerError(err instanceof Error ? err.message : "Failed to create project");
     },
   });
 
@@ -384,6 +404,8 @@ export default function LibraryPage() {
         onClose={() => {
           setProjectPickerOpen(false);
           setProjectPickerError(null);
+          setNewProjectName("");
+          createProjectMutation.reset();
         }}
         title="Add to Project"
       >
@@ -398,7 +420,34 @@ export default function LibraryPage() {
               <Spinner size={20} />
             </div>
           ) : !projectsData?.projects?.length ? (
-            <p className="text-muted text-sm">No projects found.</p>
+            <div className="space-y-2">
+              <p className="text-muted text-sm">No projects yet.</p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = newProjectName.trim();
+                  if (name) createProjectMutation.mutate({ name, sourceIds: [...selectedIds] });
+                }}
+                className="flex gap-2"
+              >
+                <Input
+                  autoFocus
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="New project name…"
+                  className="flex-1 text-sm"
+                  disabled={createProjectMutation.isPending}
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!newProjectName.trim() || createProjectMutation.isPending}
+                >
+                  {createProjectMutation.isPending ? "Creating…" : "Create"}
+                </Button>
+              </form>
+            </div>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {projectsData.projects.map((project) => (
@@ -426,6 +475,8 @@ export default function LibraryPage() {
               onClick={() => {
                 setProjectPickerOpen(false);
                 setProjectPickerError(null);
+                setNewProjectName("");
+                createProjectMutation.reset();
               }}
             >
               Cancel

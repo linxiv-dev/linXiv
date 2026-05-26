@@ -8,7 +8,7 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { getPaperBySfk, getPaperVersions, getPaperPdfUrl } from "../api/papers";
 import { getNotes, deleteNote } from "../api/notes";
 import { fetchArxiv } from "../api/search";
-import { apiFetch, BASE_URL } from "../api/client";
+import { apiFetch, BASE_URL, isTauri } from "../api/client";
 import type { Note, Paper } from "../types/api";
 import { Spinner } from "../components/ui/spinner";
 import { Button } from "../components/ui/button";
@@ -28,8 +28,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 const LATEST_VERSION_KEY = "latest" as const;
 
-// True only inside the Tauri webview; false in plain browser dev mode.
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "";
@@ -55,9 +53,12 @@ export default function PaperDetailPage() {
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [openNativeError, setOpenNativeError] = useState<string | null>(null);
+  const [openNativeLoading, setOpenNativeLoading] = useState(false);
+  const openNativeAbortRef = useRef<AbortController | null>(null);
   // null means "latest"; a number means a specific stored version
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
+  const [pdfTabActivated, setPdfTabActivated] = useState(false);
   const [previewNumPages, setPreviewNumPages] = useState(0);
   const [containerWidth, setContainerWidth] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -178,10 +179,16 @@ export default function PaperDetailPage() {
     setShowPdfPreview(false);
     setUseProxy(false);
     setPdfPreviewLoaded(false);
+    setOpenNativeError(null);
+    setOpenNativeLoading(false);
     pdfPreviewDocRef.current = null;
     resetDownloadPdf();
     resetSavePdf();
     resetLinkPdf();
+    return () => {
+      openNativeAbortRef.current?.abort();
+      openNativeAbortRef.current = null;
+    };
   }, [sfk, selectedVersion, paper?.has_pdf, resetDownloadPdf, resetSavePdf, resetLinkPdf]);
 
   function handleNotesSaved() {
@@ -214,14 +221,27 @@ export default function PaperDetailPage() {
   }
 
   async function handleOpenNative() {
-    if (!paper?.pdf_path) return;
+    if (!paper?.has_pdf || openNativeLoading) return;
     setOpenNativeError(null);
+    setOpenNativeLoading(true);
+    const controller = new AbortController();
+    openNativeAbortRef.current = controller;
     try {
-      await openPath(paper.pdf_path);
+      const versionQuery = paper.version > 0 ? `?version=${paper.version}` : "";
+      const { path } = await apiFetch<{ path: string }>(
+        `/api/papers/${encodeURIComponent(paper.source_id)}/pdf-path${versionQuery}`,
+        { signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
+      if (typeof path !== "string" || !path) throw new Error("Invalid response from pdf-path endpoint");
+      await openPath(path);
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
       setOpenNativeError(
         err instanceof Error ? err.message : "Failed to open PDF"
       );
+    } finally {
+      setOpenNativeLoading(false);
     }
   }
 
@@ -359,7 +379,7 @@ export default function PaperDetailPage() {
         </div>
 
         {/* Tabs: Overview | Notes | PDF */}
-        <Tabs defaultValue="overview">
+        <Tabs defaultValue="overview" onValueChange={(v) => { if (v === "pdf") setPdfTabActivated(true); }}>
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="notes">
@@ -453,9 +473,9 @@ export default function PaperDetailPage() {
             {paper.has_pdf ? (
               <>
                 <div className="flex items-center gap-3 flex-wrap">
-                  {isTauri && paper.pdf_path && (
-                    <Button variant="primary" onClick={handleOpenNative}>
-                      Open in system viewer
+                  {isTauri && (
+                    <Button variant="primary" onClick={handleOpenNative} disabled={openNativeLoading}>
+                      {openNativeLoading ? "Opening…" : "Open in system viewer"}
                     </Button>
                   )}
                   {openNativeError && (
@@ -465,15 +485,17 @@ export default function PaperDetailPage() {
                   )}
                 </div>
 
-                <iframe
-                  src={getPaperPdfUrl(
-                    paper.source_id,
-                    paper.version > 0 ? paper.version : undefined
-                  )}
-                  className="w-full rounded border border-border"
-                  style={{ height: "70vh" }}
-                  title="PDF viewer"
-                />
+                {pdfTabActivated && (
+                  <iframe
+                    src={getPaperPdfUrl(
+                      paper.source_id,
+                      paper.version > 0 ? paper.version : undefined
+                    )}
+                    className="w-full rounded border border-border"
+                    style={{ height: "70vh" }}
+                    title="PDF viewer"
+                  />
+                )}
               </>
             ) : (
               <div className="space-y-3">

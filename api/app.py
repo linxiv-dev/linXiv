@@ -109,11 +109,15 @@ def _cors_config() -> tuple[list[str], bool]:
     return origins, True
 
 
-def _resolve_local_pdf(paper: PaperDetails, source_id: str, version: int | None) -> str | None:
+def _resolve_local_pdf(paper: PaperDetails, version: int | None) -> str | None:
     ver = paper.version if version is None else version
     if paper.pdf_path and os.path.isfile(paper.pdf_path):
         return paper.pdf_path
-    std = PDF_DIR / pdf_on_disk_name(source_id, ver)
+    # Standard-filename fallback is meaningless for ver<=0: the download pipeline
+    # never writes a version-0 filename, so the probe cannot succeed.
+    if ver <= 0:
+        return None
+    std = PDF_DIR / pdf_on_disk_name(paper.source_id, ver)
     if std.is_file():
         return str(std)
     return None
@@ -240,11 +244,11 @@ def api_search_papers(
 
 
 @app.get("/api/papers/{source_id:path}/pdf", response_model=None)
-def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
+def api_paper_pdf(source_id: str, version: int | None = Query(default=None, ge=1)):
     paper = get_paper_details(Paper(source_id=source_id, version=version))
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    path = _resolve_local_pdf(paper, source_id, version)
+    path = _resolve_local_pdf(paper, version)
     if path:
         return FileResponse(path, media_type="application/pdf", filename=os.path.basename(path), content_disposition_type="inline")
     if paper.has_pdf:
@@ -254,6 +258,17 @@ def api_paper_pdf(source_id: str, version: int | None = Query(default=None)):
     if paper.url:
         return RedirectResponse(paper.url)
     raise HTTPException(status_code=404, detail="No PDF available")
+
+
+@app.get("/api/papers/{source_id:path}/pdf-path")
+def api_paper_pdf_path(source_id: str, version: int | None = Query(default=None, ge=1)) -> dict:
+    paper = get_paper_details(Paper(source_id=source_id, version=version))
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    path = _resolve_local_pdf(paper, version)
+    if not path:
+        raise HTTPException(status_code=404, detail="PDF file not found on disk")
+    return {"path": path}
 
 
 @app.put("/api/papers/{source_id:path}/pdf", response_model=None)
