@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 class PaperMetadata(BaseModel):
     """Normalized paper representation (source-agnostic)."""
-    paper_id: str       # source-specific ID (arxiv: 2204.12985, openalex: W3123456789)
+    source_id: str       # namespaced paper ID (e.g. "arxiv:2204.12985", "openalex:W3123456789", "doi:10.48550/...", "local:{hash}")
     version: int        # defaults to 1 for non-arxiv sources
     title: str
     authors: list[str]
@@ -40,10 +40,22 @@ class PaperSource(Protocol):
         """
         ...
 
-    def search(self, query: str, max_results: int = 10) -> list[PaperMetadata]:
-        """Search for papers matching a query string."""
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        sort: str = "relevance",
+    ) -> list[PaperMetadata]:
+        """Search for papers matching a query string.
+
+        ``sort`` is a source-specific key.  Each source defines the values it
+        accepts and raises ``ValueError`` on unrecognized keys.  Pass
+        ``"relevance"`` (the default) to get each source's default ordering.
+        Sources whose backend does not support sorting accept the parameter but
+        document this explicitly and ignore it.
+        """
         ...
 
-    def fetch_by_id(self, paper_id: str) -> PaperMetadata:
+    def fetch_by_id(self, source_id: str) -> PaperMetadata:
         """Fetch metadata for a specific paper by its source-specific ID."""
         ...

@@ -4,6 +4,9 @@ import os
 from typing import cast
 
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+from openai import OpenAI
 from pydantic import BaseModel
 
 from config import ENV_PATH
@@ -23,7 +26,7 @@ class PaperContent:
     pdf: bytes | None = None      # PDF bytes
 
     def best_text(self) -> str:
-        if self.full_text is not None:
+        if self.full_text:
             return self.full_text
         return self.abstract
 
@@ -80,7 +83,6 @@ class GeminiProvider(AIProvider):
 
     def _get_client(self):
         if self._client is None:
-            from google import genai  # type: ignore[reportMissingImports]
             api_key = os.getenv("GENAI_API_KEY_TAG_GEN")
             if not api_key:
                 raise EnvironmentError("GENAI_API_KEY_TAG_GEN not set.")
@@ -88,11 +90,10 @@ class GeminiProvider(AIProvider):
         return self._client
 
     def _generate(self, prompt: str, content: PaperContent, schema: type[BaseModel]) -> BaseModel:
-        from google.genai import types  # type: ignore[reportMissingImports]
         parts: list = [types.Part.from_text(text=prompt)]
-        if content.pdf is not None:
+        if content.pdf:
             parts.append(types.Part.from_bytes(data=content.pdf, mime_type="application/pdf"))
-        elif content.full_text is not None:
+        elif content.full_text:
             parts.append(types.Part.from_text(text=content.full_text))
         else:
             parts.append(types.Part.from_text(text=content.abstract))
@@ -148,7 +149,6 @@ class OpenAIProvider(AIProvider):
 
     def _get_client(self):
         if self._client is None:
-            from openai import OpenAI  # type: ignore[reportMissingImports]
             api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
                 raise EnvironmentError("OPENAI_API_KEY not set.")
@@ -165,7 +165,9 @@ class OpenAIProvider(AIProvider):
             ],
             response_format=schema,
         )
-        return response.choices[0].message.parsed  # type: ignore[return-value]
+        result = response.choices[0].message.parsed
+        assert result is not None
+        return result
 
     def tag(self, content: PaperContent) -> list[str]:
         parsed = cast(_TagResponse, self._generate(
@@ -221,7 +223,7 @@ def set_provider(provider: AIProvider) -> None:
 def tag(content: PaperContent, file_path: str | None = None) -> list[str]:
     """Generate 3-5 Obsidian tags. Optionally append to file_path."""
     tags = _get_provider().tag(content)
-    if file_path is not None:
+    if file_path:
         with open(file_path, "a", encoding="utf-8") as f:
             f.write("\n" + " ".join(tags))
     return tags

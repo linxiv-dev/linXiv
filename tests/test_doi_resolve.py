@@ -21,7 +21,7 @@ from sources.base import PaperMetadata
 
 def _make_meta(**kwargs) -> PaperMetadata:
     defaults = dict(
-        paper_id="2204.12985",
+        source_id="2204.12985",
         version=1,
         title="Test Paper",
         authors=["Author One"],
@@ -79,28 +79,28 @@ class TestTryArxivDoi:
         assert _try_arxiv_doi("") is None
 
     def test_fetches_arxiv_for_matching_doi(self):
-        mock_meta = _make_meta(paper_id="2204.12985")
-        with patch("sources.fetch_paper_metadata.fetch_paper_metadata", return_value=MagicMock()), \
-             patch("sources.arxiv_source._result_to_metadata", return_value=mock_meta):
+        mock_meta = _make_meta(source_id="2204.12985")
+        with patch("sources.doi_resolve.fetch_paper_metadata", return_value=MagicMock()), \
+             patch("sources.doi_resolve._result_to_metadata", return_value=mock_meta):
             result = _try_arxiv_doi("10.48550/arXiv.2204.12985")
         assert result is mock_meta
 
     def test_raises_value_error_on_429(self):
-        with patch("sources.fetch_paper_metadata.fetch_paper_metadata",
+        with patch("sources.doi_resolve.fetch_paper_metadata",
                    side_effect=Exception("429 Too Many Requests")):
             with pytest.raises(ValueError, match="rate limit"):
                 _try_arxiv_doi("10.48550/arXiv.2204.12985")
 
     def test_returns_none_on_other_arxiv_error(self):
-        with patch("sources.fetch_paper_metadata.fetch_paper_metadata",
+        with patch("sources.doi_resolve.fetch_paper_metadata",
                    side_effect=Exception("network error")):
             result = _try_arxiv_doi("10.48550/arXiv.2204.12985")
         assert result is None
 
     def test_matches_case_insensitive(self):
         mock_meta = _make_meta()
-        with patch("sources.fetch_paper_metadata.fetch_paper_metadata", return_value=MagicMock()), \
-             patch("sources.arxiv_source._result_to_metadata", return_value=mock_meta):
+        with patch("sources.doi_resolve.fetch_paper_metadata", return_value=MagicMock()), \
+             patch("sources.doi_resolve._result_to_metadata", return_value=mock_meta):
             result = _try_arxiv_doi("10.48550/ARXIV.2204.12985")
         assert result is mock_meta
 
@@ -133,7 +133,7 @@ class TestTrySemanticScholar:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=s2_data):
             result = _try_semantic_scholar("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.title == "A Test Paper"
         assert result.authors == ["Jane Doe"]
         assert result.source == "semanticscholar"
@@ -147,7 +147,7 @@ class TestTrySemanticScholar:
             "abstract": None,
             "externalIds": {"ArXiv": "2204.12985"},
         }
-        mock_meta = _make_meta(paper_id="2204.12985")
+        mock_meta = _make_meta(source_id="2204.12985")
         with patch("sources.doi_resolve._fetch_url", return_value=s2_data), \
              patch("sources.fetch_paper_metadata.fetch_paper_metadata", return_value=MagicMock()), \
              patch("sources.arxiv_source._result_to_metadata", return_value=mock_meta):
@@ -177,7 +177,7 @@ class TestTrySemanticScholar:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=s2_data):
             result = _try_semantic_scholar("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.published.year == 2019
 
     def test_uses_today_when_no_date_or_year(self):
@@ -191,7 +191,7 @@ class TestTrySemanticScholar:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=s2_data):
             result = _try_semantic_scholar("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.published == datetime.date.today()
 
 
@@ -221,7 +221,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.title == "A CrossRef Paper"
         assert result.authors == ["John Smith"]
         assert result.published == datetime.date(2021, 3, 15)
@@ -239,7 +239,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
         assert "<" not in result.summary
         assert "Clean" in result.summary
 
@@ -255,7 +255,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
 
     def test_handles_partial_date_year_only(self):
         cr_data = {
@@ -269,7 +269,7 @@ class TestTryCrossref:
         }
         with patch("sources.doi_resolve._fetch_url", return_value=cr_data):
             result = _try_crossref("10.1000/xyz")
-        assert result is not None
+        assert result
         assert result.published.year == 2020
         assert result.published.month == 1
         assert result.published.day == 1

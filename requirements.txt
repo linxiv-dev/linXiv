@@ -1,7 +1,5 @@
 arxiv
 fastapi
-PyQt6
-PyQt6-WebEngine
 google-genai
 httpx
 markdown
@@ -10,4 +8,6 @@ pybtex
 pydantic
 pypdf>=6.10.2
 python-dotenv
+python-multipart>=0.0.26
+starlette<1.0
 uvicorn[standard]

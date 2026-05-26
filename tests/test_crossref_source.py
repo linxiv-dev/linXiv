@@ -53,9 +53,9 @@ class TestParseCrossrefWork:
         meta = _parse_crossref_work(_make_msg(), doi="10.1000/xyz")
         assert meta.source == "crossref"
 
-    def test_paper_id_is_doi(self):
+    def test_source_id_is_doi(self):
         meta = _parse_crossref_work(_make_msg(), doi="10.1000/xyz")
-        assert meta.paper_id == "10.1000/xyz"
+        assert meta.source_id == "doi:10.1000/xyz"
 
     def test_doi_field_set(self):
         meta = _parse_crossref_work(_make_msg(), doi="10.1000/xyz")
@@ -154,7 +154,7 @@ class TestFetchByDoi:
             result = fetch_by_doi("10.1000/xyz")
         assert isinstance(result, PaperMetadata)
         assert result.source == "crossref"
-        assert result.paper_id == "10.1000/xyz"
+        assert result.source_id == "doi:10.1000/xyz"
 
     def test_404_returns_none(self):
         mock_resp = _mock_response(404, {})
@@ -184,13 +184,13 @@ class TestFetchByDoi:
             result = fetch_by_doi("10.1000/xyz")
         assert result is None
 
-    def test_doi_passed_as_paper_id(self):
+    def test_doi_passed_as_source_id(self):
         mock_resp = _mock_response(200, self._make_full_response(doi="10.9999/test"))
         with patch("httpx.Client") as mock_client_cls:
             mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_resp
             result = fetch_by_doi("10.9999/test")
-        assert result is not None
-        assert result.paper_id == "10.9999/test"
+        assert result
+        assert result.source_id == "doi:10.9999/test"
 
 
 # ---------------------------------------------------------------------------
@@ -262,11 +262,11 @@ class TestSearchByTitle:
 
 class TestCrossRefSourceClass:
     def test_source_name(self):
-        assert CrossRefSource.source_name == "crossref"
+        assert CrossRefSource().source_name == "crossref"
 
     def test_fetch_by_id_returns_metadata_on_success(self):
         mock_meta = PaperMetadata(
-            paper_id="10.1000/xyz", version=1, title="Paper", authors=[],
+            source_id="10.1000/xyz", version=1, title="Paper", authors=[],
             published=datetime.date(2023, 1, 1), summary="", source="crossref",
         )
         source = CrossRefSource()
@@ -283,7 +283,7 @@ class TestCrossRefSourceClass:
     def test_search_returns_list_on_success(self):
         mock_results = [
             PaperMetadata(
-                paper_id="10.1000/a", version=1, title="Result A", authors=[],
+                source_id="10.1000/a", version=1, title="Result A", authors=[],
                 published=datetime.date(2023, 1, 1), summary="", source="crossref",
             )
         ]

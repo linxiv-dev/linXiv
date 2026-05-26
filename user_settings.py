@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-_DEFAULTS_PATH = Path(__file__).resolve().parent / "formats" / "default_settings.json"
-_USER_PATH = Path(__file__).resolve().parent / "user_settings.json"
+from config import data_dir, resources_dir
+
+_DEFAULTS_PATH = resources_dir() / "formats" / "default_settings.json"
+_USER_PATH = data_dir() / "user_settings.json"
 
 _defaults: dict[str, Any] = json.loads(_DEFAULTS_PATH.read_text())
 _settings: dict[str, Any] = {}

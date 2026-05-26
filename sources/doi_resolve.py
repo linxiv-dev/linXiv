@@ -1,14 +1,15 @@
 """DOI resolution (no GUI dependencies). Used by the desktop DOI page and the web API."""
 
 from __future__ import annotations
-
 import datetime
 import json
 import re
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from .arxiv_source import _result_to_metadata
 from .base import PaperMetadata
+from .fetch_paper_metadata import fetch_paper_metadata
 
 _ARXIV_DOI_RE = re.compile(
     r"10\.48550/arXiv\.(\d{4}\.\d{4,5}|[a-z\-]+/\d+)", re.IGNORECASE
@@ -38,8 +39,6 @@ def _try_arxiv_doi(doi: str) -> PaperMetadata | None:
     if not m:
         return None
     arxiv_id = m.group(1)
-    from .fetch_paper_metadata import fetch_paper_metadata
-    from .arxiv_source import _result_to_metadata
 
     try:
         result = fetch_paper_metadata(arxiv_id)
@@ -100,7 +99,7 @@ def _try_semantic_scholar(doi: str) -> PaperMetadata | None:
     s2_url = data.get("url") or f"https://www.semanticscholar.org/paper/{data.get('paperId', '')}"
 
     return PaperMetadata(
-        paper_id=doi,
+        source_id=f"doi:{doi}",
         version=1,
         title=data["title"],
         authors=authors,
@@ -155,7 +154,7 @@ def _try_crossref(doi: str) -> PaperMetadata | None:
     cr_url = msg.get("URL") or f"https://doi.org/{doi}"
 
     return PaperMetadata(
-        paper_id=doi,
+        source_id=f"doi:{doi}",
         version=1,
         title=title,
         authors=authors,

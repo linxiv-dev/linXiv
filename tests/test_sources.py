@@ -9,8 +9,18 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from sources.base import PaperMetadata
-from sources.arxiv_source import _parse_arxiv_id, _result_to_metadata, ArxivSource
-from sources.openalex_source import _reconstruct_abstract, _work_to_metadata, OpenAlexSource
+from sources.arxiv_source import (
+    _parse_arxiv_id,
+    _result_to_metadata,
+    ArxivSource,
+    ArxivNotFoundError,
+)
+from sources.openalex_source import (
+    _reconstruct_abstract,
+    _work_to_metadata,
+    OpenAlexSource,
+    OpenAlexHTTPError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -19,20 +29,20 @@ from sources.openalex_source import _reconstruct_abstract, _work_to_metadata, Op
 
 class TestParseArxivId:
     def test_full_http_url_with_version(self):
-        assert _parse_arxiv_id("http://arxiv.org/abs/2204.12985v4") == ("2204.12985", 4)
+        assert _parse_arxiv_id("http://arxiv.org/abs/2204.12985v4") == ("arxiv:2204.12985", 4)
 
     def test_full_https_url_with_version(self):
-        assert _parse_arxiv_id("https://arxiv.org/abs/2204.12985v2") == ("2204.12985", 2)
+        assert _parse_arxiv_id("https://arxiv.org/abs/2204.12985v2") == ("arxiv:2204.12985", 2)
 
     def test_bare_id_with_version(self):
-        assert _parse_arxiv_id("2204.12985v3") == ("2204.12985", 3)
+        assert _parse_arxiv_id("2204.12985v3") == ("arxiv:2204.12985", 3)
 
     def test_bare_id_no_version_defaults_to_1(self):
-        assert _parse_arxiv_id("2204.12985") == ("2204.12985", 1)
+        assert _parse_arxiv_id("2204.12985") == ("arxiv:2204.12985", 1)
 
     def test_five_digit_id(self):
-        paper_id, ver = _parse_arxiv_id("http://arxiv.org/abs/2204.123456v1")
-        assert paper_id == "2204.123456"
+        source_id, ver = _parse_arxiv_id("http://arxiv.org/abs/2204.123456v1")
+        assert source_id == "arxiv:2204.123456"
         assert ver == 1
 
 
@@ -69,9 +79,9 @@ class TestResultToMetadata:
         assert isinstance(meta, PaperMetadata)
         assert meta.source == "arxiv"
 
-    def test_extracts_paper_id_from_entry_id(self):
+    def test_extracts_source_id_from_entry_id(self):
         meta = _result_to_metadata(self._make_result(entry_id="http://arxiv.org/abs/2204.12985v1"))
-        assert meta.paper_id == "2204.12985"
+        assert meta.source_id == "arxiv:2204.12985"
 
     def test_extracts_version_from_entry_id(self):
         meta = _result_to_metadata(self._make_result(entry_id="http://arxiv.org/abs/2204.12985v3"))
@@ -111,10 +121,10 @@ class TestArxivSource:
             with pytest.raises(Exception, match="429"):
                 source.search("attention mechanism")
 
-    def test_fetch_by_id_raises_value_error_when_not_found(self):
+    def test_fetch_by_id_raises_not_found_error_when_missing(self):
         source = ArxivSource()
         with patch.object(source._client, "results", return_value=iter([])):
-            with pytest.raises(ValueError, match="not found"):
+            with pytest.raises(ArxivNotFoundError, match="not found"):
                 source.fetch_by_id("9999.99999")
 
     def test_fetch_by_id_raises_on_network_error(self):
@@ -137,7 +147,7 @@ class TestReconstructAbstract:
     def test_handles_word_at_multiple_positions(self):
         inv = {"the": [0, 3], "cat": [1], "sat": [2]}
         result = _reconstruct_abstract(inv)
-        assert result is not None
+        assert result
         words = result.split()
         assert words[0] == "the"
         assert words[1] == "cat"
@@ -176,14 +186,14 @@ class TestWorkToMetadata:
     def test_basic_conversion(self):
         meta = _work_to_metadata(self._make_work())
         assert isinstance(meta, PaperMetadata)
-        assert meta.paper_id == "W3123456789"
+        assert meta.source_id == "openalex:W3123456789"
         assert meta.source == "openalex"
         assert meta.title == "OpenAlex Paper"
         assert meta.version == 1
 
     def test_extracts_openalex_id_from_url(self):
         meta = _work_to_metadata(self._make_work(id="https://openalex.org/W9876543210"))
-        assert meta.paper_id == "W9876543210"
+        assert meta.source_id == "openalex:W9876543210"
 
     def test_extracts_authors(self):
         work = self._make_work(authorships=[
@@ -288,14 +298,14 @@ class TestOpenAlexSourceSearch:
             with pytest.raises(ValueError, match="OpenAlex search failed"):
                 source.search("test query")
 
-    def test_search_raises_value_error_on_http_error(self):
+    def test_search_raises_http_error_on_http_status(self):
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "503", request=MagicMock(), response=MagicMock()
+            "503", request=MagicMock(), response=MagicMock(status_code=503)
         )
         source = OpenAlexSource()
         with patch.object(source._http, "get", return_value=mock_resp):
-            with pytest.raises(ValueError, match="OpenAlex search failed"):
+            with pytest.raises(OpenAlexHTTPError, match="OpenAlex search failed"):
                 source.search("test query")
 
     def test_search_passes_correct_params(self):
@@ -323,7 +333,7 @@ class TestOpenAlexSourceFetchById:
         with patch.object(source._http, "get", return_value=mock_resp):
             result = source.fetch_by_id("W9999")
         assert result.title == "Fetched Paper"
-        assert result.paper_id == "W9999"
+        assert result.source_id == "openalex:W9999"
 
     def test_fetch_by_id_raises_value_error_on_error(self):
         source = OpenAlexSource()
@@ -344,4 +354,5 @@ class TestOpenAlexSourceFetchById:
         with patch.object(source._http, "get", return_value=mock_resp) as mock_get:
             source.fetch_by_id("https://openalex.org/W1234")
         called_url = mock_get.call_args[0][0]
-        assert "openalex.org" in called_url
+        assert "W1234" in called_url
+        assert "openalex.org" in str(source._http.base_url)

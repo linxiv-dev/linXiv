@@ -1,0 +1,489 @@
+import { useState, useRef, useMemo, useDeferredValue, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Upload } from "lucide-react";
+import { listPapers, deletePaper, searchLibrary } from "../api/papers";
+import { listProjects, addPaperToProject, createProject } from "../api/projects";
+import { useSelectionStore } from "../stores/selection";
+import type { Paper } from "../types/api";
+import { normalizeAuthors } from "../lib/papers";
+import { Spinner } from "../components/ui/spinner";
+import { Input } from "../components/ui/input";
+import { Button } from "../components/ui/button";
+import { Dialog } from "../components/ui/dialog";
+import { PaperCard } from "../components/papers/PaperCard";
+import { SelectionBar } from "../components/papers/SelectionBar";
+import { ImportDialog } from "../components/import/ImportDialog";
+
+type FilterMode = "all" | "has_pdf" | "no_pdf";
+
+const PAPER_FETCH_LIMIT = 5000;
+const VIRTUALIZER_ESTIMATE_HEIGHT = 120;
+const VIRTUALIZER_OVERSCAN = 5;
+const ROW_GAP_PX = "12px";
+const TRASH_RETENTION_DAYS = 30;
+
+const FILTER_LABELS: { mode: FilterMode; label: string }[] = [
+  { mode: "all", label: "All" },
+  { mode: "has_pdf", label: "Has PDF" },
+  { mode: "no_pdf", label: "No PDF" },
+];
+
+function matchesPaper(paper: Paper, query: string): boolean {
+  if (!query.trim()) return true;
+  const q = query.toLowerCase();
+  if (paper.title.toLowerCase().includes(q)) return true;
+  if (paper.summary?.toLowerCase().includes(q)) return true;
+  const authors = normalizeAuthors(paper.authors ?? []);
+  return authors.some((a) => a.toLowerCase().includes(q));
+}
+
+export default function LibraryPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
+  const trimmedSearch = deferredSearch.trim();
+  const ftsEnabled = trimmedSearch.length >= 3;
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [projectPickerError, setProjectPickerError] = useState<string | null>(null);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const selectedIds = useSelectionStore((s) => s.selectedIds);
+  const clear = useSelectionStore((s) => s.clear);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const {
+    data: papersData,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ["papers"],
+    queryFn: () => listPapers(PAPER_FETCH_LIMIT, 0),
+  });
+
+  const {
+    data: projectsData,
+    isLoading: projectsLoading,
+  } = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => listProjects(),
+    enabled: projectPickerOpen,
+  });
+
+  const {
+    data: ftsData,
+    isFetching: ftsFetching,
+    isError: ftsError,
+  } = useQuery({
+    queryKey: ["papers", "search", trimmedSearch],
+    queryFn: () => searchLibrary(trimmedSearch),
+    enabled: ftsEnabled,
+    staleTime: 30_000,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await deletePaper(id);
+      }
+    },
+    onMutate: () => {
+      setDeleteError(null);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["papers"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    },
+    onSuccess: () => {
+      clear();
+    },
+    onError: (err) => {
+      setDeleteError(
+        err instanceof Error ? err.message : "Failed to delete papers"
+      );
+    },
+  });
+
+  const addToProjectMutation = useMutation({
+    mutationFn: async ({
+      projectId,
+      sourceIds,
+    }: {
+      projectId: number;
+      sourceIds: string[];
+    }) => {
+      for (const id of sourceIds) {
+        await addPaperToProject(projectId, id);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onSuccess: () => {
+      setProjectPickerOpen(false);
+      setProjectPickerError(null);
+      clear();
+    },
+    onError: (err) => {
+      setProjectPickerError(
+        err instanceof Error ? err.message : "Failed to add papers to project"
+      );
+    },
+  });
+
+  const createProjectMutation = useMutation({
+    mutationFn: async ({ name, sourceIds }: { name: string; sourceIds: string[] }) => {
+      const result = await createProject({ name });
+      for (const id of sourceIds) {
+        await addPaperToProject(result.project.id, id);
+      }
+    },
+    onSuccess: () => {
+      setNewProjectName("");
+      setProjectPickerOpen(false);
+      setProjectPickerError(null);
+      clear();
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onError: (err) => {
+      setProjectPickerError(err instanceof Error ? err.message : "Failed to create project");
+    },
+  });
+
+  const allPapers = papersData?.papers ?? [];
+
+  const filtered = useMemo(() => {
+    const ftsPapers = ftsEnabled ? (ftsData?.papers ?? []) : [];
+    const ftsIds = new Set(ftsPapers.map((p) => p.source_id));
+
+    const seen = new Set<string>();
+    const result: Paper[] = [];
+
+    for (const paper of allPapers) {
+      if (!matchesPaper(paper, deferredSearch) && !ftsIds.has(paper.source_id)) continue;
+      if (filterMode === "has_pdf" && !paper.has_pdf) continue;
+      if (filterMode === "no_pdf" && paper.has_pdf) continue;
+      seen.add(paper.source_id);
+      result.push(paper);
+    }
+
+    // FTS results not in the loaded window (for libraries exceeding PAPER_FETCH_LIMIT)
+    for (const paper of ftsPapers) {
+      if (seen.has(paper.source_id)) continue;
+      if (filterMode === "has_pdf" && !paper.has_pdf) continue;
+      if (filterMode === "no_pdf" && paper.has_pdf) continue;
+      result.push(paper);
+    }
+
+    return result;
+  }, [allPapers, deferredSearch, filterMode, ftsEnabled, ftsData]);
+
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => VIRTUALIZER_ESTIMATE_HEIGHT,
+    getItemKey: (i) => filtered[i].source_id,
+    overscan: VIRTUALIZER_OVERSCAN,
+  });
+
+  const handleNavigate = useCallback(
+    (sfk: number) => navigate(`/library/${sfk}`),
+    [navigate]
+  );
+
+  function handleDeleteRequest() {
+    if (deleteMutation.isPending) return;
+    const visibleIds = new Set(filtered.map((p) => p.source_id));
+    const ids = Array.from(selectedIds).filter((id) => visibleIds.has(id));
+    if (ids.length === 0) return;
+    setPendingDeleteIds(ids);
+  }
+
+  function handleDeleteConfirm() {
+    if (pendingDeleteIds.length > 0) deleteMutation.mutate(pendingDeleteIds);
+    setPendingDeleteIds([]);
+  }
+
+  function handleAddToProject(projectId: number) {
+    if (addToProjectMutation.isPending) return;
+    const ids = Array.from(selectedIds);
+    addToProjectMutation.mutate({ projectId, sourceIds: ids });
+  }
+
+  const paperCountLabel = useMemo(() => {
+    const total = allPapers.length;
+    const shown = filtered.length;
+    const limitReached = total >= PAPER_FETCH_LIMIT;
+    if (shown < total) {
+      const totalStr = `${total}${limitReached ? "+" : ""}`;
+      return `${shown} of ${totalStr} paper${shown !== 1 ? "s" : ""}`;
+    }
+    const overflowed = shown > total || limitReached;
+    return `${shown}${overflowed ? "+" : ""} paper${shown !== 1 ? "s" : ""}`;
+  }, [allPapers.length, filtered.length]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Spinner size={28} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+          {error instanceof Error ? error.message : "Failed to load papers"}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Toolbar */}
+      <div className="shrink-0 px-6 py-4 border-b border-border space-y-3">
+        <div className="flex items-center gap-3">
+          <Input
+            placeholder="Search by title, abstract, full text, or notes…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-sm"
+          />
+          <span className="flex items-center gap-1.5 text-muted text-sm shrink-0">
+            {ftsEnabled && ftsFetching && <Spinner size={12} />}
+            {ftsEnabled && ftsError && (
+              <span style={{ color: "var(--color-danger)" }} className="text-xs">search error</span>
+            )}
+            {paperCountLabel}
+          </span>
+          <Button
+            variant="muted"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload size={13} className="mr-1" />Import
+          </Button>
+        </div>
+        {deleteError && (
+          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+            {deleteError}
+          </p>
+        )}
+        <div className="flex items-center gap-2">
+          {FILTER_LABELS.map(({ mode, label }) => (
+            <button
+              type="button"
+              key={mode}
+              onClick={() => setFilterMode(mode)}
+              aria-pressed={filterMode === mode}
+              className={[
+                "px-3 py-1 rounded-full text-xs font-medium transition-colors border",
+                filterMode === mode
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]"
+                  : "border-border text-muted hover:border-[var(--color-muted)]",
+              ].join(" ")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Paper list — always mounted so the virtualizer retains scroll position */}
+      <div
+        ref={scrollRef}
+        className={`flex-1 overflow-y-auto px-6 pt-4 ${selectedIds.size > 0 ? "pb-20" : "pb-4"}`}
+      >
+        {filtered.length === 0 ? (
+          <div className="flex items-center justify-center py-20">
+            <p className="text-muted text-sm">
+              {allPapers.length === 0
+                ? "No papers yet. Add some from the Search page."
+                : "No papers match your filter."}
+            </p>
+          </div>
+        ) : (
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((vItem) => (
+              <div
+                key={vItem.key}
+                data-index={vItem.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  transform: `translateY(${vItem.start}px)`,
+                  paddingBottom: ROW_GAP_PX,
+                }}
+              >
+                <PaperCard
+                  paper={filtered[vItem.index]}
+                  showCheckbox
+                  onNavigate={handleNavigate}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Selection bar */}
+      <SelectionBar
+        count={selectedIds.size}
+        onAddToProject={() => setProjectPickerOpen(true)}
+        onDelete={handleDeleteRequest}
+        onClear={clear}
+      />
+
+      {/* Delete confirmation dialog */}
+      <Dialog
+        open={pendingDeleteIds.length > 0}
+        onClose={() => setPendingDeleteIds([])}
+        title="Delete Papers"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text">
+            Send {pendingDeleteIds.length} paper{pendingDeleteIds.length !== 1 ? "s" : ""} to trash?
+            They can be restored from Settings within {TRASH_RETENTION_DAYS} days.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPendingDeleteIds([])}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Import dialog */}
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onDone={(newProjectIds) => {
+          queryClient.invalidateQueries({ queryKey: ["papers"] });
+          queryClient.invalidateQueries({ queryKey: ["stats"] });
+          if (newProjectIds.length === 1) {
+            navigate(`/projects/${newProjectIds[0]}`);
+          }
+        }}
+      />
+
+      {/* Add to project dialog */}
+      <Dialog
+        open={projectPickerOpen}
+        onClose={() => {
+          setProjectPickerOpen(false);
+          setProjectPickerError(null);
+          setNewProjectName("");
+          createProjectMutation.reset();
+        }}
+        title="Add to Project"
+      >
+        <div className="space-y-3">
+          {projectPickerError && (
+            <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+              {projectPickerError}
+            </p>
+          )}
+          {projectsLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Spinner size={20} />
+            </div>
+          ) : !projectsData?.projects?.length ? (
+            <div className="space-y-2">
+              <p className="text-muted text-sm">No projects yet.</p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const name = newProjectName.trim();
+                  if (name) createProjectMutation.mutate({ name, sourceIds: [...selectedIds] });
+                }}
+                className="flex gap-2"
+              >
+                <Input
+                  autoFocus
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  placeholder="New project name…"
+                  className="flex-1 text-sm"
+                  disabled={createProjectMutation.isPending}
+                />
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!newProjectName.trim() || createProjectMutation.isPending}
+                >
+                  {createProjectMutation.isPending ? "Creating…" : "Create"}
+                </Button>
+              </form>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {projectsData.projects.map((project) => (
+                <button
+                  type="button"
+                  key={project.id}
+                  onClick={() => handleAddToProject(project.id)}
+                  disabled={addToProjectMutation.isPending}
+                  className="w-full text-left px-3 py-2 rounded-md border border-border hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] text-text text-sm transition-colors disabled:opacity-50"
+                >
+                  {project.name}
+                  {project.description && (
+                    <span className="block text-xs text-muted mt-0.5 truncate">
+                      {project.description}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setProjectPickerOpen(false);
+                setProjectPickerError(null);
+                setNewProjectName("");
+                createProjectMutation.reset();
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </div>
+  );
+}

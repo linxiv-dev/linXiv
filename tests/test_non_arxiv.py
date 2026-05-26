@@ -1,6 +1,6 @@
 """Round-trip and correctness tests for papers from non-arXiv/non-OpenAlex sources.
 
-Covers BibTeX, JSON, CSV, Markdown, and Obsidian for papers whose paper_id is a
+Covers BibTeX, JSON, CSV, Markdown, and Obsidian for papers whose source_id is a
 DOI, a BibTeX cite-key, or any other non-arXiv identifier.
 """
 
@@ -12,6 +12,8 @@ import csv
 import os
 import sys
 import tempfile
+
+from sources.base import PaperMetadata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -35,9 +37,9 @@ _obs = ObsidianFormat()
 # ---------------------------------------------------------------------------
 
 def _doi_paper(**overrides) -> dict:
-    """A paper whose paper_id is a DOI (e.g. from an ACM/IEEE/Springer import)."""
+    """A paper whose source_id is a DOI (e.g. from an ACM/IEEE/Springer import)."""
     base = {
-        "paper_id":    "10.1145/3290605.3300741",
+        "source_id":    "10.1145/3290605.3300741",
         "version":     1,
         "title":       "Deep Learning for HCI",
         "authors":     ["Jane Doe", "Bob Smith"],
@@ -55,9 +57,9 @@ def _doi_paper(**overrides) -> dict:
 
 
 def _key_paper(**overrides) -> dict:
-    """A paper whose paper_id is a bare BibTeX cite-key (no DOI)."""
+    """A paper whose source_id is a bare BibTeX cite-key (no DOI)."""
     base = {
-        "paper_id":    "vaswani2017attention",
+        "source_id":    "vaswani2017attention",
         "version":     1,
         "title":       "Attention Is All You Need",
         "authors":     ["Vaswani, Ashish", "Shazeer, Noam"],
@@ -77,7 +79,7 @@ def _key_paper(**overrides) -> dict:
 def _arxiv_paper(**overrides) -> dict:
     """A normal arXiv paper for mixed-source tests."""
     base = {
-        "paper_id":  "2301.00001",
+        "source_id":  "2301.00001",
         "version":   1,
         "title":     "An arXiv Paper",
         "authors":   ["Alice Arxiv"],
@@ -188,9 +190,9 @@ _MIXED_BIB = """\
 
 
 class TestBibTeXNonArxiv:
-    def test_doi_used_as_paper_id(self):
+    def test_doi_used_as_source_id(self):
         papers = _bib.import_string(_ACM_BIB)
-        assert papers[0].paper_id == "10.1145/3290605.3300741"
+        assert papers[0].source_id == "10.1145/3290605.3300741"
 
     def test_doi_field_preserved(self):
         papers = _bib.import_string(_ACM_BIB)
@@ -217,13 +219,13 @@ class TestBibTeXNonArxiv:
         assert papers[0].source == "bibtex"
 
     def test_no_doi_uses_cite_key(self):
-        papers = _bib.import_string(_NO_DOI_BIB)
-        assert papers[0].paper_id == "vaswani2017attention"
+        papers:list[PaperMetadata] = _bib.import_string(_NO_DOI_BIB)
+        assert papers[0].source_id == "vaswani2017attention"
         assert papers[0].doi is None
 
     def test_mixed_doi_and_no_doi(self):
-        papers = _bib.import_string(_MIXED_BIB)
-        ids = {p.paper_id for p in papers}
+        papers:list[PaperMetadata] = _bib.import_string(_MIXED_BIB)
+        ids = {p.source_id for p in papers}
         assert "10.1145/3290605.3300741" in ids
         assert "10.48550/arXiv.2301.00001" in ids
 
@@ -262,11 +264,11 @@ def _json_round_trip(paper: dict) -> list:
 
 
 class TestJSONNonArxiv:
-    def test_doi_paper_id_preserved(self):
-        assert _json_round_trip(_doi_paper())[0].paper_id == "10.1145/3290605.3300741"
+    def test_doi_source_id_preserved(self):
+        assert _json_round_trip(_doi_paper())[0].source_id == "10.1145/3290605.3300741"
 
-    def test_key_paper_id_preserved(self):
-        assert _json_round_trip(_key_paper())[0].paper_id == "vaswani2017attention"
+    def test_key_source_id_preserved(self):
+        assert _json_round_trip(_key_paper())[0].source_id == "vaswani2017attention"
 
     def test_doi_field_preserved(self):
         rt = _json_round_trip(_doi_paper())
@@ -297,7 +299,7 @@ class TestJSONNonArxiv:
             rt = _jsn.import_file(path.name)
         finally:
             os.unlink(path.name)
-        ids = {p.paper_id for p in rt}
+        ids = {p.source_id for p in rt}
         assert "10.1145/3290605.3300741" in ids
         assert "2301.00001" in ids
 
@@ -319,11 +321,11 @@ def _csv_round_trip(paper: dict) -> list:
 
 
 class TestCSVNonArxiv:
-    def test_doi_paper_id_preserved(self):
-        assert _csv_round_trip(_doi_paper())[0].paper_id == "10.1145/3290605.3300741"
+    def test_doi_source_id_preserved(self):
+        assert _csv_round_trip(_doi_paper())[0].source_id == "10.1145/3290605.3300741"
 
-    def test_key_paper_id_preserved(self):
-        assert _csv_round_trip(_key_paper())[0].paper_id == "vaswani2017attention"
+    def test_key_source_id_preserved(self):
+        assert _csv_round_trip(_key_paper())[0].source_id == "vaswani2017attention"
 
     def test_title_preserved(self):
         assert _csv_round_trip(_doi_paper())[0].title == "Deep Learning for HCI"
@@ -336,16 +338,16 @@ class TestCSVNonArxiv:
         rt = _csv_round_trip(_doi_paper())
         assert rt[0].tags == ["hci", "deep-learning"]
 
-    def test_doi_with_slash_in_paper_id(self):
+    def test_doi_with_slash_in_source_id(self):
         # DOIs contain slashes — must survive CSV quoting
         rt = _csv_round_trip(_doi_paper())
-        assert "/" in rt[0].paper_id
+        assert "/" in rt[0].source_id
 
     def test_mixed_sources_row_count(self):
         exported = _csv.export_papers([_doi_paper(), _arxiv_paper()])
         rows = list(csv.DictReader(io.StringIO(exported)))
         assert len(rows) == 2
-        ids = {r["paper_id"] for r in rows}
+        ids = {r["source_id"] for r in rows}
         assert "10.1145/3290605.3300741" in ids
         assert "2301.00001" in ids
 
@@ -363,15 +365,15 @@ class TestMarkdownNonArxivExport:
         out = _md.export_papers([_doi_paper()])
         assert "dl.acm.org" in out
 
-    def test_paper_id_line_written_for_doi_paper(self):
+    def test_source_id_line_written_for_doi_paper(self):
         out = _md.export_papers([_doi_paper()])
         assert "Paper-ID: 10.1145/3290605.3300741" in out
 
-    def test_paper_id_line_written_for_key_paper(self):
+    def test_source_id_line_written_for_key_paper(self):
         out = _md.export_papers([_key_paper()])
         assert "Paper-ID: vaswani2017attention" in out
 
-    def test_no_paper_id_line_for_arxiv_paper(self):
+    def test_no_source_id_line_for_arxiv_paper(self):
         out = _md.export_papers([_arxiv_paper()])
         assert "Paper-ID:" not in out
 
@@ -396,14 +398,14 @@ class TestMarkdownNonArxivRoundTrip:
     def _rt(self, paper: dict):
         return _md.import_string(_md.export_papers([paper]))
 
-    def test_doi_paper_id_preserved(self):
-        assert self._rt(_doi_paper())[0].paper_id == "10.1145/3290605.3300741"
+    def test_doi_source_id_preserved(self):
+        assert self._rt(_doi_paper())[0].source_id == "10.1145/3290605.3300741"
 
-    def test_key_paper_id_preserved(self):
-        assert self._rt(_key_paper())[0].paper_id == "vaswani2017attention"
+    def test_key_source_id_preserved(self):
+        assert self._rt(_key_paper())[0].source_id == "vaswani2017attention"
 
-    def test_arxiv_paper_id_preserved(self):
-        assert self._rt(_arxiv_paper())[0].paper_id == "2301.00001"
+    def test_arxiv_source_id_preserved(self):
+        assert self._rt(_arxiv_paper())[0].source_id == "2301.00001"
 
     def test_doi_title_preserved(self):
         assert self._rt(_doi_paper())[0].title == "Deep Learning for HCI"
@@ -425,14 +427,14 @@ class TestMarkdownNonArxivRoundTrip:
     def test_mixed_sources_both_ids_correct(self):
         papers = [_doi_paper(), _arxiv_paper()]
         rt = _md.import_string(_md.export_papers(papers))
-        ids = {p.paper_id for p in rt}
+        ids = {p.source_id for p in rt}
         assert "10.1145/3290605.3300741" in ids
         assert "2301.00001" in ids
 
     def test_three_sources_mixed(self):
         papers = [_doi_paper(), _key_paper(), _arxiv_paper()]
         rt = _md.import_string(_md.export_papers(papers))
-        ids = {p.paper_id for p in rt}
+        ids = {p.source_id for p in rt}
         assert ids == {"10.1145/3290605.3300741", "vaswani2017attention", "2301.00001"}
 
 
@@ -449,15 +451,15 @@ class TestObsidianNonArxivExport:
         out = _obs.export_papers([_doi_paper()])
         assert "dl.acm.org" in out
 
-    def test_paper_id_line_written_for_doi_paper(self):
+    def test_source_id_line_written_for_doi_paper(self):
         out = _obs.export_papers([_doi_paper()])
         assert "**Paper-ID:** 10.1145/3290605.3300741" in out
 
-    def test_paper_id_line_written_for_key_paper(self):
+    def test_source_id_line_written_for_key_paper(self):
         out = _obs.export_papers([_key_paper()])
         assert "**Paper-ID:** vaswani2017attention" in out
 
-    def test_no_paper_id_line_for_arxiv_paper(self):
+    def test_no_source_id_line_for_arxiv_paper(self):
         out = _obs.export_papers([_arxiv_paper()])
         assert "**Paper-ID:**" not in out
 
@@ -474,14 +476,14 @@ class TestObsidianNonArxivRoundTrip:
     def _rt(self, paper: dict):
         return _obs.import_string(_obs.export_papers([paper]))
 
-    def test_doi_paper_id_preserved(self):
-        assert self._rt(_doi_paper())[0].paper_id == "10.1145/3290605.3300741"
+    def test_doi_source_id_preserved(self):
+        assert self._rt(_doi_paper())[0].source_id == "10.1145/3290605.3300741"
 
-    def test_key_paper_id_preserved(self):
-        assert self._rt(_key_paper())[0].paper_id == "vaswani2017attention"
+    def test_key_source_id_preserved(self):
+        assert self._rt(_key_paper())[0].source_id == "vaswani2017attention"
 
-    def test_arxiv_paper_id_preserved(self):
-        assert self._rt(_arxiv_paper())[0].paper_id == "2301.00001"
+    def test_arxiv_source_id_preserved(self):
+        assert self._rt(_arxiv_paper())[0].source_id == "2301.00001"
 
     def test_doi_title_preserved(self):
         assert self._rt(_doi_paper())[0].title == "Deep Learning for HCI"
@@ -500,14 +502,14 @@ class TestObsidianNonArxivRoundTrip:
     def test_mixed_sources_both_ids_correct(self):
         papers = [_doi_paper(), _arxiv_paper()]
         rt = _obs.import_string(_obs.export_papers(papers))
-        ids = {p.paper_id for p in rt}
+        ids = {p.source_id for p in rt}
         assert "10.1145/3290605.3300741" in ids
         assert "2301.00001" in ids
 
     def test_three_sources_mixed(self):
         papers = [_doi_paper(), _key_paper(), _arxiv_paper()]
         rt = _obs.import_string(_obs.export_papers(papers))
-        ids = {p.paper_id for p in rt}
+        ids = {p.source_id for p in rt}
         assert ids == {"10.1145/3290605.3300741", "vaswani2017attention", "2301.00001"}
 
 
@@ -519,10 +521,10 @@ class TestObsidianNonArxivRoundTrip:
 # that Paper-ID round-trips survive even when url is absent from the payload.
 # ---------------------------------------------------------------------------
 
-def _graph_paper(paper_id: str, title: str, url=None, doi=None, **kwargs) -> dict:
+def _graph_paper(source_id: str, title: str, url=None, doi=None, **kwargs) -> dict:
     """Mirrors the shape emitted by getSelectedPaperData() in graph.js."""
     return {
-        "paper_id":  paper_id,
+        "source_id":  source_id,
         "title":     title,
         "category":  kwargs.get("category", ""),
         "tags":      kwargs.get("tags", []),
@@ -538,7 +540,7 @@ def _graph_paper(paper_id: str, title: str, url=None, doi=None, **kwargs) -> dic
 class TestGraphExportContract:
     """Ensure format exporters handle the exact dict shape graph.js produces."""
 
-    # arXiv paper — url is None but paper_id is an arXiv ID
+    # arXiv paper — url is None but source_id is an arXiv ID
     def test_arxiv_paper_no_url_markdown(self):
         p = _graph_paper("2301.00001", "A Paper")
         out = _md.export_papers([p])
@@ -554,12 +556,12 @@ class TestGraphExportContract:
     def test_arxiv_paper_round_trip_markdown(self):
         p = _graph_paper("2301.00001", "A Paper")
         rt = _md.import_string(_md.export_papers([p]))
-        assert rt[0].paper_id == "2301.00001"
+        assert rt[0].source_id == "2301.00001"
 
     def test_arxiv_paper_round_trip_obsidian(self):
         p = _graph_paper("2301.00001", "A Paper")
         rt = _obs.import_string(_obs.export_papers([p]))
-        assert rt[0].paper_id == "2301.00001"
+        assert rt[0].source_id == "2301.00001"
 
     # DOI paper — url is populated by graph.js
     def test_doi_paper_with_url_markdown(self):
@@ -573,14 +575,14 @@ class TestGraphExportContract:
         p = _graph_paper("10.1145/3290605.3300741", "CHI Paper",
                          url="https://dl.acm.org/doi/10.1145/3290605.3300741")
         rt = _md.import_string(_md.export_papers([p]))
-        assert rt[0].paper_id == "10.1145/3290605.3300741"
+        assert rt[0].source_id == "10.1145/3290605.3300741"
         assert rt[0].url == "https://dl.acm.org/doi/10.1145/3290605.3300741"
 
     def test_doi_paper_with_url_round_trip_obsidian(self):
         p = _graph_paper("10.1145/3290605.3300741", "CHI Paper",
                          url="https://dl.acm.org/doi/10.1145/3290605.3300741")
         rt = _obs.import_string(_obs.export_papers([p]))
-        assert rt[0].paper_id == "10.1145/3290605.3300741"
+        assert rt[0].source_id == "10.1145/3290605.3300741"
 
     # DOI paper — url is None (shouldn't happen after our db fix, but defensive)
     def test_doi_paper_null_url_markdown_no_fake_arxiv_link(self):
@@ -592,12 +594,12 @@ class TestGraphExportContract:
     def test_doi_paper_null_url_round_trip_markdown(self):
         p = _graph_paper("10.1145/3290605.3300741", "CHI Paper", url=None)
         rt = _md.import_string(_md.export_papers([p]))
-        assert rt[0].paper_id == "10.1145/3290605.3300741"
+        assert rt[0].source_id == "10.1145/3290605.3300741"
 
     def test_doi_paper_null_url_round_trip_obsidian(self):
         p = _graph_paper("10.1145/3290605.3300741", "CHI Paper", url=None)
         rt = _obs.import_string(_obs.export_papers([p]))
-        assert rt[0].paper_id == "10.1145/3290605.3300741"
+        assert rt[0].source_id == "10.1145/3290605.3300741"
 
     # Mixed arXiv + non-arXiv from graph export
     def test_mixed_graph_export_markdown(self):
@@ -607,7 +609,7 @@ class TestGraphExportContract:
                          url="https://dl.acm.org/doi/10.1145/xyz"),
         ]
         rt = _md.import_string(_md.export_papers(papers))
-        ids = {p.paper_id for p in rt}
+        ids = {p.source_id for p in rt}
         assert ids == {"2301.00001", "10.1145/xyz"}
 
     def test_mixed_graph_export_obsidian(self):
@@ -617,5 +619,5 @@ class TestGraphExportContract:
                          url="https://dl.acm.org/doi/10.1145/xyz"),
         ]
         rt = _obs.import_string(_obs.export_papers(papers))
-        ids = {p.paper_id for p in rt}
+        ids = {p.source_id for p in rt}
         assert ids == {"2301.00001", "10.1145/xyz"}

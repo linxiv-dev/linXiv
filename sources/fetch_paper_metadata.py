@@ -3,8 +3,7 @@ import time
 import arxiv
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence, Generator, Iterable, Iterator
-from storage.db import init_db, save_paper, save_papers
+from typing import Sequence
 
 _client = arxiv.Client(num_retries=1, delay_seconds=7.0)
 
@@ -40,8 +39,8 @@ def _arxiv_call(fn):
             print("[arxiv] 429 received — recorded. Retry your search in 60s.")
         raise
 
-def fetch_paper_metadata(paper_id: str, print_on: bool = False) -> arxiv.Result:
-    search = arxiv.Search(id_list=[paper_id])
+def fetch_paper_metadata(source_id: str, print_on: bool = False) -> arxiv.Result:
+    search = arxiv.Search(id_list=[source_id])
     paper = _arxiv_call(lambda: next(_client.results(search)))
 
     if print_on:
@@ -82,17 +81,18 @@ def gen_md_files(papers: list[arxiv.Result], additional_tags: None | Sequence[st
 
 def gen_md_file(paper: arxiv.Result, additional_tags: None | Sequence[str] = None, print_on: bool = False):
     title: str = paper.title
-    paper_id: str = paper.entry_id.split('/')[-1]
-    url: str = f"https://arxiv.org/abs/{paper_id}"
+    bare_id: str = paper.entry_id.split('/')[-1]
+    source_id: str = f"arxiv:{bare_id}"
+    url: str = f"https://arxiv.org/abs/{bare_id}"
     authors: list[str] = [author.name for author in paper.authors]
     tags: list[str] = ["clippings", "research", "clipping"]
 
-    if additional_tags is not None:
+    if additional_tags:
         for s in additional_tags:
             tags.append(s)
 
     date = paper.published.strftime('%Y-%m-%d')
-    filename = _VAULT_DIR / f"{paper_id}.md"
+    filename = _VAULT_DIR / f"{bare_id}.md"
 
     author_list = "\n".join([f'  - "[[{name}]]"' for name in authors])
     tag_list = "\n".join([f'- {tag}' for tag in tags])

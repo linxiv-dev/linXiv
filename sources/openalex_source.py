@@ -3,11 +3,42 @@
 from __future__ import annotations
 
 import datetime
+import re
 import httpx
 from sources.base import PaperMetadata, PaperSource
 
 _BASE_URL = "https://api.openalex.org"
-_USER_AGENT = "linXiv/1.0 (mailto:contact@example.com)"
+_USER_AGENT = "linXiv/1.0"
+_OPENALEX_WORK_FIELDS = (
+    "id,title,authorships,publication_date,doi,"
+    "primary_topic,abstract_inverted_index"
+)
+_WORK_ID_RE = re.compile(r"^W\d+$")
+
+
+class OpenAlexNotFoundError(LookupError):
+    """Raised by fetch_by_id when the work ID does not exist on OpenAlex."""
+
+
+class OpenAlexHTTPError(Exception):
+    """Raised when OpenAlex returns a non-404 HTTP error status."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class OpenAlexInputError(ValueError):
+    """Raised for invalid or malformed source_id inputs before any network call."""
+
+
+# Maps the UI sort key to the OpenAlex sort query parameter value.
+_SORT_PARAM: dict[str, str] = {
+    "relevance": "relevance_score:desc",
+    "newest":    "publication_date:desc",
+    "oldest":    "publication_date:asc",
+    "citations": "cited_by_count:desc",
+}
 
 
 def _work_to_metadata(work: dict) -> PaperMetadata:
@@ -28,13 +59,13 @@ def _work_to_metadata(work: dict) -> PaperMetadata:
     # Published date
     pub_str = work.get("publication_date", "")
     try:
-        published = datetime.date.fromisoformat(pub_str) if pub_str else datetime.date.today()
+        published = datetime.date.fromisoformat(pub_str) if pub_str else datetime.date.min
     except ValueError:
-        published = datetime.date.today()
+        published = datetime.date.min
 
     # Category — use the primary topic's subfield if available
     primary_topic = work.get("primary_topic") or {}
-    subfield = primary_topic.get("subfield", {})
+    subfield = primary_topic.get("subfield") or {}
     category = subfield.get("display_name")
 
     # URL — prefer DOI landing page, fall back to OpenAlex URL
@@ -45,12 +76,12 @@ def _work_to_metadata(work: dict) -> PaperMetadata:
     abstract = _reconstruct_abstract(work.get("abstract_inverted_index"))
 
     return PaperMetadata(
-        paper_id=openalex_id,
+        source_id=f"openalex:{openalex_id}",
         version=1,
-        title=work.get("title", "Untitled"),
+        title=work.get("title") or "",
         authors=authors,
         published=published,
-        summary=abstract or "No abstract available.",
+        summary=abstract or "",
         category=category,
         doi=doi,
         url=url,
@@ -73,7 +104,9 @@ def _reconstruct_abstract(inverted_index: dict | None) -> str | None:
 class OpenAlexSource(PaperSource):
     """Paper source backed by the OpenAlex REST API."""
 
-    source_name: str = "openalex"  # written into PaperMetadata.source for every record this class produces
+    @property
+    def source_name(self) -> str:
+        return "openalex"
 
     def __init__(self) -> None:
         self._http = httpx.Client(
@@ -82,35 +115,67 @@ class OpenAlexSource(PaperSource):
             timeout=30.0,
         )
 
-    def search(self, query: str, max_results: int = 10) -> list[PaperMetadata]:
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        sort: str = "relevance",
+    ) -> list[PaperMetadata]:
+        if sort not in _SORT_PARAM:
+            raise ValueError(f"unknown sort {sort!r}; valid: {sorted(_SORT_PARAM)}")
+        params: dict[str, str | int] = {
+            "search": query,
+            "per_page": max_results,
+            "select": _OPENALEX_WORK_FIELDS,
+            "sort": _SORT_PARAM[sort],
+        }
         try:
-            response = self._http.get(
-                "/works",
-                params={
-                    "search": query,
-                    "per_page": max_results,
-                    "select": "id,title,authorships,publication_date,doi,"
-                              "primary_topic,abstract_inverted_index",
-                },
-            )
+            response = self._http.get("/works", params=params)
             response.raise_for_status()
+            raw_results = response.json().get("results", [])
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            raise OpenAlexHTTPError(
+                f"OpenAlex search failed: HTTP {status}", status
+            ) from e
         except Exception as e:
             raise ValueError(f"OpenAlex search failed: {e}") from e
-        results = response.json().get("results", [])
-        return [_work_to_metadata(w) for w in results]
+        results = []
+        for work in raw_results:
+            try:
+                results.append(_work_to_metadata(work))
+            except Exception as e:
+                print(f"[openalex] skipping malformed work record: {e}")
+        return results
 
-    def fetch_by_id(self, paper_id: str) -> PaperMetadata:
-        # Accept both bare IDs ("W3123456789") and full URLs
-        url = paper_id if paper_id.startswith("http") else f"{_BASE_URL}/works/{paper_id}"
+    def fetch_by_id(self, source_id: str) -> PaperMetadata:
+        bare_id = source_id.removeprefix("openalex:")
+        # Normalise any URL form (API or landing page) to a bare work ID.
+        if bare_id.startswith(("http://", "https://")):
+            bare_id = bare_id.rsplit("/", 1)[-1]
+        if not bare_id:
+            raise OpenAlexInputError(
+                f"source_id '{source_id}' resolves to an empty work ID."
+            )
+        if not _WORK_ID_RE.fullmatch(bare_id):
+            raise OpenAlexInputError(
+                f"Invalid OpenAlex work ID '{bare_id}': expected 'W' followed by digits."
+            )
         try:
             response = self._http.get(
-                url,
-                params={
-                    "select": "id,title,authorships,publication_date,doi,"
-                              "primary_topic,abstract_inverted_index",
-                },
+                f"/works/{bare_id}",
+                params={"select": _OPENALEX_WORK_FIELDS},
             )
             response.raise_for_status()
+            return _work_to_metadata(response.json())
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            if status == 404:
+                raise OpenAlexNotFoundError(
+                    f"Paper '{source_id}' not found on OpenAlex."
+                ) from e
+            raise OpenAlexHTTPError(
+                f"OpenAlex returned HTTP {status} for '{source_id}'.", status
+            ) from e
         except Exception as e:
-            raise ValueError(f"OpenAlex fetch failed for '{paper_id}': {e}") from e
-        return _work_to_metadata(response.json())
+            raise ValueError(f"OpenAlex fetch failed for '{source_id}': {e}") from e

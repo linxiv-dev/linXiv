@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Default: Navy preset */
+  --color-bg: #0f0f1a;
+  --color-panel: #1a1a2e;
+  --color-border: #2e2e50;
+  --color-accent: #5b8dee;
+  --color-text: #ccccdd;
+  --color-muted: #7777aa;
+  --color-success: #4caf88;
+  --color-danger: #e05c6c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ── Cupertino: frosted glass background gradients ────────────────────────── */
+
+[data-theme="cupertino"][data-mode="light"] body,
+[data-theme="cupertino"][data-mode="light"] #root {
+  background: linear-gradient(160deg, #dce8f7 0%, #eef1f6 45%, #e8e4f0 100%) fixed;
+}
+
+[data-theme="cupertino"][data-mode="dark"] body,
+[data-theme="cupertino"][data-mode="dark"] #root {
+  background: linear-gradient(160deg, #0a0a1a 0%, #1c1c1e 50%, #0f1a2e 100%) fixed;
+}
+

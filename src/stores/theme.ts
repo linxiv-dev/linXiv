@@ -1,0 +1,175 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { applyTheme, VALID_HEX } from "../lib/theme";
+import type { ColorAlphas, PresetName, ThemeColors, ThemeMode } from "../lib/theme";
+
+const STORAGE_KEY = "linxiv-theme";
+
+export interface CustomPalette {
+  name: string;
+  preset: PresetName;
+  /** Captured at save time so applying restores the intended mode. Optional for backwards compat. */
+  mode?: ThemeMode;
+  overrides: Partial<ThemeColors>;
+  overrideAlphas: ColorAlphas;
+}
+
+interface ThemeState {
+  preset: PresetName;
+  mode: ThemeMode;
+  overrides: Partial<ThemeColors>;
+  overrideAlphas: ColorAlphas;
+  customPalettes: CustomPalette[];
+  setPreset: (p: PresetName) => void;
+  setMode: (m: ThemeMode) => void;
+  setOverride: (key: keyof ThemeColors, val: string) => void;
+  removeOverride: (key: keyof ThemeColors) => void;
+  setOverrideAlpha: (key: keyof ThemeColors, alpha: number) => void;
+  setOverrideWithAlpha: (key: keyof ThemeColors, hex: string, alpha: number) => void;
+  saveCustomPalette: (name: string) => void;
+  deleteCustomPalette: (name: string) => void;
+  applyCustomPalette: (palette: CustomPalette) => void;
+  /** Apply server-persisted overrides + alphas in one shot (used on boot restore). */
+  restoreFromSettings: (overrides: Partial<ThemeColors>, overrideAlphas: ColorAlphas) => void;
+}
+
+export type AppThemeState = ReturnType<typeof useThemeStore.getState>;
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+export const useThemeStore = create<ThemeState>()(
+  persist(
+    (set, get) => {
+      function applyAndSet(patch: Partial<ThemeState>) {
+        set(patch);
+        const next = get();
+        applyTheme(next.preset, next.mode, next.overrides, next.overrideAlphas);
+      }
+
+      return {
+        preset: "Navy" as PresetName,
+        mode: "dark" as ThemeMode,
+        overrides: {},
+        overrideAlphas: {},
+        customPalettes: [],
+
+        setPreset(p) {
+          applyAndSet({ preset: p, overrides: {}, overrideAlphas: {} });
+        },
+
+        setMode(m) {
+          applyAndSet({ mode: m });
+        },
+
+        setOverride(key, val) {
+          if (!VALID_HEX.test(val)) return;
+          const next = { ...get().overrides, [key]: val };
+          applyAndSet({ overrides: next });
+        },
+
+        removeOverride(key) {
+          if (!(key in get().overrides)) return;
+          const nextOverrides = { ...get().overrides };
+          const nextAlphas = { ...get().overrideAlphas };
+          delete nextOverrides[key];
+          delete nextAlphas[key];
+          applyAndSet({ overrides: nextOverrides, overrideAlphas: nextAlphas });
+        },
+
+        setOverrideAlpha(key, alpha) {
+          if (get().overrides[key] === undefined) return;
+          const next = { ...get().overrideAlphas, [key]: clamp(alpha, 0, 100) };
+          applyAndSet({ overrideAlphas: next });
+        },
+
+        setOverrideWithAlpha(key, hex, alpha) {
+          if (!VALID_HEX.test(hex)) return;
+          const nextOverrides = { ...get().overrides, [key]: hex };
+          const nextAlphas = { ...get().overrideAlphas, [key]: clamp(alpha, 0, 100) };
+          applyAndSet({ overrides: nextOverrides, overrideAlphas: nextAlphas });
+        },
+
+        saveCustomPalette(name) {
+          const { preset, mode, overrides, overrideAlphas, customPalettes } = get();
+          const palette: CustomPalette = {
+            name,
+            preset,
+            mode,
+            overrides: { ...overrides },
+            overrideAlphas: { ...overrideAlphas },
+          };
+          const nameLower = name.toLowerCase();
+          const idx = customPalettes.findIndex((p) => p.name.toLowerCase() === nameLower);
+          if (idx === -1) {
+            set({ customPalettes: [...customPalettes, palette] });
+          } else {
+            const next = [...customPalettes];
+            next[idx] = palette;
+            set({ customPalettes: next });
+          }
+        },
+
+        deleteCustomPalette(name) {
+          const lower = name.toLowerCase();
+          set({ customPalettes: get().customPalettes.filter((p) => p.name.toLowerCase() !== lower) });
+        },
+
+        applyCustomPalette(palette) {
+          applyAndSet({
+            preset: palette.preset,
+            mode: palette.mode ?? get().mode,
+            overrides: { ...palette.overrides },
+            overrideAlphas: { ...palette.overrideAlphas },
+          });
+        },
+
+        restoreFromSettings(overrides, overrideAlphas) {
+          const safeOverrides: Partial<ThemeColors> = {};
+          for (const k of Object.keys(overrides) as Array<keyof ThemeColors>) {
+            const v = overrides[k];
+            if (v && VALID_HEX.test(v)) safeOverrides[k] = v;
+          }
+          const safeAlphas: ColorAlphas = {};
+          for (const k of Object.keys(overrideAlphas) as Array<keyof ThemeColors>) {
+            const v = overrideAlphas[k];
+            if (typeof v === "number") safeAlphas[k] = clamp(v, 0, 100);
+          }
+          applyAndSet({ overrides: safeOverrides, overrideAlphas: safeAlphas });
+        },
+      };
+    },
+    {
+      name: STORAGE_KEY,
+      version: 3,
+      migrate(stored: unknown, version: number) {
+        const s = { ...(stored as Record<string, unknown>) };
+        if (version === 0) {
+          delete s.glassEffects;
+        }
+        if (version <= 1) {
+          // overrideAlphas and customPalettes were introduced in v2; neither field existed before.
+          s.overrideAlphas = {};
+          s.customPalettes = [];
+        }
+        if (version <= 2) {
+          delete s.glassIntensity;
+          delete s.glassTintColor;
+          delete s.glassTintAlpha;
+          if (Array.isArray(s.customPalettes)) {
+            s.customPalettes = (s.customPalettes as Record<string, unknown>[]).map(
+              ({ glassIntensity: _gi, glassTintColor: _gtc, glassTintAlpha: _gta, ...rest }) => rest
+            );
+          }
+        }
+        return s;
+      },
+      onRehydrateStorage: () => (state) => {
+        if (state) {
+          applyTheme(state.preset, state.mode, state.overrides, state.overrideAlphas);
+        }
+      },
+    }
+  )
+);
