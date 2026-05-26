@@ -4,7 +4,7 @@ import { getSettings, updateSettings } from "../../api/settings";
 import { Input } from "../ui/input";
 import { Section } from "./Section";
 
-export function SearchSection() {
+export function SearchSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const { data: settings } = useQuery({
     queryKey: ["settings"],
     queryFn: getSettings,
@@ -36,7 +36,7 @@ export function SearchSection() {
   }
 
   return (
-    <Section title="Search">
+    <Section title="Search" defaultOpen={defaultOpen}>
       <div className="flex items-center justify-between py-3 border-b border-border">
         <div>
           <span className="text-sm font-medium text-text">Search history</span>

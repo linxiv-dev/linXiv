@@ -6,7 +6,7 @@ import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
 import { Section } from "./Section";
 
-export function StorageSection() {
+export function StorageSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const qc = useQueryClient();
 
   const {
@@ -35,7 +35,7 @@ export function StorageSection() {
   });
 
   return (
-    <Section title="Storage">
+    <Section title="Storage" defaultOpen={defaultOpen}>
       <div className="flex flex-col gap-1 mb-2">
         <label className="text-sm text-muted font-medium">PDF Storage Limit (MB)</label>
         {settingsLoading ? (

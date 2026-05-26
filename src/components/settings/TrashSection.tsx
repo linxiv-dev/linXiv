@@ -207,7 +207,7 @@ function ProjectTrashRow({
   );
 }
 
-export function TrashSection() {
+export function TrashSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -330,7 +330,7 @@ export function TrashSection() {
         onKeep={closeProjectPrompt}
         onRemove={handleRemoveFromProjects}
       />
-      <Section title="Trash">
+      <Section title="Trash" defaultOpen={defaultOpen}>
         <p className="text-xs text-muted mb-4">
           Deleted items are kept for 30 days, then permanently removed.
         </p>

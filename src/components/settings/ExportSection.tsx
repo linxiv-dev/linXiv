@@ -7,12 +7,12 @@ const EXPORT_FORMAT_OPTIONS: { key: ExportFormatKey; label: string; description:
   { key: "obsidian", label: "Obsidian", description: "Markdown notes for Obsidian vault" },
 ];
 
-export function ExportSection() {
+export function ExportSection({ defaultOpen = true }: { defaultOpen?: boolean } = {}) {
   const exportMethods = useUiStore((s) => s.exportMethods);
   const setExportMethod = useUiStore((s) => s.setExportMethod);
 
   return (
-    <Section title="Export Methods">
+    <Section title="Export Methods" defaultOpen={defaultOpen}>
       <p className="text-xs text-muted mb-4">
         Choose which export formats appear in the project export dialog.
       </p>
