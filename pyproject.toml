@@ -34,8 +34,11 @@ include = [
     "linxiv_mcp.py",
     "migrate_db.py",
     "AI_tools.py",
+    "config.py",
+    "user_settings.py",
     "api",
     "formats",
+    "service",
     "sources",
     "storage",
 ]
