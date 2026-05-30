@@ -29,8 +29,6 @@ from sources.arxiv_source import ArxivSource
 from sources.crossref_source import CrossRefSource
 from sources.openalex_source import OpenAlexSource
 
-from AI_tools import PaperContent, tag
-
 
 mcp = FastMCP("linxiv")
 
@@ -189,25 +187,6 @@ def search_full_text(query: str, limit: int = 20) -> list[dict]:
     except Exception as exc:
         print(f"[mcp] search_full_text error for query {query!r}: {exc}")
         return []
-
-
-@mcp.tool()
-def tag_paper(paper_id: str) -> dict:
-    """Generate AI tags for a paper using Google Gemini.
-
-    The paper must already be in the local database (run fetch_paper first).
-
-    Args:
-        paper_id: The paper ID to tag (e.g. "2204.12985").
-    """
-    paper = svc_paper.get(Paper(source_id=paper_id))
-    if paper is None:
-        raise ValueError(f"Paper {paper_id!r} not found. Run fetch_paper first.")
-    content = PaperContent(
-        abstract=paper.summary or "",
-        full_text=paper.full_text,
-    )
-    return {"paper_id": paper_id, "tags": tag(content)}
 
 
 # ── Tag tools ─────────────────────────────────────────────────────────────────
