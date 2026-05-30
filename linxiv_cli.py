@@ -1,30 +1,4 @@
-"""Headless CLI for linXiv — search, fetch, list, tag, and manage projects without the GUI.
-
-Missing commands (service layer supports these but no CLI command exists yet):
-  note update <note_id> [--title TEXT] [--content TEXT]
-      Partially update a note's title or content.
-      Service: svc_note.update(NoteUpdateIn(note_id=..., title=..., content=...))
-
-  project archive <project_id>
-      Archive a project (keeps it in DB but marks as archived).
-      Service: svc_project.archive(Project(project_fk=...))
-
-  project restore <project_id>
-      Restore an archived or soft-deleted project back to active.
-      Service: svc_project.restore(Project(project_fk=...))
-
-  tag add-project <project_id> <tags>...
-      Add tags to a project.
-      Service: svc_tag.add_project_tags(project_id, tags)
-
-  tag remove-project <project_id> <tags>...
-      Remove tags from a project.
-      Service: svc_tag.remove_project_tags(project_id, tags)
-
-  tag list-project <project_id>
-      List all tags on a project.
-      Service: svc_tag.get_project_tags(project_id)
-"""
+"""Headless CLI for linXiv — search, fetch, list, tag, and manage projects without the GUI."""
 
 from __future__ import annotations
 
@@ -444,6 +418,23 @@ def cmd_tag_create(args: argparse.Namespace) -> None:
 def cmd_tag_delete(args: argparse.Namespace) -> None:
     svc_tag.delete(Tag(tag_id=args.tag_id))
     _output({"deleted_tag_id": args.tag_id})
+
+
+def cmd_tag_add_project(args: argparse.Namespace) -> None:
+    _resolve_project_or_exit(args.project_id)
+    updated = svc_tag.add_project_tags(args.project_id, args.tags)
+    _output({"project_id": args.project_id, "tags": updated})
+
+
+def cmd_tag_remove_project(args: argparse.Namespace) -> None:
+    _resolve_project_or_exit(args.project_id)
+    updated = svc_tag.remove_project_tags(args.project_id, args.tags)
+    _output({"project_id": args.project_id, "tags": updated})
+
+
+def cmd_tag_list_project(args: argparse.Namespace) -> None:
+    details = _resolve_project_or_exit(args.project_id)
+    _output({"project_id": args.project_id, "tags": details.project_tags})
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +902,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_tag_delete = tag_sub.add_parser("delete", help="Delete a tag by ID")
     p_tag_delete.add_argument("tag_id", type=int, help="Tag ID")
     p_tag_delete.set_defaults(func=cmd_tag_delete)
+
+    p_tag_add_proj = tag_sub.add_parser("add-project", help="Add tags to a project")
+    p_tag_add_proj.add_argument("project_id", type=int, help="Project ID")
+    p_tag_add_proj.add_argument("tags", nargs="+", help="Tags to add")
+    p_tag_add_proj.set_defaults(func=cmd_tag_add_project)
+
+    p_tag_remove_proj = tag_sub.add_parser("remove-project", help="Remove tags from a project")
+    p_tag_remove_proj.add_argument("project_id", type=int, help="Project ID")
+    p_tag_remove_proj.add_argument("tags", nargs="+", help="Tags to remove")
+    p_tag_remove_proj.set_defaults(func=cmd_tag_remove_project)
+
+    p_tag_list_proj = tag_sub.add_parser("list-project", help="List tags on a project")
+    p_tag_list_proj.add_argument("project_id", type=int, help="Project ID")
+    p_tag_list_proj.set_defaults(func=cmd_tag_list_project)
 
     # ── project ───────────────────────────────────────────────────────────────
     p_proj = sub.add_parser("project", help="Manage projects")
