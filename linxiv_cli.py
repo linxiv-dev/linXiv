@@ -1,4 +1,30 @@
-"""Headless CLI for linXiv — search, fetch, list, tag, and manage projects without the GUI."""
+"""Headless CLI for linXiv — search, fetch, list, tag, and manage projects without the GUI.
+
+Missing commands (service layer supports these but no CLI command exists yet):
+  note update <note_id> [--title TEXT] [--content TEXT]
+      Partially update a note's title or content.
+      Service: svc_note.update(NoteUpdateIn(note_id=..., title=..., content=...))
+
+  project archive <project_id>
+      Archive a project (keeps it in DB but marks as archived).
+      Service: svc_project.archive(Project(project_fk=...))
+
+  project restore <project_id>
+      Restore an archived or soft-deleted project back to active.
+      Service: svc_project.restore(Project(project_fk=...))
+
+  tag add-project <project_id> <tags>...
+      Add tags to a project.
+      Service: svc_tag.add_project_tags(project_id, tags)
+
+  tag remove-project <project_id> <tags>...
+      Remove tags from a project.
+      Service: svc_tag.remove_project_tags(project_id, tags)
+
+  tag list-project <project_id>
+      List all tags on a project.
+      Service: svc_tag.get_project_tags(project_id)
+"""
 
 from __future__ import annotations
 
