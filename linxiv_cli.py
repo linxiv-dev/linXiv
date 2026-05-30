@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dotenv import load_dotenv
-from config import ENV_PATH
+from config import ENV_PATH, init_data_dir
 load_dotenv(ENV_PATH)
 
 import argparse
@@ -1152,6 +1152,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
+    init_data_dir()
     svc_paper.init_db()
     svc_project.ensure_projects_db()
     svc_note.ensure_notes_db()

@@ -18,6 +18,7 @@ import service.note as svc_note
 import service.files as svc_files
 import service.export_import as svc_ei
 import user_settings
+from config import init_data_dir
 from service.author import Author
 from service.paper import Paper, Papers
 from service.tag import Tag, TagIn
@@ -48,6 +49,7 @@ _SOURCES = {
     "openalex": OpenAlexSource,
 }
 
+init_data_dir()
 svc_paper.init_db()
 ensure_projects_db()
 _ensure_notes_db()
