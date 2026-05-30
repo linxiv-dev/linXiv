@@ -3,20 +3,25 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import json
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP  # pyright: ignore[reportMissingImports]
 
+import service.author as svc_author
 import service.paper as svc_paper
 import service.tag as svc_tag
 import service.project as svc_project
 import service.note as svc_note
 import service.files as svc_files
 import service.export_import as svc_ei
-from service.paper import Paper
+import user_settings
+from service.author import Author
+from service.paper import Paper, Papers
 from service.tag import Tag, TagIn
-from service.project import Project as _SvcProjectFilter, Projects as _SvcProjects, ProjectIn
+from service.project import Project as _SvcProjectFilter, Projects as _SvcProjects, ProjectIn, UNSET
 from service.note import Note as _SvcNote, Notes as _SvcNotes, NoteIn, NoteUpdateIn
 from service.models.project import ProjectDetails, Status as _SvcStatus
 from service.models.note import NoteDetails
@@ -24,9 +29,14 @@ from storage.notes import ensure_notes_db as _ensure_notes_db
 from storage.projects import (
     ensure_projects_db,
     get_project as _storage_get_project,
+    remove_paper_from_all_projects as _remove_paper_from_all_projects,
 )
+from formats.bibtex import BibTeXFormat
+from formats.markdown import ObsidianFormat
 from sources.arxiv_source import ArxivSource
+from sources.base import PaperMetadata
 from sources.crossref_source import CrossRefSource
+from sources.doi_resolve import resolve_doi as _resolve_doi
 from sources.openalex_source import OpenAlexSource
 
 
@@ -74,6 +84,14 @@ def _project_details_to_dict(p: ProjectDetails) -> dict:
         "updated_at":   p.updated_at.isoformat() if p.updated_at else None,
         "archived_at":  p.archived_at.isoformat() if p.archived_at else None,
     }
+
+
+def _asdict_json(obj) -> dict:
+    """dataclasses.asdict with datetime/date values rendered as ISO strings."""
+    return dataclasses.asdict(obj, dict_factory=lambda items: {
+        k: (v.isoformat() if hasattr(v, "isoformat") else v)
+        for k, v in items
+    })
 
 
 def _resolve_source(source: str):
@@ -166,10 +184,7 @@ def get_paper_versions(paper_id: str) -> Optional[dict]:
     all_ver = svc_paper.get_all(Paper(source_id=paper_id))
     if all_ver is None:
         return None
-    return dataclasses.asdict(all_ver, dict_factory=lambda items: {
-        k: v.isoformat() if hasattr(v, "isoformat") else v
-        for k, v in items
-    })
+    return _asdict_json(all_ver)
 
 
 @mcp.tool()
@@ -315,18 +330,40 @@ def update_project(
     project_id: int,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    color: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    status: Optional[str] = None,
 ) -> dict:
-    """Update a project's name or description.
+    """Update a project's name, description, color, tags, or lifecycle status.
 
     Args:
         project_id: Numeric project ID.
         name: New name (omit to leave unchanged).
         description: New description (omit to leave unchanged).
+        color: New hex color, e.g. "#4f86f7" (omit to leave unchanged).
+        tags: Replacement project tag list (omit to leave unchanged; [] clears all).
+        status: New lifecycle status — "active", "archived", or "deleted".
     """
     details = svc_project.get(_SvcProjectFilter(project_fk=project_id))
     if details is None:
         raise ValueError(f"Project {project_id} not found.")
-    svc_project.update(project_id, name=name, description=description)
+    color_arg: Any = UNSET
+    if color is not None:
+        color_arg = svc_project.color_from_hex(color)
+    status_enum = None
+    if status is not None:
+        try:
+            status_enum = _SvcStatus(status)
+        except ValueError:
+            raise ValueError(f"Invalid status {status!r}. Use 'active', 'archived', or 'deleted'.")
+    svc_project.update(
+        project_id,
+        name=name,
+        description=description,
+        color=color_arg,
+        project_tags=tags,
+        status=status_enum,
+    )
     updated = svc_project.get(_SvcProjectFilter(project_fk=project_id))
     return _project_details_to_dict(updated) if updated else {}
 
@@ -597,6 +634,495 @@ def get_pdf_storage() -> dict:
     """
     mb = svc_files.pdf_storage_mb()
     return {"storage_mb": round(mb, 3), "pdf_dir": svc_files.managed_pdf_dir()}
+
+
+# ── Paper management tools ──────────────────────────────────────────────────────
+
+@mcp.tool()
+def repair_paper(
+    paper_id: str,
+    title: str,
+    authors: list[str],
+    published: str,
+    summary: str = "",
+    category: Optional[str] = None,
+    doi: Optional[str] = None,
+    url: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+) -> dict:
+    """Overwrite a paper's metadata in-place to fix a bad import (wrong title, authors, etc.).
+
+    Keyed by the stable paper root, so the correction survives a source_id rename.
+
+    Args:
+        paper_id: The paper source ID (e.g. "arxiv:2204.12985").
+        title: Corrected title.
+        authors: Corrected list of author names.
+        published: Publication date in YYYY-MM-DD format.
+        summary: Abstract / summary text.
+        category: Primary category (e.g. "cs.LG").
+        doi: DOI string.
+        url: Canonical URL.
+        tags: Replacement tag list.
+    """
+    root = svc_paper.get_paper_root(paper_id)
+    if root is None:
+        raise ValueError(f"Paper {paper_id!r} not found in database.")
+    source_fk = int(root["SOURCE_FK"])
+    existing = svc_paper.get(Paper(source_id=paper_id))
+    version = existing.version if existing is not None else 1
+    try:
+        published_date = datetime.date.fromisoformat(published)
+    except ValueError:
+        raise ValueError(f"Invalid date {published!r}; use YYYY-MM-DD.")
+    meta = PaperMetadata(
+        source_id=paper_id,
+        version=version,
+        title=title,
+        authors=authors,
+        published=published_date,
+        summary=summary or "",
+        category=category,
+        doi=doi,
+        url=url,
+        tags=tags or None,
+        source=None,
+    )
+    svc_paper.repair_paper(source_fk, meta)
+    return {"repaired": paper_id}
+
+
+@mcp.tool()
+def restore_paper(paper_id: str) -> dict:
+    """Restore a soft-deleted (trashed) paper back into the library.
+
+    Args:
+        paper_id: The paper source ID (e.g. "arxiv:2204.12985").
+    """
+    if not svc_paper.is_paper_deleted(paper_id):
+        raise ValueError(f"Paper {paper_id!r} not found in trash.")
+    pdf_path, project_fks = svc_paper.restore(Paper(source_id=paper_id))
+    return {"restored": paper_id, "pdf_path": pdf_path, "project_fks": project_fks}
+
+
+@mcp.tool()
+def hard_delete_paper(paper_id: str) -> dict:
+    """Permanently delete a paper and all its data. This is irreversible.
+
+    Works regardless of whether the paper is in the trash. For a trash-only
+    guard, use trash_hard_delete_paper instead.
+
+    Args:
+        paper_id: The paper source ID (e.g. "arxiv:2204.12985").
+    """
+    root = svc_paper.get_paper_root(paper_id)
+    if root is None:
+        raise ValueError(f"Paper {paper_id!r} not found.")
+    svc_paper.hard_delete(Paper(source_id=paper_id))
+    return {"hard_deleted": paper_id}
+
+
+@mcp.tool()
+def remove_paper_from_all_projects(paper_id: str) -> dict:
+    """Remove a paper from every project it currently belongs to.
+
+    Args:
+        paper_id: The paper source ID (e.g. "arxiv:2204.12985").
+    """
+    root = svc_paper.get_paper_root(paper_id)
+    if root is None:
+        raise ValueError(f"Paper {paper_id!r} not found.")
+    source_fk = int(root["SOURCE_FK"])
+    removed = _remove_paper_from_all_projects(source_fk)
+    return {"paper_id": paper_id, "removed_from_projects": removed}
+
+
+# ── Trash tools ─────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_trash() -> dict:
+    """List all soft-deleted papers and projects currently in the trash."""
+    papers = svc_paper.list_deleted()
+    projects = svc_project.list_deleted()
+    return {
+        "papers": [_asdict_json(p) for p in papers],
+        "projects": [_project_details_to_dict(p) for p in projects],
+    }
+
+
+@mcp.tool()
+def trash_hard_delete_paper(paper_id: str) -> dict:
+    """Permanently delete a trashed paper. Only works if the paper is in the trash.
+
+    Use this for safe permanent deletion of items already soft-deleted; for an
+    unconditional purge use hard_delete_paper.
+
+    Args:
+        paper_id: The paper source ID (e.g. "arxiv:2204.12985").
+    """
+    if not svc_paper.is_paper_deleted(paper_id):
+        raise ValueError(f"Paper {paper_id!r} not found in trash.")
+    root = svc_paper.get_paper_root(paper_id)
+    if root is None:
+        raise ValueError(f"Paper {paper_id!r} not found.")
+    svc_paper.hard_delete(Paper(source_id=paper_id))
+    return {"hard_deleted": paper_id}
+
+
+@mcp.tool()
+def restore_project_from_trash(project_id: int) -> dict:
+    """Restore a project from the trash. Only works if the project is soft-deleted.
+
+    Args:
+        project_id: Numeric project ID.
+    """
+    details = svc_project.get(_SvcProjectFilter(project_fk=project_id))
+    if details is None:
+        raise ValueError(f"Project {project_id} not found.")
+    if details.status != _SvcStatus.DELETED:
+        raise ValueError(f"Project {project_id} is not in trash.")
+    svc_project.restore(_SvcProjectFilter(project_fk=project_id))
+    return {"restored_project_id": project_id}
+
+
+@mcp.tool()
+def hard_delete_project_from_trash(project_id: int) -> dict:
+    """Permanently delete a trashed project. Only works if the project is soft-deleted.
+
+    Args:
+        project_id: Numeric project ID.
+    """
+    details = svc_project.get(_SvcProjectFilter(project_fk=project_id))
+    if details is None:
+        raise ValueError(f"Project {project_id} not found.")
+    if details.status != _SvcStatus.DELETED:
+        raise ValueError(f"Project {project_id} is not in trash.")
+    svc_project.hard_delete(_SvcProjectFilter(project_fk=project_id))
+    return {"hard_deleted_project_id": project_id}
+
+
+# ── Project lifecycle tools ─────────────────────────────────────────────────────
+
+@mcp.tool()
+def archive_project(project_id: int) -> dict:
+    """Archive a project (read-only, still visible). Use restore_project to reactivate.
+
+    Args:
+        project_id: Numeric project ID.
+    """
+    if svc_project.get(_SvcProjectFilter(project_fk=project_id)) is None:
+        raise ValueError(f"Project {project_id} not found.")
+    svc_project.archive(_SvcProjectFilter(project_fk=project_id))
+    return {"archived_project_id": project_id}
+
+
+@mcp.tool()
+def restore_project(project_id: int) -> dict:
+    """Restore an archived or soft-deleted project back to active status.
+
+    Args:
+        project_id: Numeric project ID.
+    """
+    if svc_project.get(_SvcProjectFilter(project_fk=project_id)) is None:
+        raise ValueError(f"Project {project_id} not found.")
+    svc_project.restore(_SvcProjectFilter(project_fk=project_id))
+    return {"restored_project_id": project_id}
+
+
+@mcp.tool()
+def hard_delete_project(project_id: int) -> dict:
+    """Permanently delete a project. This is irreversible. Papers themselves are kept.
+
+    Works regardless of the project's status. For a trash-only guard, use
+    hard_delete_project_from_trash instead.
+
+    Args:
+        project_id: Numeric project ID.
+    """
+    if svc_project.get(_SvcProjectFilter(project_fk=project_id)) is None:
+        raise ValueError(f"Project {project_id} not found.")
+    svc_project.hard_delete(_SvcProjectFilter(project_fk=project_id))
+    return {"hard_deleted_project_id": project_id}
+
+
+# ── Project export tools ────────────────────────────────────────────────────────
+
+@mcp.tool()
+def export_project_bibtex(project_id: int, dest: str) -> dict:
+    """Export a project's papers to a BibTeX (.bib) file.
+
+    Args:
+        project_id: Numeric project ID.
+        dest: Output file path (.bib added automatically if no extension is given).
+    """
+    details = svc_project.get(_SvcProjectFilter(project_fk=project_id))
+    if details is None:
+        raise ValueError(f"Project {project_id} not found.")
+    papers = svc_paper.get_many(Papers(source_fks=details.source_fks)) if details.source_fks else []
+    bibtex_str = BibTeXFormat().export_papers([dataclasses.asdict(p) for p in papers])
+    out = Path(dest)
+    if not out.suffix:
+        out = out.with_suffix(".bib")
+    out.write_text(bibtex_str, encoding="utf-8")
+    return {"path": str(out), "project_id": project_id}
+
+
+@mcp.tool()
+def export_project_obsidian(project_id: int, dest: str) -> dict:
+    """Export a project's papers as Obsidian-style markdown notes.
+
+    Args:
+        project_id: Numeric project ID.
+        dest: Output file path (.md added automatically if no extension is given).
+    """
+    details = svc_project.get(_SvcProjectFilter(project_fk=project_id))
+    if details is None:
+        raise ValueError(f"Project {project_id} not found.")
+    papers = svc_paper.get_many(Papers(source_fks=details.source_fks)) if details.source_fks else []
+    md_str = ObsidianFormat().export_papers([dataclasses.asdict(p) for p in papers])
+    out = Path(dest)
+    if not out.suffix:
+        out = out.with_suffix(".md")
+    out.write_text(md_str, encoding="utf-8")
+    return {"path": str(out), "project_id": project_id}
+
+
+# ── Project tag tools ───────────────────────────────────────────────────────────
+
+@mcp.tool()
+def add_tags_to_project(project_id: int, tags: list[str]) -> dict:
+    """Add one or more tags to a project.
+
+    Args:
+        project_id: Numeric project ID.
+        tags: List of tag labels to add.
+    """
+    if svc_project.get(_SvcProjectFilter(project_fk=project_id)) is None:
+        raise ValueError(f"Project {project_id} not found.")
+    updated = svc_tag.add_project_tags(project_id, tags)
+    return {"project_id": project_id, "tags": updated}
+
+
+@mcp.tool()
+def remove_tags_from_project(project_id: int, tags: list[str]) -> dict:
+    """Remove one or more tags from a project.
+
+    Args:
+        project_id: Numeric project ID.
+        tags: List of tag labels to remove.
+    """
+    if svc_project.get(_SvcProjectFilter(project_fk=project_id)) is None:
+        raise ValueError(f"Project {project_id} not found.")
+    updated = svc_tag.remove_project_tags(project_id, tags)
+    return {"project_id": project_id, "tags": updated}
+
+
+@mcp.tool()
+def get_project_tags(project_id: int) -> dict:
+    """Get all tags applied to a project.
+
+    Args:
+        project_id: Numeric project ID.
+    """
+    details = svc_project.get(_SvcProjectFilter(project_fk=project_id))
+    if details is None:
+        raise ValueError(f"Project {project_id} not found.")
+    return {"project_id": project_id, "tags": details.project_tags}
+
+
+# ── DOI tools ───────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def resolve_doi(doi: str) -> dict:
+    """Resolve a DOI to paper metadata without saving it to the library.
+
+    Args:
+        doi: DOI string (e.g. "10.1038/nature12373").
+    """
+    meta = _resolve_doi(doi)
+    return meta.model_dump(mode="json")
+
+
+@mcp.tool()
+def save_doi(doi: str) -> dict:
+    """Resolve a DOI and save the resulting paper to the local library.
+
+    Args:
+        doi: DOI string (e.g. "10.1038/nature12373").
+    """
+    meta = _resolve_doi(doi)
+    source_id, ver = svc_paper.save_paper_metadata(meta)
+    return {"source_id": source_id, "version": ver, "title": meta.title}
+
+
+# ── Author tools ────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def list_authors() -> list[dict]:
+    """List all authors in the library with their paper counts."""
+    return [_asdict_json(a) for a in svc_author.list_with_paper_count()]
+
+
+@mcp.tool()
+def get_author(author_id: int) -> dict:
+    """Get an author's details together with a preview of their papers.
+
+    Args:
+        author_id: Numeric author ID.
+    """
+    author = svc_author.get(Author(author_id=author_id))
+    if author is None:
+        raise ValueError(f"Author {author_id} not found.")
+    previews = svc_author.get_paper_previews(author_id)
+    result = _asdict_json(author)
+    result["papers"] = [_asdict_json(p) for p in previews]
+    return result
+
+
+@mcp.tool()
+def update_author(
+    author_id: int,
+    full_name: Optional[str] = None,
+    first_name: Optional[str] = None,
+    last_name: Optional[str] = None,
+    orcid: Optional[str] = None,
+) -> dict:
+    """Update an author's fields. At least one field must be provided.
+
+    Args:
+        author_id: Numeric author ID.
+        full_name: New full name.
+        first_name: New first name.
+        last_name: New last name.
+        orcid: New ORCID identifier.
+    """
+    if svc_author.get(Author(author_id=author_id)) is None:
+        raise ValueError(f"Author {author_id} not found.")
+    if full_name is None and first_name is None and last_name is None and orcid is None:
+        raise ValueError("At least one of full_name, first_name, last_name, or orcid must be provided.")
+    svc_author.update_fields(
+        author_id=author_id,
+        full_name=full_name,
+        first_name=first_name,
+        last_name=last_name,
+        orcid=orcid,
+    )
+    return {"updated_author_id": author_id}
+
+
+@mcp.tool()
+def delete_author(author_id: int) -> dict:
+    """Delete an author. Blocked if the author is still linked to any papers.
+
+    Args:
+        author_id: Numeric author ID.
+    """
+    link_count = svc_author.count_paper_links(author_id)
+    if link_count > 0:
+        raise ValueError(f"Author {author_id} is linked to {link_count} paper(s); unlink first.")
+    svc_author.delete_author(author_id)
+    return {"deleted_author_id": author_id}
+
+
+# ── Import tools ────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def import_bibtex(file: str, project_id: Optional[int] = None) -> dict:
+    """Bulk-import papers from a BibTeX (.bib) file into the library.
+
+    Args:
+        file: Path to the .bib file on disk.
+        project_id: Optionally link all imported papers to this project.
+    """
+    details = None
+    if project_id is not None:
+        details = svc_project.get(_SvcProjectFilter(project_fk=project_id))
+        if details is None:
+            raise ValueError(f"Project {project_id} not found.")
+    metas = BibTeXFormat().import_file(file)
+    results = svc_paper.save_papers_metadata(metas)
+    if details is not None:
+        existing_fks: set[int] = set(details.source_fks)
+        new_fks: list[int] = []
+        for source_id, _ in results:
+            root = svc_paper.get_paper_root(source_id)
+            if root:
+                fk = int(root["SOURCE_FK"])
+                if fk not in existing_fks:
+                    new_fks.append(fk)
+                    existing_fks.add(fk)
+        if new_fks:
+            svc_project.upsert(ProjectIn(
+                name=details.name,
+                description=details.description,
+                color=details.color,
+                tags=details.project_tags,
+                source_fks=details.source_fks + new_fks,
+            ), project_fk=project_id)
+    return {"imported": len(results), "papers": [{"source_id": s, "version": v} for s, v in results]}
+
+
+@mcp.tool()
+def import_pdf(file: str, project_id: Optional[int] = None) -> dict:
+    """Import a local PDF file, extracting paper metadata from its contents.
+
+    Args:
+        file: Path to the PDF file on disk.
+        project_id: Optionally link the imported paper to this project.
+    """
+    if project_id is not None and svc_project.get(_SvcProjectFilter(project_fk=project_id)) is None:
+        raise ValueError(f"Project {project_id} not found.")
+    content = Path(file).read_bytes()
+    result = svc_paper.import_pdf(content, project_id)
+    return _asdict_json(result)
+
+
+# ── System tools ────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def get_stats() -> dict:
+    """Report library statistics: paper, tag, category, and downloaded-PDF counts."""
+    papers = svc_paper.list_paper_details(latest_only=True)
+    categories = svc_paper.get_categories()
+    all_tags = svc_tag.list_all_tags()
+    pdf_count = sum(1 for p in papers if p.has_pdf)
+    return {
+        "paper_count": len(papers),
+        "tag_count": len(all_tags),
+        "category_count": len(categories),
+        "pdf_count": pdf_count,
+    }
+
+
+@mcp.tool()
+def list_categories() -> list[str]:
+    """List all distinct paper categories present in the library."""
+    return svc_paper.get_categories()
+
+
+@mcp.tool()
+def get_settings() -> dict:
+    """Get all current user settings."""
+    return user_settings.all_settings()
+
+
+@mcp.tool()
+def update_setting(key: str, value: str) -> dict:
+    """Update a single user setting.
+
+    The value is parsed as JSON when it is valid JSON (so "true", "42", or
+    '["a","b"]' become the corresponding types); otherwise it is stored as a string.
+
+    Args:
+        key: Setting key.
+        value: New value (JSON-parsed when valid JSON, else stored as a string).
+    """
+    try:
+        parsed: Any = json.loads(value)
+    except json.JSONDecodeError:
+        parsed = value
+    user_settings.set(key, parsed)
+    return {key: parsed}
 
 
 def main() -> None:
