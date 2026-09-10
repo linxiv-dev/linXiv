@@ -1,31 +1,123 @@
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { mathjax } from "mathjax-full/js/mathjax.js";
-import { TeX } from "mathjax-full/js/input/tex.js";
-import { SVG } from "mathjax-full/js/output/svg.js";
-import { liteAdaptor } from "mathjax-full/js/adaptors/liteAdaptor.js";
-import { RegisterHTMLHandler } from "mathjax-full/js/handlers/html.js";
-import { AllPackages } from "mathjax-full/js/input/tex/AllPackages.js";
+import { mathjax } from "@mathjax/src/js/mathjax.js";
+import { TeX } from "@mathjax/src/js/input/tex.js";
+import { SVG } from "@mathjax/src/js/output/svg.js";
+import { liteAdaptor } from "@mathjax/src/js/adaptors/liteAdaptor.js";
+import { RegisterHTMLHandler } from "@mathjax/src/js/handlers/html.js";
+// MathJax v4 dropped AllPackages: each TeX extension registers itself on
+// import. This is every shipped extension except the ones excluded below —
+// html/texhtml emit raw HTML nodes (XSS), require/setoptions can re-enable
+// them (\require{html}), newcommand/configmacros/begingroup persist macro
+// definitions across renders on the shared mjDoc, and autoload needs require.
+import "@mathjax/src/js/input/tex/action/ActionConfiguration.js";
+import "@mathjax/src/js/input/tex/ams/AmsConfiguration.js";
+import "@mathjax/src/js/input/tex/amscd/AmsCdConfiguration.js";
+import "@mathjax/src/js/input/tex/bbm/BbmConfiguration.js";
+import "@mathjax/src/js/input/tex/bboldx/BboldxConfiguration.js";
+import "@mathjax/src/js/input/tex/bbox/BboxConfiguration.js";
+import "@mathjax/src/js/input/tex/boldsymbol/BoldsymbolConfiguration.js";
+import "@mathjax/src/js/input/tex/braket/BraketConfiguration.js";
+import "@mathjax/src/js/input/tex/bussproofs/BussproofsConfiguration.js";
+import "@mathjax/src/js/input/tex/cancel/CancelConfiguration.js";
+import "@mathjax/src/js/input/tex/cases/CasesConfiguration.js";
+import "@mathjax/src/js/input/tex/centernot/CenternotConfiguration.js";
+import "@mathjax/src/js/input/tex/color/ColorConfiguration.js";
+import "@mathjax/src/js/input/tex/colortbl/ColortblConfiguration.js";
+import "@mathjax/src/js/input/tex/colorv2/ColorV2Configuration.js";
+import "@mathjax/src/js/input/tex/dsfont/DsfontConfiguration.js";
+import "@mathjax/src/js/input/tex/empheq/EmpheqConfiguration.js";
+import "@mathjax/src/js/input/tex/enclose/EncloseConfiguration.js";
+import "@mathjax/src/js/input/tex/extpfeil/ExtpfeilConfiguration.js";
+import "@mathjax/src/js/input/tex/fontsizev3/FontSizeV3Configuration.js";
+import "@mathjax/src/js/input/tex/gensymb/GensymbConfiguration.js";
+import "@mathjax/src/js/input/tex/mathtools/MathtoolsConfiguration.js";
+import "@mathjax/src/js/input/tex/mhchem/MhchemConfiguration.js";
+import "@mathjax/src/js/input/tex/noerrors/NoErrorsConfiguration.js";
+import "@mathjax/src/js/input/tex/noundefined/NoUndefinedConfiguration.js";
+import "@mathjax/src/js/input/tex/physics/PhysicsConfiguration.js";
+import "@mathjax/src/js/input/tex/tagformat/TagFormatConfiguration.js";
+import "@mathjax/src/js/input/tex/textcomp/TextcompConfiguration.js";
+import "@mathjax/src/js/input/tex/textmacros/TextMacrosConfiguration.js";
+import "@mathjax/src/js/input/tex/unicode/UnicodeConfiguration.js";
+import "@mathjax/src/js/input/tex/units/UnitsConfiguration.js";
+import "@mathjax/src/js/input/tex/upgreek/UpgreekConfiguration.js";
+import "@mathjax/src/js/input/tex/verb/VerbConfiguration.js";
 import { getSettings } from "../api/settings";
 import type { Settings } from "../types/api";
+
+const mathPackages = [
+  "base",
+  "action",
+  "ams",
+  "amscd",
+  "bbm",
+  "bboldx",
+  "bbox",
+  "boldsymbol",
+  "braket",
+  "bussproofs",
+  "cancel",
+  "cases",
+  "centernot",
+  "color",
+  "colortbl",
+  "colorv2",
+  "dsfont",
+  "empheq",
+  "enclose",
+  "extpfeil",
+  "fontsizev3",
+  "gensymb",
+  "mathtools",
+  "mhchem",
+  "noerrors",
+  "noundefined",
+  "physics",
+  "tagformat",
+  "textcomp",
+  "textmacros",
+  "unicode",
+  "units",
+  "upgreek",
+  "verb",
+];
+
+// v4's default font (newcm) ships rarely-used glyph ranges (\mathcal,
+// \mathfrak, arrows, …) as separate files loaded on demand via
+// mathjax.asyncLoad. Map its bare specifiers onto lazy Vite chunks so they
+// stay out of the main bundle (~10MB total).
+const dynamicFontFiles = import.meta.glob(
+  "/node_modules/@mathjax/mathjax-newcm-font/mjs/svg/dynamic/*.js",
+);
+mathjax.asyncLoad = (name: string) => {
+  const path = name.replace(
+    /^@mathjax\/mathjax-newcm-font\/js\//,
+    "/node_modules/@mathjax/mathjax-newcm-font/mjs/",
+  );
+  const load = dynamicFontFiles[path];
+  return load ? load() : Promise.reject(new Error(`Can't load '${name}'`));
+};
+
+// A convert() that hits an unloaded glyph range throws with a `retry` promise
+// (raw TeX is shown for that render); when the font chunk arrives, bump the
+// epoch so subscribed MathText components re-render and convert succeeds.
+let fontEpoch = 0;
+const fontListeners = new Set<() => void>();
+const subscribeFonts = (fn: () => void) => {
+  fontListeners.add(fn);
+  return () => fontListeners.delete(fn);
+};
+function notifyFontLoaded() {
+  fontEpoch++;
+  for (const fn of fontListeners) fn();
+}
 
 // MathJax SVG pipeline, set up once. liteAdaptor renders to an HTML string we
 // inject; fontCache "none" inlines glyph paths per container.
 const adaptor = liteAdaptor();
 RegisterHTMLHandler(adaptor);
 const svgOutput = new SVG({ fontCache: "none" });
-// Exclude packages that emit raw HTML nodes (html) or persist macro definitions
-// across renders on the shared mjDoc (newcommand, configmacros). require/setoptions
-// are excluded too: \require{html} would re-enable the filtered-out html extension
-// (\href, \style, …) and reopen the raw-HTML XSS path.
-const excludedPackages = new Set([
-  "html",
-  "require",
-  "setoptions",
-  "newcommand",
-  "configmacros",
-]);
-const mathPackages = AllPackages.filter((p) => !excludedPackages.has(p));
 const mjDoc = mathjax.document("", {
   InputJax: new TeX({ packages: mathPackages }),
   OutputJax: svgOutput,
@@ -67,11 +159,13 @@ const MATH_RE = /\$\$([\s\S]+?)\$\$|\$(?!\s)([^$\n]*?[^$\s])\$/g;
 function mathHtml(tex: string, display: boolean): string | null {
   if (!tex.trim()) return null;
   try {
-    const html = adaptor.outerHTML(mjDoc.convert(tex, { display }));
-    mjDoc.clear(); // drop the stored node so mjDoc.math doesn't grow per render
-    return html;
-  } catch {
+    return adaptor.outerHTML(mjDoc.convert(tex, { display }));
+  } catch (err) {
+    const retry = (err as { retry?: Promise<unknown> } | null)?.retry;
+    if (retry instanceof Promise) retry.then(notifyFontLoaded, () => {});
     return null;
+  } finally {
+    mjDoc.clear(); // drop the stored node so mjDoc.math doesn't grow per render
   }
 }
 
@@ -108,6 +202,7 @@ export function MathText({
   forceInline?: boolean;
 }) {
   const enabled = useTexEnabled();
+  useSyncExternalStore(subscribeFonts, () => fontEpoch);
   const text = children ?? "";
   if (!enabled || !text.includes("$")) return <>{text}</>;
   return <>{toNodes(text, forceInline)}</>;
