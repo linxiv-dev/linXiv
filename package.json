@@ -22,6 +22,7 @@
     "build:arch": "bash scripts/build_arch_package.sh"
   },
   "dependencies": {
+    "@mathjax/src": "^4.1.3",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
     "@radix-ui/react-label": "^2.1.15",
@@ -45,7 +46,6 @@
     "cytoscape": "^3.34.2",
     "d3-force": "^3.0.0",
     "lucide-react": "^1.35.0",
-    "mathjax-full": "^3.2.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
