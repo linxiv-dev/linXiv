@@ -15,18 +15,22 @@
 name: CodeQL
 
 on:
+  # push:main keeps the refs/heads/main baseline fresh; every PR must then
+  # upload the same three configurations, or code scanning cannot compute
+  # the PR's alert delta and warns "configuration not found" on each push.
+  # That is why there is no author/path skip here: a skipped configuration
+  # is indistinguishable from a missing one (learned on PR #285).
+  push:
+    branches: [main]
   pull_request:
     branches: [main, dev]
+  schedule:
+    # Weekly, matching the cadence default setup was configured with.
+    - cron: "23 1 * * 1"
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    # PRs to main always scan; PRs to dev skip for trusted authors.
-    # TRUSTED_AUTHORS is a repo Actions variable holding a JSON array of
-    # GitHub usernames, e.g. ["jakeuribe"]. Unset/empty means trust no one.
-    if: >-
-      github.base_ref == 'main' ||
-      !contains(fromJSON(vars.TRUSTED_AUTHORS || '[]'), github.event.pull_request.user.login)
     runs-on: ubuntu-latest
     permissions:
       security-events: write
