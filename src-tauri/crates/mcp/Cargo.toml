@@ -16,7 +16,7 @@ rusqlite = "0.40"
 # rmcp 1.8 (current). transport-io adds the stdio transport; default features
 # (macros + server) bring the #[tool]/#[tool_router]/#[tool_handler] macros and
 # the schemars-backed input-schema generation.
-rmcp = { version = "1.8.0", features = ["transport-io"] }
+rmcp = { version = "2.0.0", features = ["transport-io"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 serde = { version = "1", features = ["derive"] }
 # preserve_order: tool results that are json! objects keep insertion order.
