@@ -27,6 +27,7 @@ import { ExportDialog } from "../components/projects/ExportDialog";
 import { Button } from "../components/ui/button";
 import { TagBadge } from "../components/tags/TagBadge";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { EmptyState } from "../components/ui/empty-state";
 import { READING_LIST_TAG } from "../lib/readingStatus";
 import {
@@ -312,8 +313,8 @@ export default function ProjectDetailPage() {
   // ------ Render states ------
   if (projectLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center h-full">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex-1 flex items-center justify-center h-full">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }
@@ -540,8 +541,8 @@ export default function ProjectDetailPage() {
           style={{ backgroundColor: "var(--color-bg)" }}
         >
           {papersLoading ? (
-            <div className="flex items-center justify-center p-8">
-              <Spinner size={22} />
+            <div role="status" aria-label="Loading" className="flex items-center justify-center p-8">
+              <LogoMark size={32} className="animate-pulse" />
             </div>
           ) : projectPapers.length === 0 ? (
             <EmptyState

@@ -595,14 +595,15 @@ async fn relay_admin(ctx: &Ctx, req: &ApiRequest) -> Option<Response> {
             }
             let role = match b.role {
                 None => None,
+                // `admin` deserializes but is reserved: no route grants it.
                 Some(v) => match serde_json::from_value(v) {
-                    Ok(r) => Some(r),
-                    Err(_) => {
+                    Ok(Role::Admin) | Err(_) => {
                         return Some(detail(
                             StatusCode::BAD_REQUEST,
                             "role must be none|read|read-write",
                         ))
                     }
+                    Ok(r) => Some(r),
                 },
             };
             // Absent/null preserves; a string sets (empty after cleanup clears).
@@ -942,6 +943,9 @@ mod tests {
             "/api/admin/transfers",
             "/api/admin/node-address",
             "/api/admin/actors",
+            "/api/settings",
+            "/api/env",
+            "/api/share/relay/reconnect",
             "sessionStorage",
         ] {
             assert!(super::ADMIN_HTML.contains(needle), "missing {needle}");

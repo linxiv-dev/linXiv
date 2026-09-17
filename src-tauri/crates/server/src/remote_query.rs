@@ -107,6 +107,8 @@ pub enum Role {
     None,
     Read,
     ReadWrite,
+    /// Reserved operator tier: no route grants it yet, `deny_reason` refuses it.
+    Admin,
 }
 
 impl Role {
@@ -270,6 +272,7 @@ pub fn deny_reason(role: Role, method: &str, path: &str) -> Option<&'static str>
         // transport); kept fail-closed for any future caller.
         Role::None => Some("role grants no query access"),
         Role::Read if method != "GET" => Some("read role is GET-only"),
+        Role::Admin => Some("admin role is reserved; no route grants it yet"),
         _ => None,
     }
 }
@@ -553,14 +556,19 @@ mod tests {
     fn corrupt_member_list_is_an_error_not_an_empty_list() {
         assert!(parse_members("{ not json").is_err());
         assert!(parse_members(r#"[{"role":"read"}]"#).is_err()); // no id
-        assert!(parse_members(r#"[{"id":"aa","role":"admin"}]"#).is_err()); // bad role
+        assert!(parse_members(r#"[{"id":"aa","role":"owner"}]"#).is_err()); // bad role
+                                                                            // `admin` parses (reserved tier) but `deny_reason` refuses it everywhere.
+        assert_eq!(
+            parse_members(r#"[{"id":"aa","role":"admin"}]"#).unwrap()[0].role,
+            Role::Admin
+        );
     }
 
     #[test]
     fn relay_allow_is_presence_based_and_fail_closed() {
         let id = "ab".repeat(32);
         // Any role admits to the relay — including none.
-        for role in [Role::None, Role::Read, Role::ReadWrite] {
+        for role in [Role::None, Role::Read, Role::ReadWrite, Role::Admin] {
             assert!(relay_allow(&[m(&id, role)], Some(&id)));
         }
         assert!(relay_allow(&[m(&id, Role::None)], Some(&id.to_uppercase())));
@@ -581,7 +589,7 @@ mod tests {
         let denied = |role, method, path| assert!(deny_reason(role, method, path).is_some());
         // Excluded groups: operator-only for EVERY role. pdf-path leaks the
         // node's filesystem layout — remote clients use the byte lane.
-        for role in [Role::None, Role::Read, Role::ReadWrite] {
+        for role in [Role::None, Role::Read, Role::ReadWrite, Role::Admin] {
             denied(role, "GET", "/api/settings");
             denied(role, "PATCH", "/api/settings");
             denied(role, "PATCH", "/api/env");
@@ -608,6 +616,7 @@ mod tests {
         ok(Role::ReadWrite, "GET", "/api/feed?url=http%3A%2F%2Fx%2F");
         // none: nothing (belt — the transport refuses it first).
         denied(Role::None, "GET", "/api/papers");
+        denied(Role::Admin, "GET", "/api/papers");
     }
 }
 

@@ -1,12 +1,15 @@
 //! Two-way share sync glue: per-share settings sidecars, received→canonical
 //! import, and the role-aware `sync_share` shared by the route arm and the interval task.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use linxiv_core::config::UserSettings;
 use linxiv_core::service::paper as paper_svc;
 use linxiv_core::service::project as project_svc;
 use linxiv_share::{
@@ -26,6 +29,75 @@ pub enum SyncDirection {
     TwoWay,
     SharedToLocal,
     LocalToShared,
+}
+
+/// The opt-in gate for the "reading …" indicator. The server enforces it, not
+/// the toggle in the UI: a member who opted out while p2p was down would
+/// otherwise stay published, because the POST that clears it can fail and
+/// nothing retries. Unreadable settings publish nothing.
+pub fn reading_opt_in() -> bool {
+    match UserSettings::load() {
+        Ok(s) => s
+            .get("share_presence_reading")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        Err(e) => {
+            eprintln!("share sync: settings unreadable, presence reading off: {e}");
+            false
+        }
+    }
+}
+
+/// What a liveness heartbeat does to `reading`: `Some(None)` clears it, `None`
+/// keeps whatever the UI last set. Clear when the member has opted out, and
+/// once per share per process — an unclean exit never runs the UI's cleanup, so
+/// without this a killed app leaves "reading X" pinned for as long as it runs.
+fn heartbeat_reading(share_id: &str) -> Option<Option<String>> {
+    (presence_pass_pending(share_id) || !reading_opt_in()).then_some(None)
+}
+
+fn with_presence_passes<T>(f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
+    static SEEN: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+    f(SEEN
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(HashSet::new))
+}
+
+/// True while this process still owes `share_id` its boot clear. Peek only: the
+/// claim is recorded by `commit_presence_pass` once the write LANDS, or a single
+/// failed write burns the only clear this process ever does and a stale
+/// "reading X" from an unclean exit stays pinned for the whole run.
+pub fn presence_pass_pending(share_id: &str) -> bool {
+    with_presence_passes(|s| !s.contains(share_id))
+}
+
+/// Record a landed presence write. `set_reading` records it too: a member
+/// publishing a paper is itself proof that nothing stale is left, and without
+/// that the next pass would run the boot clear and wipe the fresh value.
+pub fn commit_presence_pass(share_id: &str) {
+    with_presence_passes(|s| s.insert(share_id.to_string()));
+}
+
+/// Drop the claim when a share is left: a rejoin (same share_id) merges the
+/// host's doc back with this member's stale `reading` still in it, and owes a
+/// fresh boot clear or it rides along forever. `set_reading` also calls it when
+/// its write fails — the doc keeps the old reading until a clear lands.
+pub fn forget_presence_pass(share_id: &str) {
+    with_presence_passes(|s| s.remove(share_id));
+}
+
+/// One liveness heartbeat, shared by both e2ee legs. Commits the boot clear only
+/// on `Ok`; callers hold `lock_writes` so the clear/keep decision cannot go
+/// stale against a concurrent `set_reading`.
+async fn presence_heartbeat(node: &ShareNode, share_id: &str) {
+    match node
+        .touch_presence(share_id, heartbeat_reading(share_id))
+        .await
+    {
+        Ok(()) => commit_presence_pass(share_id),
+        Err(e) => eprintln!("share sync {share_id}: presence heartbeat: {e}"),
+    }
 }
 
 /// Per-share sync settings, stored as `share_dir/settings/<id>.json` — share-local
@@ -466,6 +538,8 @@ pub async fn sync_share(
             eprintln!("share sync {share_id}: p2p offline");
             return skipped(SyncReason::P2pOffline, None);
         };
+        // Presence heartbeat: flushed to members on their next session.
+        presence_heartbeat(&node, share_id).await;
         // ponytail: a failed publish below orphans just-stored blobs (random
         // nonce, no dedup) and nothing GCs them; upgrade: sweep unreferenced tickets.
         populate_pdf_blobs(state, &node, &dir, &mut sp, false).await?;
@@ -509,6 +583,9 @@ pub async fn sync_share(
         let prior = load(&applied_dir(&e2ee_received_dir(&dir)), share_id)
             .ok()
             .or_else(|| ShareNode::e2ee_received(&dir, share_id).ok());
+        // Presence heartbeat: written before the dial so sync_e2ee's flush
+        // carries it. Viewer writes evaporate at the host (scratch core).
+        presence_heartbeat(&node, share_id).await;
         // Keyhive/BeeKEM ops run slower than plain sync; double the net budget.
         let outcome = tokio::time::timeout(
             crate::route::share::SHARE_NET_TIMEOUT * 2,
@@ -668,6 +745,25 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
+
+    /// The stale-`reading` clear fires once per share, not every pass — but only
+    /// a LANDED write claims it (a failed one must keep owing the clear), and
+    /// leaving a share puts the debt back for the rejoin.
+    #[test]
+    fn presence_pass_is_claimed_once_per_share() {
+        assert!(presence_pass_pending("share-a"));
+        // Peeking does not claim: a write that then fails still owes the clear.
+        assert!(presence_pass_pending("share-a"));
+        commit_presence_pass("share-a");
+        assert!(!presence_pass_pending("share-a"));
+        assert!(presence_pass_pending("share-b"));
+
+        // Leaving share-a owes it a fresh clear; share-b is untouched.
+        forget_presence_pass("share-a");
+        assert!(presence_pass_pending("share-a"));
+        commit_presence_pass("share-b");
+        assert!(!presence_pass_pending("share-b"));
+    }
 
     use linxiv_core::storage;
     use tempfile::TempDir;

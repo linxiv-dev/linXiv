@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { getAllTags, getTagDetail } from "../api/tags";
-import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { SortHeader, nextSort, type SortDir } from "../components/ui/sort-header";
@@ -47,8 +47,8 @@ function TagIndexView() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex items-center justify-center h-full">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }
@@ -153,8 +153,8 @@ function TagDetailView({ label }: TagDetailViewProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex items-center justify-center h-full">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }

@@ -135,6 +135,15 @@ pub struct ImportBibtexParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct ImportZoteroParams {
+    /// Path to the CSL JSON file on disk (Zotero: Export Library, format CSL JSON).
+    pub file: String,
+    /// Optionally link all imported papers to this project.
+    #[serde(default)]
+    pub project_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct BackupDatabaseParams {
     /// Absolute destination path for the snapshot. Must not already exist.
     pub dest: String,
@@ -215,6 +224,21 @@ impl Server {
             Ok(linxiv_core::formats::bibtex_export(&papers))
         })?;
         let out = with_default_ext(&dest, "bib");
+        std::fs::write(&out, body).map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        json_ok(&json!({ "path": out.to_string_lossy(), "project_id": project_id }))
+    }
+
+    #[tool(description = "Export a project's papers as CSL JSON for Zotero's file importer.")]
+    pub async fn export_project_zotero(
+        &self,
+        params: Parameters<ExportProjectDestParams>,
+    ) -> Result<String, ErrorData> {
+        let ExportProjectDestParams { project_id, dest } = params.0;
+        let body = self.with_conn(|conn| -> Result<String, ErrorData> {
+            let papers = project_papers(conn, project_id)?;
+            Ok(linxiv_core::zotero::csl_export(&papers))
+        })?;
+        let out = with_default_ext(&dest, "json");
         std::fs::write(&out, body).map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         json_ok(&json!({ "path": out.to_string_lossy(), "project_id": project_id }))
     }
@@ -444,6 +468,21 @@ impl Server {
         // guard_err: guard/parse/link refusals → invalid-params, DB faults internal.
         let receipt = self
             .with_conn(|conn| svc_paper_import::import_bibtex(conn, &text, project_id))
+            .map_err(guard_err)?;
+        json_ok(&receipt)
+    }
+
+    #[tool(description = "Bulk-import papers from a Zotero CSL JSON export into the library.")]
+    pub async fn import_zotero(
+        &self,
+        params: Parameters<ImportZoteroParams>,
+    ) -> Result<String, ErrorData> {
+        let ImportZoteroParams { file, project_id } = params.0;
+        let text = std::fs::read_to_string(&file)
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        // guard_err: guard/parse/link refusals → invalid-params, DB faults internal.
+        let receipt = self
+            .with_conn(|conn| svc_paper_import::import_zotero(conn, &text, project_id))
             .map_err(guard_err)?;
         json_ok(&receipt)
     }

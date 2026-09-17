@@ -2,7 +2,7 @@ import { Suspense, useEffect } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { UpdateBanner } from "./UpdateBanner";
-import { Spinner } from "../ui/spinner";
+import { LogoMark } from "../ui/logo-mark";
 import GraphPage from "../../pages/GraphPage";
 import EditorPage from "../../pages/EditorPage";
 import { useUiStore, type SidebarPageKey } from "../../stores/ui";
@@ -27,11 +27,11 @@ const ROUTE_PAGE_KEY: Record<string, SidebarPageKey> = {
 
 function PageFallback() {
   return (
-    <div
+    <div role="status" aria-label="Loading"
       className="flex-1 flex items-center justify-center"
       style={{ backgroundColor: "var(--color-bg)" }}
     >
-      <Spinner size={28} />
+      <LogoMark size={48} className="animate-pulse" />
     </div>
   );
 }

@@ -104,6 +104,11 @@
   <button type="submit">Add</button>
 </form>
 
+<h2>Settings</h2>
+<p class="muted">Node settings, saved on change. Relay changes need "reconnect relay" to rebind. API keys are write only.</p>
+<dl id="settings"><dd class="muted">loading…</dd></dl>
+<p class="row"><button id="reconnect" class="plain">reconnect relay</button></p>
+
 <h2>Attribution</h2>
 <p class="muted">Change authors seen across this node's docs. To name a change author: copy its actor id onto a member above.</p>
 <table>
@@ -237,11 +242,19 @@ async function loadMembers() {
       saveField({ endpoint_id: m.id, actors: actorsIn.value.split(/\s+/).filter(Boolean) },
         mine => { actorsIn.value = (mine.actors || []).join(" "); });
     const sel = document.createElement("select");
-    for (const role of ["none", "read", "read-write"]) {
+    // A stored role outside the settable three (the reserved `admin` tier)
+    // gets its own disabled option, so the row shows the stored role instead
+    // of misreporting it as "none" and a stray change can't silently demote
+    // it. The backend refuses to set it back, so it is never offered.
+    const roles = ["none", "read", "read-write"];
+    const reserved = !roles.includes(m.role);
+    if (reserved) roles.unshift(m.role);
+    for (const role of roles) {
       const opt = document.createElement("option");
       opt.value = role;
-      text(opt, role);
+      text(opt, reserved && role === m.role ? role + " (reserved)" : role);
       opt.selected = role === m.role;
+      opt.disabled = reserved && role === m.role;
       sel.append(opt);
     }
     sel.onchange = () =>
@@ -255,6 +268,91 @@ async function loadMembers() {
         .then(() => loadMembers().then(loadActors)).catch(e => msg(e.message));
     li.append(span, nameIn, actorsIn, sel, btn);
     ul.append(li);
+  }
+}
+
+// Headless-relevant settings only (no appearance, shortcuts, zoom). `env`
+// keys go through PATCH /api/env; `password` and `secret` are write only.
+const SETTING_FIELDS = [
+  ["p2p_relay_url", "text"],
+  ["p2p_relay_auth_token", "password"],
+  ["p2p_relay_only", "checkbox"],
+  ["full_text_worker_enabled", "checkbox"],
+  ["pdf_import_verify_identity_enabled", "checkbox"],
+  ["pdf_save_limit_mb", "number"],
+  ["rss_cache_retention_days", "number"],
+  ["home_feed_url", "text"],
+  ["CROSSREF_MAILTO", "env"],
+  ["OPENALEX_MAILTO", "env"],
+  ["ARXIV_MAILTO", "env"],
+  ["GEMINI_API_KEY", "secret"],
+  ["OPENAI_API_KEY", "secret"],
+];
+
+function patchJson(path, body) {
+  return api(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function loadSettings() {
+  const s = await api("/api/settings");
+  const dl = $("settings");
+  dl.replaceChildren();
+  for (const [key, kind] of SETTING_FIELDS) {
+    const dt = document.createElement("dt");
+    text(dt, key);
+    const dd = document.createElement("dd");
+    const inp = document.createElement("input");
+    inp.className = "mono";
+    inp.autocomplete = "off";
+    const v = s[key];
+    // /admin is served without auth, so a stored secret is never rendered into
+    // the page. Only the two API keys are redacted by GET; the relay token
+    // comes back in full, and printing it into a DOM value would hand it to
+    // devtools, any injected script, and the browser password manager.
+    const writeOnly = kind === "password" || kind === "secret";
+    if (kind === "checkbox") {
+      inp.type = "checkbox";
+      inp.checked = v === true;
+    } else {
+      inp.type = kind === "number" ? "number" : writeOnly ? "password" : "text";
+      inp.size = 40;
+      inp.value = writeOnly || v == null ? "" : String(v);
+      // The relay token is in the GET body, so the hint can report its state.
+      // The two API keys are stripped from that body, so the page cannot know
+      // whether one is stored: say so instead of implying an empty box is unset.
+      if (kind === "password") inp.placeholder = v ? "set, type to replace" : "not set";
+      else if (writeOnly) inp.placeholder = "write only, cannot show if set";
+    }
+    // Numbers stay numbers: a stringified cap silently falls back to the default.
+    inp.onchange = () => {
+      // Both number settings are positive-only whole numbers on the node: it
+      // drops anything else and silently uses its default (1024 MiB cap, 30
+      // day retention). Saving a 0, a -5, an empty box or 2.5 would leave this
+      // field showing a limit that is not the one in effect, so restore what
+      // is saved and say why.
+      if (kind === "number") {
+        const num = Number(inp.value);
+        if (!(Number.isSafeInteger(num) && num > 0)) {
+          msg(key + " must be a whole number greater than 0. Restored the saved value.");
+          loadSettings().catch(e => msg(e.message));
+          return;
+        }
+      }
+      const value = kind === "checkbox" ? inp.checked
+        : kind === "number" ? Number(inp.value)
+        : inp.value.trim();
+      const save = kind === "env" || kind === "secret"
+        ? patchJson("/api/env", { key, value })
+        : patchJson("/api/settings", { updates: { [key]: value } });
+      save.then(() => { if (writeOnly) inp.value = ""; })
+        .catch(e => { msg(e.message); loadSettings().catch(e2 => msg(e2.message)); });
+    };
+    dd.append(inp);
+    dl.append(dt, dd);
   }
 }
 
@@ -362,7 +460,7 @@ async function loadLog() {
 function refreshAll() {
   msg("");
   // Actors load after members so the table can label known actor ids.
-  Promise.all([loadStatus(), loadNodeAddress(), loadMembers().then(loadActors), loadLog(), loadTransfers()])
+  Promise.all([loadStatus(), loadNodeAddress(), loadSettings(), loadMembers().then(loadActors), loadLog(), loadTransfers()])
     .catch(e => msg(e.message));
 }
 
@@ -387,6 +485,11 @@ $("add-form").onsubmit = e => {
     })
     .catch(e => msg(e.message));
 };
+
+$("reconnect").onclick = () =>
+  api("/api/share/relay/reconnect", { method: "POST" })
+    .then(() => Promise.all([loadStatus(), loadNodeAddress()]))
+    .catch(e => msg(e.message));
 
 $("refresh").onclick = () =>
   Promise.all([loadLog(), loadTransfers()]).catch(e => msg(e.message));

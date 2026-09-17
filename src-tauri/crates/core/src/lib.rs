@@ -9,3 +9,4 @@ pub mod sources;
 pub mod storage;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub mod zotero;

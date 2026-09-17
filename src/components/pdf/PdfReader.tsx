@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs, type DocumentProps } from "react-pdf";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Spinner } from "../ui/spinner";
+import { LogoMark } from "../ui/logo-mark";
 import {
   getAnnotations,
   createAnnotation,
@@ -720,8 +720,9 @@ export function PdfReader({ file, sourceId, version, projectId, errorUrl }: PdfR
           options={pdfDocumentOptions}
           onLoadSuccess={onDocumentLoad}
           loading={
-            <div className="flex items-center justify-center gap-2 py-16 text-white/60 text-sm">
-              <Spinner size={16} /> Loading PDF…
+            <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-white/60 text-sm">
+              <LogoMark size={48} className="animate-pulse" />
+              Loading PDF…
             </div>
           }
           error={

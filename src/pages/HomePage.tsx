@@ -6,7 +6,7 @@ import { dismissFeedEntry, getFeed } from "../api/feed";
 import { fetchArxiv } from "../api/search";
 import { getPaperPdfUrl } from "../api/papers";
 import { useBackendStore } from "../stores/backend";
-import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { PaperList } from "../components/papers/PaperList";
@@ -250,8 +250,8 @@ function FeedSection({ url }: { url: string }) {
       </SectionTitle>
       {isLoading ? (
         <Card variant="inset">
-          <div className="flex justify-center py-6">
-            <Spinner size={20} />
+          <div role="status" aria-label="Loading" className="flex justify-center py-6">
+            <LogoMark size={32} className="animate-pulse" />
           </div>
         </Card>
       ) : error ? (
@@ -322,8 +322,8 @@ export default function HomePage() {
     <div className="p-8 space-y-8">
 
       {isLoading ? (
-        <div className="flex items-center justify-center h-full">
-          <Spinner size={28} />
+        <div role="status" aria-label="Loading" className="flex items-center justify-center h-full">
+          <LogoMark size={48} className="animate-pulse" />
         </div>
       ) : error ? (
         <div className="flex items-center justify-center h-full">

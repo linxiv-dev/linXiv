@@ -16,6 +16,7 @@ import { useLibraryStore } from "../stores/library";
 import type { LibraryFilterMode as FilterMode } from "../stores/library";
 import type { Paper } from "../types/api";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { Input } from "../components/ui/input";
 import { OptionSelect } from "../components/ui/select";
 import { formSubmitOnCtrlEnter } from "../lib/submitShortcut";
@@ -342,8 +343,8 @@ export default function LibraryPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex items-center justify-center h-full">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }
@@ -570,8 +571,8 @@ export default function LibraryPage() {
             </p>
           )}
           {projectsLoading ? (
-            <div className="flex items-center justify-center py-4">
-              <Spinner size={20} />
+            <div role="status" aria-label="Loading" className="flex items-center justify-center py-4">
+              <LogoMark size={32} className="animate-pulse" />
             </div>
           ) : !projectsData?.projects?.length ? (
             <div className="space-y-2">

@@ -145,6 +145,9 @@ export type {
   InviteMinted,
   MembersListing,
   MemberRow,
+  PresenceListing,
+  PresenceRow,
+  PresenceUpdate,
   RoleChanged,
   AdminTransferred,
   RevokedReceipt,
@@ -215,6 +218,8 @@ export interface Settings {
   p2p_relay_auth_token?: string;
   /** If set, refuse to bind the p2p node rather than use n0's relays. */
   p2p_relay_only?: boolean;
+  /** Opt-in: tell share members which shared paper you are reading. */
+  share_presence_reading?: boolean;
   /** History attribution: actor hex (lowercase) → display name, overriding a
    *  remote node's host-assigned display_name. */
   actor_names?: Record<string, string>;

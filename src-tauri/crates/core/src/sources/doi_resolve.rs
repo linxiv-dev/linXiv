@@ -50,7 +50,7 @@ fn is_ratelimited(e: &CoreError) -> bool {
 /// If `doi` contains an arXiv-issued DOI (`10.48550/arXiv.<id>`, case-insensitive)
 /// return the bare arXiv id (new-style `\d{4}\.\d{4,5}` tried first, else
 /// old-style `category/number`); else `None`.
-fn arxiv_doi_id(doi: &str) -> Option<String> {
+pub(crate) fn arxiv_doi_id(doi: &str) -> Option<String> {
     let prefix = "10.48550/arxiv.";
     let pos = doi.to_ascii_lowercase().find(prefix)?;
     let rest = &doi[pos + prefix.len()..];

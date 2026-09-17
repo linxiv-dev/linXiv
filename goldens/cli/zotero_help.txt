@@ -1,0 +1,8 @@
+usage: linxiv zotero [-h] {import} ...
+
+positional arguments:
+  {import}
+    import       Import papers from a Zotero CSL JSON export
+
+options:
+  -h, --help     show this help message and exit

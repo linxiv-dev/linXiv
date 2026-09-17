@@ -110,6 +110,10 @@ linxiv author merge 12 34 56                     # fold 34 and 56 into canonical
 linxiv bibtex import ./refs.bib
 linxiv bibtex import ./refs.bib --project-id 1   # link every imported paper to a project
 
+# Zotero (CSL JSON: Zotero > Export Library > CSL JSON; import back via File > Import)
+linxiv zotero import ./library.json --project-id 1
+linxiv project export-zotero 1 ./diffusion.json
+
 # Trash (soft-deleted items)
 linxiv trash list
 linxiv trash restore 2204.12985

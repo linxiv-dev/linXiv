@@ -7,6 +7,7 @@ import { Dialog } from "../ui/dialog";
 import { submitOnCtrlEnter } from "../../lib/submitShortcut";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
+import { LogoMark } from "../ui/logo-mark";
 import { MathText } from "../../lib/tex";
 import {
   invalidateProjectMembershipQueries,
@@ -110,8 +111,8 @@ export function AddPapersDialog({
           onKeyDown={submitOnCtrlEnter(handleSubmit)}
         >
           {isLoading ? (
-            <div className="flex items-center justify-center p-6">
-              <Spinner size={20} />
+            <div role="status" aria-label="Loading" className="flex items-center justify-center p-6">
+              <LogoMark size={32} className="animate-pulse" />
             </div>
           ) : filtered.length === 0 ? (
             <p

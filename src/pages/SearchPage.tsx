@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { QueryBuilder, makeClause } from "../components/search/QueryBuilder";
 import { ResultRow } from "../components/search/ResultRow";
 import {
@@ -302,8 +303,8 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
 
   if (!restored) {
     return (
-      <div className="flex flex-col h-full items-center justify-center text-[var(--color-muted)]">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex flex-col h-full items-center justify-center text-[var(--color-muted)]">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }
@@ -496,8 +497,8 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
         )}
 
         {isReplacing && (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
-            <Spinner size={28} />
+          <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
+            <LogoMark size={48} className="animate-pulse" />
             <span className="text-sm">Searching…</span>
           </div>
         )}

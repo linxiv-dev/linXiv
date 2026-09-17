@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { reconnectRelay, shareErrText, sharingAvailable } from "../../api/share";
+import { reconnectRelay, setReading, shareErrText, sharingAvailable } from "../../api/share";
 import { getSettings, updateSettings } from "../../api/settings";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -64,6 +64,20 @@ export function SharingSection() {
           <Button variant="primary" size="sm" onClick={() => navigate("/shared")}>
             Open Sharing
           </Button>
+        </SettingRow>
+        <SettingRow
+          label="Show what I'm reading"
+          description="Members of a shared project can see which of its papers you have open. Online status is always shared with members."
+        >
+          <Toggle
+            checked={settings?.share_presence_reading === true}
+            onChange={(v) => {
+              void updateSettings({ share_presence_reading: v });
+              if (!v) void setReading(null);
+            }}
+            disabled={isLoading}
+            aria-label="Show what I'm reading"
+          />
         </SettingRow>
         <SettingRow
           label="Relay server"

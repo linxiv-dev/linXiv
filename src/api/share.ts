@@ -21,6 +21,8 @@ import type {
   SharedPdfSaved,
   MemberCode,
   InviteMinted,
+  PresenceListing,
+  PresenceUpdate,
   SyncReceipt,
   SyncReason,
 } from "../types/api";
@@ -33,6 +35,7 @@ export type {
   SyncReceipt,
   SyncReason,
   MembersListing,
+  PresenceListing,
 };
 
 /** Narrower than lib/errText: only ApiError messages surface in the sharing UI,
@@ -269,6 +272,27 @@ export async function downloadSharedPdf(
     source_id: sourceId,
   });
 }
+
+/** Every member's last heartbeat on an e2ee share; open to all roles. */
+export async function getPresence(shareId: string): Promise<PresenceListing> {
+  return shareApi("GET", `/api/share/${shareId}/presence`);
+}
+
+let readingChain: Promise<unknown> = Promise.resolve();
+
+/** Opt-in "reading ..." indicator: the paper's source_id, or null to clear.
+ * Lands only in shares that contain the paper. */
+export function setReading(reading: string | null): Promise<void> {
+  const body: PresenceUpdate = { reading };
+  // Serialized: callers fire and forget, so a clear+set racing on paper
+  // navigation could otherwise land out of order and blank the new paper.
+  const next = readingChain.then(() =>
+    shareApi<void>("POST", "/api/share/presence", body)
+  );
+  readingChain = next.catch(() => {});
+  return next;
+}
+
 
 export async function getShareSettings(
   shareId: string

@@ -1095,6 +1095,35 @@ export type MembersListing = {
   self_role?: "admin" | "co-admin",
 };
 
+export type PresenceListing = {
+  members: Array<PresenceRow>,
+  self_member_id: string,
+};
+
+export type PresenceRow = {
+  member_id: string,
+  name: string | null,
+  /**
+   * RFC 3339 of the member's last sync pass.
+   */
+  last_seen: string,
+  /**
+   * Heartbeat within two sync intervals.
+   */
+  online: boolean,
+  /**
+   * Shared paper being read (opt-in); `None` unless online.
+   */
+  reading: string | null,
+};
+
+export type PresenceUpdate = {
+  /**
+   * `source_id` of the paper being read; `None` clears the indicator.
+   */
+  reading?: string | null,
+};
+
 export type RoleChanged = {
   member_id: string,
   role: string,

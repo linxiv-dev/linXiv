@@ -13,6 +13,8 @@ import {
   mergePapers,
 } from "../api/papers";
 import { getNotes, deleteNote } from "../api/notes";
+import { getSettings } from "../api/settings";
+import { setReading, sharingAvailable } from "../api/share";
 import { getAnnotations, deleteAnnotation, updateAnnotation } from "../api/annotations";
 import { listProjects } from "../api/projects";
 import { apiFetch, bytesToBase64, isTauri } from "../api/client";
@@ -29,6 +31,7 @@ import {
 } from "../lib/paperMutations";
 import { submitOnCtrlEnter } from "../lib/submitShortcut";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
@@ -178,6 +181,23 @@ export default function PaperDetailPage() {
     enabled: !!sfk && Number.isFinite(Number(sfk)),
     placeholderData: keepPreviousData,
   });
+
+  // Opt-in presence beacon: tell share members which paper is open; cleared
+  // on leave. Only shares containing the paper ever see it (route/share.rs).
+  const { data: appSettings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: getSettings,
+    enabled: sharingAvailable,
+  });
+  const beaconOn = sharingAvailable && appSettings?.share_presence_reading === true;
+  const sourceId = paper?.source_id;
+  useEffect(() => {
+    if (!beaconOn || !sourceId) return;
+    void setReading(sourceId).catch(() => {});
+    return () => {
+      void setReading(null).catch(() => {});
+    };
+  }, [beaconOn, sourceId]);
 
   const { data: versionsData } = useQuery({
     queryKey: ["paper", "versions", sfk],
@@ -401,8 +421,8 @@ export default function PaperDetailPage() {
 
   if (paperLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex items-center justify-center h-full">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }
@@ -811,8 +831,8 @@ export default function PaperDetailPage() {
                 )}
 
                 {notesLoading ? (
-                  <div className="flex justify-center py-6">
-                    <Spinner size={20} />
+                  <div role="status" aria-label="Loading" className="flex justify-center py-6">
+                    <LogoMark size={32} className="animate-pulse" />
                   </div>
                 ) : (
                   <>
@@ -845,8 +865,8 @@ export default function PaperDetailPage() {
               <TabsContent value="annotations" className="pt-5 space-y-4">
                 <MonoLabel as="h3">Annotations</MonoLabel>
                 {annotationsLoading ? (
-                  <div className="flex justify-center py-6">
-                    <Spinner size={20} />
+                  <div role="status" aria-label="Loading" className="flex justify-center py-6">
+                    <LogoMark size={32} className="animate-pulse" />
                   </div>
                 ) : annotations.length === 0 ? (
                   <p className="text-muted text-sm text-center py-8">
@@ -1274,8 +1294,9 @@ function PdfPane({
                       setPdfPreviewLoaded(true);
                     }}
                     loading={
-                      <div className="flex items-center justify-center gap-2 py-16 text-white/60 text-sm">
-                        <Spinner size={16} /> Loading PDF…
+                      <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-white/60 text-sm">
+                        <LogoMark size={48} className="animate-pulse" />
+                        Loading PDF…
                       </div>
                     }
                     error={

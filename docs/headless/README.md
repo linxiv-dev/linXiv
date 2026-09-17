@@ -84,8 +84,10 @@ wedged node.
 - `GET /admin` serves a static admin page (secretless — served without
   auth; every API call it makes carries the bearer token). It manages the
   Remote Query Mode Member List (`/api/admin/relay/members`), shows the
-  relay access log and PDF transfer log, and mints the copyable Node
-  Address once a relay is configured.
+  relay access log and PDF transfer log, mints the copyable Node
+  Address once a relay is configured, and edits the node's settings
+  (relay, workers, caps, provider mailtos, API keys) with a
+  "reconnect relay" button.
 - `GET /api/status` is the one-call health/config aggregate; the
   container healthcheck itself probes the lighter `GET /api/papers`.
 - Relay settings are the same on-disk user settings as the app

@@ -79,6 +79,11 @@ enum Commands {
         #[command(subcommand)]
         cmd: cmd::bibtex::BibtexCmd,
     },
+    /// Zotero CSL JSON import (export is `project export-zotero`)
+    Zotero {
+        #[command(subcommand)]
+        cmd: cmd::zotero::ZoteroCmd,
+    },
     /// Library statistics
     Stats,
     /// List all paper categories in the library
@@ -115,6 +120,7 @@ async fn dispatch(command: Commands, ctx: &mut Ctx) -> anyhow::Result<()> {
         Commands::Doi { cmd } => cmd::doi::run(cmd, ctx).await,
         Commands::Author { cmd } => cmd::author::run(cmd, ctx).await,
         Commands::Bibtex { cmd } => cmd::bibtex::run(cmd, ctx).await,
+        Commands::Zotero { cmd } => cmd::zotero::run(cmd, ctx).await,
         Commands::Stats => cmd::misc::stats(ctx).await,
         Commands::Categories => cmd::misc::categories(ctx).await,
         Commands::Settings { cmd } => cmd::misc::settings(cmd, ctx).await,

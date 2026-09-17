@@ -14,6 +14,7 @@ import { useSlowHint } from "../hooks/useSlowHint";
 import { Button } from "../components/ui/button";
 import { Input, Textarea } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { ShareCard, type ShareRoleLabel } from "../components/share/ShareCard";
 import { SyncStatusPill } from "../components/share/SyncStatusPill";
 import { ShareSettingsDialog } from "../components/share/ShareSettingsDialog";
@@ -231,8 +232,8 @@ export default function SharePage() {
 
       {/* Grid */}
       {loading && (
-        <div className="flex flex-1 items-center justify-center">
-          <Spinner size={28} />
+        <div role="status" aria-label="Loading" className="flex flex-1 items-center justify-center">
+          <LogoMark size={48} className="animate-pulse" />
         </div>
       )}
       {!loading && cards.length === 0 && !publishedIsError && !receivedIsError && (

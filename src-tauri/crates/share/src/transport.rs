@@ -756,6 +756,9 @@ impl ShareNode {
 const ADMIN_PROP: &str = "admin_member";
 #[cfg(feature = "sync-beelay")]
 const MEMBER_META_PROP: &str = "member_meta";
+/// `presence`: per-member [`crate::PresenceMeta`], same shape of prop as the roster.
+#[cfg(feature = "sync-beelay")]
+const PRESENCE_PROP: &str = "presence";
 
 /// The doc's THE-ADMIN marker; `None` on pre-co-admin docs.
 #[cfg(feature = "sync-beelay")]
@@ -769,6 +772,15 @@ pub fn doc_admin_marker(doc: &Automerge) -> Option<String> {
 #[cfg(feature = "sync-beelay")]
 pub fn doc_member_meta(doc: &Automerge) -> Vec<crate::MemberMeta> {
     autosurgeon::hydrate_path(doc, &automerge::ROOT, [MEMBER_META_PROP.into()])
+        .ok()
+        .flatten()
+        .unwrap_or_default()
+}
+
+/// The doc's presence list; empty on docs nobody has heartbeated into.
+#[cfg(feature = "sync-beelay")]
+pub fn doc_presence(doc: &Automerge) -> Vec<crate::PresenceMeta> {
+    autosurgeon::hydrate_path(doc, &automerge::ROOT, [PRESENCE_PROP.into()])
         .ok()
         .flatten()
         .unwrap_or_default()
@@ -829,6 +841,51 @@ impl ShareNode {
         .await
     }
 
+    /// The doc's presence list from the live beelay doc.
+    pub async fn presence(&self, share_id: &str) -> Result<Vec<crate::PresenceMeta>> {
+        let doc = self.e2ee_doc(share_id).await?;
+        Ok(doc_presence(&doc))
+    }
+
+    // ponytail: every sync pass now commits (last_seen always changes), ~288
+    // sealed commits per member per day in the e2ee history, and viewer
+    // writes never land; upgrade: host-observed last_seen at beelay accept.
+    /// Insert or update this device's presence entry: `last_seen` = now, and
+    /// `reading` replaced when `Some`, kept when `None` (a heartbeat must not
+    /// clobber an opted-in reading indicator).
+    pub async fn touch_presence(
+        &self,
+        share_id: &str,
+        reading: Option<Option<String>>,
+    ) -> Result<()> {
+        let me = member_id_hex(&self.self_member_id()?);
+        let now = chrono::Utc::now().to_rfc3339();
+        self.with_e2ee_doc(share_id, |doc| {
+            let mut list = doc_presence(doc);
+            bump_presence(&mut list, me, now, reading);
+            write_prop(doc, PRESENCE_PROP, list)
+        })
+        .await
+    }
+
+    /// `source_id`s of the papers in the live beelay doc (hosted or adopted);
+    /// hydrates just the ids, never the full subgraph.
+    pub async fn e2ee_paper_ids(&self, share_id: &str) -> Result<Vec<String>> {
+        #[derive(autosurgeon::Hydrate)]
+        struct Id {
+            source_id: String,
+        }
+        let doc = self.e2ee_doc(share_id).await?;
+        let ids: Option<Vec<Id>> =
+            autosurgeon::hydrate_path(&doc, &automerge::ROOT, ["papers".into()])
+                .map_err(super::crdt)?;
+        Ok(ids
+            .unwrap_or_default()
+            .into_iter()
+            .map(|i| i.source_id)
+            .collect())
+    }
+
     async fn e2ee_doc(&self, share_id: &str) -> Result<Automerge> {
         if !valid_share_id(share_id) {
             return Err(ShareError::NotFound(share_id.to_string()));
@@ -854,6 +911,29 @@ impl ShareNode {
     }
 }
 
+/// [`ShareNode::touch_presence`]'s list edit, split out for its unit test.
+#[cfg(feature = "sync-beelay")]
+fn bump_presence(
+    list: &mut Vec<crate::PresenceMeta>,
+    me: String,
+    now: String,
+    reading: Option<Option<String>>,
+) {
+    match list.iter_mut().find(|p| p.member_id == me) {
+        Some(p) => {
+            p.last_seen = now;
+            if let Some(r) = reading {
+                p.reading = r;
+            }
+        }
+        None => list.push(crate::PresenceMeta {
+            member_id: me,
+            last_seen: now,
+            reading: reading.flatten(),
+        }),
+    }
+}
+
 /// The doc-internal `share_id`, hydrated alone — the host-controlled-id guard's
 /// one input, so the check never materializes the full SharedProject subgraphs.
 #[cfg(feature = "sync-beelay")]
@@ -870,6 +950,30 @@ fn doc_share_id(doc: &Automerge) -> Result<String> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// A heartbeat (`reading: None`) keeps the opted-in indicator; an explicit
+    /// `Some(None)` clears it; the prop rides beside the project fields.
+    #[cfg(feature = "sync-beelay")]
+    #[test]
+    fn presence_heartbeat_keeps_reading() {
+        let mut doc = Automerge::new();
+        let mut list = doc_presence(&doc);
+        bump_presence(&mut list, "a".into(), "t1".into(), Some(Some("p1".into())));
+        bump_presence(&mut list, "a".into(), "t2".into(), None);
+        bump_presence(&mut list, "b".into(), "t2".into(), None);
+        write_prop(&mut doc, PRESENCE_PROP, list).unwrap();
+        let got = doc_presence(&doc);
+        assert_eq!(got.len(), 2);
+        assert_eq!(
+            (got[0].last_seen.as_str(), got[0].reading.as_deref()),
+            ("t2", Some("p1"))
+        );
+        assert_eq!(got[1].reading, None);
+        let mut list = got;
+        bump_presence(&mut list, "a".into(), "t3".into(), Some(None));
+        assert_eq!(list[0].reading, None);
+        assert!(doc_member_meta(&doc).is_empty());
+    }
 
     fn sample(share_id: &str, name: &str) -> SharedProject {
         SharedProject {

@@ -370,6 +370,34 @@ pub struct MemberRow {
     invite: Option<String>,
 }
 
+/// `GET /api/share/{id}/presence` — every member's last heartbeat. Open to
+/// all members (unlike `members`, which is admin-tier).
+#[derive(Debug, Serialize, ts_rs::TS)]
+pub struct PresenceListing {
+    members: Vec<PresenceRow>,
+    self_member_id: String,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+pub struct PresenceRow {
+    member_id: String,
+    name: Option<String>,
+    /// RFC 3339 of the member's last sync pass.
+    last_seen: String,
+    /// Heartbeat within two sync intervals.
+    online: bool,
+    /// Shared paper being read (opt-in); `None` unless online.
+    reading: Option<String>,
+}
+
+/// `POST /api/share/presence` body.
+#[derive(Debug, Deserialize, ts_rs::TS)]
+pub struct PresenceUpdate {
+    /// `source_id` of the paper being read; `None` clears the indicator.
+    #[ts(optional = nullable)]
+    reading: Option<String>,
+}
+
 #[derive(Debug, Serialize, ts_rs::TS)]
 pub struct AdminTransferred {
     transferred: bool,
@@ -416,7 +444,7 @@ pub async fn dispatch(
     spawn_sync: &(dyn Fn() + Sync),
     req: ApiRequest,
 ) -> Result<Value, ApiError> {
-    let mutates = req.method != "GET";
+    let mutates = nudges_sync(&req.method, &req.path);
     let res = dispatch_inner(state, share, spawn_sync, req).await;
     // Share mutations change journaled content (a received-import creates a
     // whole project) — poke the debounced loops like `route()` does.
@@ -424,6 +452,15 @@ pub async fn dispatch(
         crate::share_sync::nudge();
     }
     res
+}
+
+/// Which requests poke the sync loop: mutations, minus the presence POST that
+/// fires on every paper open and close. Nudging on it turns ordinary browsing
+/// into a full pass (every share dialed, every e2ee doc sealed) every ~3s.
+/// ponytail: presence still rides the interval pass, which is its whole SLA.
+fn nudges_sync(method: &str, path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or(path);
+    method != "GET" && split_segments(path).join("/") != "api/share/presence"
 }
 
 async fn dispatch_inner(
@@ -488,6 +525,10 @@ async fn dispatch_inner(
             return invite(state, share, id, ctx.body).await
         }
         ("GET", ["api", "share", id, "members"]) => return members(share, id).await,
+        ("GET", ["api", "share", id, "presence"]) => return presence(share, id).await,
+        ("POST", ["api", "share", "presence"]) => {
+            return set_reading(share, ctx.parse_body()?).await
+        }
         ("POST", ["api", "share", id, "member", mid, "role"]) => {
             return set_member_role(state, share, id, mid, ctx.body).await
         }
@@ -1240,6 +1281,9 @@ async fn leave(share: &ShareState, id: &str) -> Result<Value, ApiError> {
         .map_err(|e| ApiError::new(500, format!("could not leave share: {e}")))?;
     let _ = std::fs::remove_file(share_sync::ticket_path(dir, id));
     let _ = std::fs::remove_file(share_sync::settings_path(dir, id));
+    // Re-accepting the same invite in this session merges the host's doc back
+    // with our stale `reading` in it; owe that rejoin a fresh boot clear.
+    share_sync::forget_presence_pass(id);
     // Deletion-propagation baselines must not outlive the mirror: a stale one
     // would seed bogus local deletions on a later rejoin.
     let _ = std::fs::remove_file(doc_path(&share_sync::applied_dir(&received_dir(dir)), id));
@@ -1944,6 +1988,97 @@ async fn members(share: &ShareState, id: &str) -> Result<Value, ApiError> {
     })
 }
 
+/// Heartbeat freshness window: two interval passes, so one missed pass
+/// doesn't flip a member offline.
+fn presence_window() -> chrono::Duration {
+    chrono::Duration::from_std(share_sync::INTERVAL_SYNC_PERIOD * 2).expect("small duration")
+}
+
+/// Online iff `last_seen` is inside the window in the past, or no further than
+/// the skew grace in the future. `last_seen` is member-self-reported: symmetric
+/// bounds mark a live member with a fast clock offline and mask their reading,
+/// unbounded future ones never expire at all.
+/// ponytail: fixed grace; a clock more than an hour ahead still reads offline.
+fn presence_online(now: chrono::DateTime<chrono::Utc>, last_seen: &str) -> bool {
+    let skew_grace = chrono::Duration::hours(1);
+    chrono::DateTime::parse_from_rfc3339(last_seen).is_ok_and(|t| {
+        let age = now - t.with_timezone(&chrono::Utc);
+        age < presence_window() && age > -skew_grace
+    })
+}
+
+async fn presence(share: &ShareState, id: &str) -> Result<Value, ApiError> {
+    let dir = share.share_dir().to_path_buf();
+    e2ee_side(&dir, id)?;
+    let node = live_node(share).await?;
+    let roster = fetch_roster(&node, &dir, id).await;
+    let list = e2ee_timeout(node.presence(id), "presence").await?;
+    let now = chrono::Utc::now();
+    let members = list
+        .into_iter()
+        .map(|p| {
+            let online = presence_online(now, &p.last_seen);
+            PresenceRow {
+                name: roster
+                    .iter()
+                    .find(|m| m.member_id == p.member_id)
+                    .and_then(|m| m.name.clone()),
+                member_id: p.member_id,
+                last_seen: p.last_seen,
+                online,
+                reading: if online { p.reading } else { None },
+            }
+        })
+        .collect();
+    to_value(&PresenceListing {
+        members,
+        self_member_id: member_id_hex(&node.self_member_id().map_err(fetch_error)?),
+    })
+}
+
+/// `POST /api/share/presence {reading}` — the opt-in "reading ..." indicator.
+/// Written only into e2ee docs that contain the paper, so a read outside a
+/// share never leaks into it; `null` clears it everywhere. Reaches others on
+/// their next sync pass.
+async fn set_reading(share: &ShareState, body: PresenceUpdate) -> Result<Value, ApiError> {
+    let dir = share.share_dir().to_path_buf();
+    let node = live_node(share).await?;
+    let ids = share_sync::doc_ids(&e2ee_dir(&dir))
+        .into_iter()
+        .chain(share_sync::doc_ids(&e2ee_received_dir(&dir)));
+    // The opt-in is enforced here, not in the UI. A member who has opted out
+    // clears the indicator instead of publishing one, whatever the caller sent.
+    let want = body.reading.filter(|_| share_sync::reading_opt_in());
+    for id in ids {
+        let reading = match &want {
+            None => None,
+            Some(sid) => {
+                let has = e2ee_timeout(node.e2ee_paper_ids(&id), "presence")
+                    .await
+                    .is_ok_and(|papers| papers.iter().any(|p| p == sid));
+                has.then(|| sid.clone())
+            }
+        };
+        // Same lock the sync pass takes: unserialized, a boot clear parked
+        // inside beelay lands after this write and wipes it, and the UI effect
+        // never re-fires. ponytail: this POST can queue behind a whole pass.
+        let _lock = share.lock_writes(&id).await;
+        match e2ee_timeout(node.touch_presence(&id, Some(reading)), "presence").await {
+            // Claim only on a landed write: a failed one must leave the boot
+            // clear owed, or a stale reading stays pinned for the process life.
+            Ok(()) => share_sync::commit_presence_pass(&id),
+            // A failed write leaves the doc holding the PREVIOUS reading. Put
+            // the boot clear back on the debt so the next heartbeat wipes it,
+            // instead of pinning "reading X" for the life of the process.
+            Err(e) => {
+                share_sync::forget_presence_pass(&id);
+                eprintln!("share {id}: presence reading: {}", e.detail);
+            }
+        }
+    }
+    to_value(&linxiv_core::models::OkReceipt { ok: true })
+}
+
 /// `POST /api/share/{id}/member/{mid}/role {role: "editor"|"viewer"|"co-admin"}`
 /// — change a member's role on an e2ee share, from any admin-tier device. The
 /// capability layer revokes + regrants (a downgrade rotates the project key),
@@ -2428,6 +2563,31 @@ mod tests {
 
     use chrono::NaiveDate;
     use linxiv_core::models::{PaperIn, ProjectIn};
+
+    /// A fast clock stays online (its reading would otherwise be masked), a far
+    /// future one does not (it would never expire), and the past window holds.
+    #[test]
+    fn presence_online_tolerates_clock_skew_but_not_forever() {
+        let now = chrono::Utc::now();
+        let at = |d: chrono::Duration| (now + d).to_rfc3339();
+        assert!(presence_online(now, &at(chrono::Duration::minutes(15))));
+        assert!(!presence_online(now, &at(chrono::Duration::hours(2))));
+        assert!(presence_online(now, &at(-chrono::Duration::minutes(7))));
+        assert!(!presence_online(now, &at(-chrono::Duration::minutes(30))));
+        assert!(!presence_online(now, "not a timestamp"));
+    }
+
+    /// Presence POSTs fire on every paper open/close: they must not drive a
+    /// sync pass. Every other share mutation still does.
+    #[test]
+    fn presence_post_does_not_nudge_sync() {
+        assert!(!nudges_sync("POST", "/api/share/presence"));
+        assert!(!nudges_sync("POST", "api/share/presence/"));
+        assert!(!nudges_sync("GET", "/api/share/abc/presence"));
+        assert!(nudges_sync("POST", "/api/share/join"));
+        assert!(nudges_sync("POST", "/api/share/abc/sync"));
+        assert!(nudges_sync("POST", "/api/share/received/abc/import"));
+    }
     use linxiv_core::service::{
         annotation as annotation_svc, note as note_svc, paper as paper_svc,
     };

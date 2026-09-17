@@ -20,5 +20,6 @@ mod resolve;
 mod scan;
 mod worker;
 
+pub(crate) use identity::pdf_source_id;
 pub use resolve::resolve_pdf_metadata;
 pub use worker::{extract_pdf_metadata_json, PDF_META_SUBCOMMAND};

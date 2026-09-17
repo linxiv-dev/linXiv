@@ -267,6 +267,9 @@ pub(crate) fn render() -> String {
     out.push_str(&decl::<crate::route::share::InviteMinted>());
     out.push_str(&decl::<crate::route::share::MemberRow>());
     out.push_str(&decl::<crate::route::share::MembersListing>());
+    out.push_str(&decl::<crate::route::share::PresenceListing>());
+    out.push_str(&decl::<crate::route::share::PresenceRow>());
+    out.push_str(&decl::<crate::route::share::PresenceUpdate>());
     out.push_str(&decl::<crate::route::share::RoleChanged>());
     out.push_str(&decl::<crate::route::share::AdminTransferred>());
     out.push_str(&decl::<crate::route::share::RevokedReceipt>());

@@ -5,6 +5,7 @@ import { formSubmitOnCtrlEnter } from "../lib/submitShortcut";
 import { invalidatePaperMutationQueries } from "../lib/paperMutations";
 import { Input } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { fetchArxiv, resolveDoi, saveDoi } from "../api/search";
 import { importPdfUrl, recognizePaperInput } from "../api/exportImport";
 import type { PaperMetadata } from "../types/api";
@@ -139,8 +140,8 @@ export default function DoiPage() {
 
         {/* Loading state */}
         {pending && (
-          <div className="flex items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
-            <Spinner size={24} />
+          <div role="status" aria-label="Loading" className="flex items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
+            <LogoMark size={32} className="animate-pulse" />
           </div>
         )}
 

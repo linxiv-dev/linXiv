@@ -221,6 +221,7 @@ pub async fn import_pdf_default(
 }
 
 /// `POST /api/papers/import/bibtex` receipt; all three surfaces emit it.
+/// Counts DISTINCT roots, not input entries — `saved_count == source_ids.len()`.
 #[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct BibtexImportReceipt {
     pub saved_count: usize,
@@ -239,7 +240,32 @@ pub fn import_bibtex(
         crate::service::project::ensure_membership_writable(conn, pid)?;
     }
     let metas = crate::formats::bibtex_import(text).map_err(CoreError::BadRequest)?;
-    let source_ids = crate::service::paper::save_papers_metadata(conn, &metas)?;
+    save_and_link(conn, &metas, project_id)
+}
+
+/// Zotero CSL JSON twin of [`import_bibtex`]; same guard/parse/save/link order.
+pub fn import_zotero(
+    conn: &mut Connection,
+    text: &str,
+    project_id: Option<i64>,
+) -> Result<BibtexImportReceipt> {
+    if let Some(pid) = project_id {
+        crate::service::project::ensure_membership_writable(conn, pid)?;
+    }
+    let metas = crate::zotero::csl_import(text).map_err(CoreError::BadRequest)?;
+    save_and_link(conn, &metas, project_id)
+}
+
+fn save_and_link(
+    conn: &mut Connection,
+    metas: &[PaperMetadata],
+    project_id: Option<i64>,
+) -> Result<BibtexImportReceipt> {
+    let mut source_ids = crate::service::paper::save_papers_metadata(conn, metas)?;
+    // One id per INPUT entry: two entries on one identity upsert onto one root,
+    // so dedupe (first-seen order) before linking or counting them.
+    let mut seen = std::collections::HashSet::new();
+    source_ids.retain(|id| seen.insert(id.clone()));
     if let Some(pid) = project_id {
         if !source_ids.is_empty() {
             if let Err(e) = crate::service::project::link_imported(conn, pid, &source_ids) {
@@ -666,6 +692,38 @@ mod tests {
     // false (else preserve-existing short-circuits the write).
     fn block_final_path(dir: &Path, name: &str) {
         fs::create_dir(dir.join(name)).unwrap();
+    }
+
+    #[test]
+    fn import_zotero_twice_does_not_double_the_library() {
+        let mut conn = db();
+        let csl = r#"[{"id":"k1","type":"article-journal","title":"With DOI","DOI":"10.1/x",
+            "author":[{"family":"Smith","given":"Jo"}],"issued":{"date-parts":[["2020","3"]]}},
+            {"id":"k2","type":"report","title":"No Ids At All"}]"#;
+        let first = import_zotero(&mut conn, csl, None).unwrap();
+        assert_eq!(first.source_ids[0], "doi:10.1/x");
+        assert!(first.source_ids[1].starts_with("local:"));
+        let again = import_zotero(&mut conn, csl, None).unwrap();
+        assert_eq!(first.source_ids, again.source_ids);
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM latest_papers", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2);
+        let p = paper::get(&conn, &paper::PaperRef::source("doi:10.1/x".into()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(p.authors, vec!["Jo Smith".to_string()]);
+        assert_eq!(p.published, chrono::NaiveDate::from_ymd_opt(2020, 3, 1));
+    }
+
+    #[test]
+    fn one_file_with_the_same_identity_twice_reports_one_root() {
+        let mut conn = db();
+        let csl = r#"[{"id":"a","type":"article-journal","title":"Dup","DOI":"10.1/dup"},
+            {"id":"b","type":"article-journal","title":"Dup Again","DOI":"10.1/dup"}]"#;
+        let r = import_zotero(&mut conn, csl, None).unwrap();
+        assert_eq!(r.source_ids, vec!["doi:10.1/dup".to_string()]);
+        assert_eq!(r.saved_count, 1);
     }
 
     #[test]

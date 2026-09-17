@@ -119,11 +119,17 @@ pub enum ProjectCmd {
         /// Output file path (.md added if no extension)
         dest: String,
     },
+    /// Export project papers as Zotero CSL JSON
+    ExportZotero {
+        project_id: i64,
+        /// Output file path (.json added if no extension)
+        dest: String,
+    },
 }
 
 /// Fetch by id or exit 1. The not-found wording is `CoreError::ProjectNotFound` —
 /// the same message the route and MCP emit.
-fn resolve_or_exit(ctx: &Ctx, project_id: i64) -> linxiv_core::models::ProjectDetails {
+pub(crate) fn resolve_or_exit(ctx: &Ctx, project_id: i64) -> linxiv_core::models::ProjectDetails {
     match project::get_required(&ctx.conn, project_id) {
         Ok(p) => p,
         Err(e) => fail(e),
@@ -382,6 +388,14 @@ pub async fn run(cmd: ProjectCmd, ctx: &mut Ctx) -> anyhow::Result<()> {
             let md = linxiv_core::formats::obsidian_export(&papers);
             let dest = with_default_ext(&dest, "md");
             std::fs::write(&dest, md)?;
+            output(&json!({ "path": dest.display().to_string(), "project_id": project_id }));
+        }
+
+        ProjectCmd::ExportZotero { project_id, dest } => {
+            let details = resolve_or_exit(ctx, project_id);
+            let papers = project::export_papers(&ctx.conn, &details.source_fks)?;
+            let dest = with_default_ext(&dest, "json");
+            std::fs::write(&dest, linxiv_core::zotero::csl_export(&papers))?;
             output(&json!({ "path": dest.display().to_string(), "project_id": project_id }));
         }
     }

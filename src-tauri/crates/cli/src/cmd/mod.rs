@@ -13,3 +13,4 @@ pub mod pdf;
 pub mod project;
 pub mod tag;
 pub mod trash;
+pub mod zotero;

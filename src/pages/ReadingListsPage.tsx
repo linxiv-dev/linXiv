@@ -14,6 +14,7 @@ import { EmptyState } from "../components/ui/empty-state";
 import { Input } from "../components/ui/input";
 import { Segmented } from "../components/ui/segmented";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { StatusButton, useSetReadingStatus } from "../components/reading/StatusButton";
 import {
   READING_LIST_TAG,
@@ -245,8 +246,8 @@ export default function ReadingListsPage() {
       />
 
       {loading && (
-        <div className="flex-1 flex items-center justify-center">
-          <Spinner size={28} />
+        <div role="status" aria-label="Loading" className="flex-1 flex items-center justify-center">
+          <LogoMark size={48} className="animate-pulse" />
         </div>
       )}
 

@@ -20,6 +20,7 @@ import { OptionSelect } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { useImportReceived, type ShareRoleLabel } from "./ShareCard";
 import { MembersSection } from "./MembersSection";
+import { PresenceSection } from "./PresenceSection";
 
 const DIRECTION_OPTIONS: { value: ShareDirection; label: string }[] = [
   { value: "two_way", label: "Two-way" },
@@ -222,6 +223,7 @@ export function ShareSettingsDialog({
           (hosted || share.role === "admin" || share.role === "co-admin") && (
             <MembersSection shareId={share.share_id} hosted={hosted} />
           )}
+        {share.e2ee && !share.pending && <PresenceSection shareId={share.share_id} />}
         <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-4">
           <span className="text-xs" style={{ color: "var(--color-muted)" }}>
             {hosted

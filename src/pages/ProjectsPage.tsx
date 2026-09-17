@@ -13,6 +13,7 @@ import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { formSubmitOnCtrlEnter } from "../lib/submitShortcut";
 import { invalidateProjectMutationQueries } from "../lib/paperMutations";
 import { listReceived, sharingAvailable } from "../api/share";
@@ -265,8 +266,8 @@ export default function ProjectsPage() {
 
       {/* Loading */}
       {isLoading && (
-        <div className="flex-1 flex items-center justify-center">
-          <Spinner size={28} />
+        <div role="status" aria-label="Loading" className="flex-1 flex items-center justify-center">
+          <LogoMark size={48} className="animate-pulse" />
         </div>
       )}
 

@@ -16,6 +16,7 @@ import { Dialog } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Spinner } from "../ui/spinner";
+import { LogoMark } from "../ui/logo-mark";
 import { EmptyState } from "../ui/empty-state";
 import {
   diffSummary,
@@ -182,8 +183,8 @@ export function HistoryDialog({
   return (
     <Dialog open={open} onClose={onClose} title={title} size="2xl">
       {isLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <Spinner size={18} />
+        <div role="status" aria-label="Loading" className="flex items-center justify-center py-8">
+          <LogoMark size={32} className="animate-pulse" />
         </div>
       ) : timelineError ? (
         <p className="py-6 text-sm" style={{ color: "var(--color-danger)" }}>
@@ -251,8 +252,8 @@ export function HistoryDialog({
                 {errText(diffError, "Failed to load this change's diff")}
               </p>
             ) : diffLoading || !diff ? (
-              <div className="flex items-center justify-center py-8">
-                <Spinner size={16} />
+              <div role="status" aria-label="Loading" className="flex items-center justify-center py-8">
+                <LogoMark size={32} className="animate-pulse" />
               </div>
             ) : (
               <>

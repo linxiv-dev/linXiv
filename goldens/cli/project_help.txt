@@ -1,8 +1,8 @@
 usage: linxiv project [-h]
-                      {list,get,create,update,delete,archive,restore,hard-delete,add-paper,add-papers,remove-paper,export,import,export-bibtex,export-obsidian} ...
+                      {list,get,create,update,delete,archive,restore,hard-delete,add-paper,add-papers,remove-paper,export,import,export-bibtex,export-obsidian,export-zotero} ...
 
 positional arguments:
-  {list,get,create,update,delete,archive,restore,hard-delete,add-paper,add-papers,remove-paper,export,import,export-bibtex,export-obsidian}
+  {list,get,create,update,delete,archive,restore,hard-delete,add-paper,add-papers,remove-paper,export,import,export-bibtex,export-obsidian,export-zotero}
     list                List projects
     get                 Get project details
     create              Create a project
@@ -18,6 +18,7 @@ positional arguments:
     import              Import a project from a .lxproj archive
     export-bibtex       Export project papers as BibTeX
     export-obsidian     Export project papers as Obsidian markdown
+    export-zotero       Export project papers as Zotero CSL JSON
 
 options:
   -h, --help            show this help message and exit

@@ -100,6 +100,22 @@ pub struct MemberMeta {
     pub invited_by: Option<String>,
 }
 
+/// One member's live-presence entry, a root prop beside [`MemberMeta`] in the
+/// e2ee doc. Written by the member itself: `last_seen` on every sync pass,
+/// `reading` only when the member opted in. Viewer-role writes are served
+/// from a scratch core by the host and never land (write-enforcement §2.4).
+#[derive(Debug, Clone, PartialEq, Reconcile, Hydrate, serde::Serialize, serde::Deserialize)]
+pub struct PresenceMeta {
+    /// Keyhive member id, lowercase hex; CRDT list key.
+    #[key]
+    pub member_id: String,
+    /// RFC 3339 UTC of the member's last sync pass.
+    pub last_seen: String,
+    /// `source_id` of the shared paper the member is reading, if opted in.
+    #[autosurgeon(missing = "Default::default")]
+    pub reading: Option<String>,
+}
+
 /// Lightweight listing view — counts only, never a hydrated subgraph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SharedSummary {

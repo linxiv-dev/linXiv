@@ -21,7 +21,7 @@ import { DEFAULT_FORCES } from "../lib/graph/layout";
 import type { GraphCanvasHandle, GraphNodeContext } from "../components/graph/GraphCanvas";
 import { copyItem, showContextMenu } from "../lib/contextMenu";
 import GraphPanels from "../components/graph/GraphPanels";
-import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { Button } from "../components/ui/button";
 import { formSubmitOnCtrlEnter } from "../lib/submitShortcut";
 import { Dialog } from "../components/ui/dialog";
@@ -365,7 +365,7 @@ export default function GraphPage() {
       <div className="flex-1 relative overflow-hidden" style={{ backgroundColor: "var(--color-bg)" }}>
         {ready && !empty && (
           <>
-            <Suspense fallback={<Spinner size={28} />}>
+            <Suspense fallback={<span role="status" aria-label="Loading"><LogoMark size={48} className="animate-pulse" /></span>}>
               <GraphCanvas
                 ref={canvasRef}
                 view={view}
@@ -419,7 +419,7 @@ export default function GraphPage() {
             style={{ backgroundColor: "var(--color-bg)" }}
           >
             {isPending || !visited ? (
-              <Spinner size={28} />
+              <span role="status" aria-label="Loading"><LogoMark size={48} className="animate-pulse" /></span>
             ) : error ? (
               <EmptyState
                 icon={<AlertCircle size={28} strokeWidth={1.5} />}
@@ -477,8 +477,8 @@ export default function GraphPage() {
             </p>
           )}
           {projectsLoading ? (
-            <div className="flex items-center justify-center py-4">
-              <Spinner size={20} />
+            <div role="status" aria-label="Loading" className="flex items-center justify-center py-4">
+              <LogoMark size={32} className="animate-pulse" />
             </div>
           ) : !projectsData?.projects?.length ? (
             <div className="space-y-2">

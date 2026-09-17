@@ -181,7 +181,7 @@ export default function PdfPreviewPage() {
             options={pdfDocumentOptions}
             onLoadSuccess={(pdf) => { setNumPages(pdf.numPages); pdfDocRef.current = pdf; }}
             loading={
-              <div className="flex flex-col items-center justify-center gap-3 py-16 text-white/60 text-sm">
+              <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-white/60 text-sm">
                 <LogoMark size={48} className="animate-pulse" />
                 Loading PDF…
               </div>

@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { listAuthors, getAuthor, updateAuthor, deleteAuthor, mergeAuthors, getMergeCandidates, linkAuthorToPaper, unlinkAuthorFromPaper } from "../api/authors";
 import type { AuthorUpdateBody } from "../types/api";
-import { Spinner } from "../components/ui/spinner";
+import { LogoMark } from "../components/ui/logo-mark";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { SortHeader, nextSort, type SortDir } from "../components/ui/sort-header";
@@ -85,8 +85,8 @@ function AuthorIndexView() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex items-center justify-center h-full">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }
@@ -317,8 +317,8 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Spinner size={28} />
+      <div role="status" aria-label="Loading" className="flex items-center justify-center h-full">
+        <LogoMark size={48} className="animate-pulse" />
       </div>
     );
   }
