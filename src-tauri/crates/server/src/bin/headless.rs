@@ -22,8 +22,11 @@ use axum::{
     Router,
 };
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+use linxiv_core::service::db_admin;
+use linxiv_core::storage::ImportReport;
 use linxiv_server::remote_query::{
     self, load_members, relay_allow, save_members, valid_endpoint_id, Member, Role, TransferLog,
 };
@@ -527,8 +530,34 @@ struct NodeAddressResponse {
     node_address: String,
 }
 
-/// `/api/admin/*` — Member List, logs, Node Address, actors; JSON like the
-/// rest. `None` when the request is not an admin route.
+/// `POST /api/admin/db/import` mode — always explicit in the request, so a
+/// dropped field can never turn a merge into a destructive replace.
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+enum DbImportMode {
+    Merge,
+    Replace,
+}
+
+/// `POST /api/admin/db/import` request body: the snapshot as base64, the same
+/// way the upload routes carry file bytes.
+#[derive(Deserialize)]
+struct DbImportBody {
+    file_b64: String,
+    mode: DbImportMode,
+}
+
+/// `POST /api/admin/db/import` response — `report` carries the merge counts,
+/// and is null after a replace, which has none to report.
+#[derive(Serialize, Debug)]
+struct DbImportResponse {
+    mode: DbImportMode,
+    report: Option<ImportReport>,
+}
+
+/// `/api/admin/*` — Member List, logs, Node Address, actors, database
+/// backup/import; JSON like the rest, bar the backup's snapshot bytes. `None`
+/// when the request is not an admin route.
 async fn relay_admin(ctx: &Ctx, req: &ApiRequest) -> Option<Response> {
     const MEMBERS: &str = "/api/admin/relay/members";
     let path = req.path.split('?').next().unwrap_or("");
@@ -558,6 +587,13 @@ async fn relay_admin(ctx: &Ctx, req: &ApiRequest) -> Option<Response> {
             ))
         }
         ("GET", "/api/admin/node-address") => Some(node_address(ctx).await),
+        ("GET", "/api/admin/db/backup") => Some(db_backup_download(&ctx.state).await),
+        ("POST", "/api/admin/db/import") => {
+            Some(match db_import(&ctx.state, req.body.as_ref()).await {
+                Ok(r) => json(StatusCode::OK, &r),
+                Err((status, msg)) => detail(status, msg),
+            })
+        }
         // Attribution discovery: every journal actor seen in this node's docs,
         // for pairing with members. ponytail: full doc scan per request; cache
         // per-dir mtimes if doc counts ever make this route noticeable.
@@ -791,6 +827,151 @@ async fn node_address(ctx: &Ctx) -> Response {
     )
 }
 
+// --- database backup / import ----------------------------------------------
+// The operator of a container or Pi node usually cannot reach its filesystem,
+// so the whole data layer (`core::service::db_admin`) is driven over the
+// browser: a snapshot downloads, a `.db` file uploads. Both are blocking
+// multi-hundred-MB file operations, so both run on `spawn_blocking` — which
+// also keeps every `with_conn` lock inside a sync closure, never across an
+// `.await` (see `AppState::with_conn`).
+
+/// `CoreError` → the status this bin answers with, reusing core's own mapping.
+fn core_err(e: linxiv_core::error::CoreError) -> (StatusCode, String) {
+    (
+        StatusCode::from_u16(e.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        e.to_string(),
+    )
+}
+
+/// Would this base64 string decode to more than `limit` bytes? Checked BEFORE
+/// decoding (the `route/uploads.rs` idiom), so a doomed upload never
+/// materializes hundreds of MB just to be thrown away. `len/4*3` is the
+/// decoded-size upper bound.
+fn decoded_len_over(file_b64: &str, limit: usize) -> bool {
+    file_b64.len() / 4 * 3 > limit
+}
+
+/// `GET /api/admin/db/backup` download name — UTC-stamped, so successive
+/// snapshots don't collide in the operator's download folder.
+fn backup_filename() -> String {
+    format!("linxiv-{}.db", chrono::Utc::now().format("%Y%m%d-%H%M%S"))
+}
+
+/// `GET /api/admin/db/backup` — snapshot the live DB into a temp dir and hand
+/// the bytes back. The `TempDir` drops at the end of the blocking closure, so
+/// the snapshot is removed on the error paths too.
+async fn db_backup(state: &Arc<AppState>) -> Result<Vec<u8>, (StatusCode, String)> {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let dir = tempfile::tempdir()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("temp dir: {e}")))?;
+        // `db_admin::backup` VACUUMs INTO a path that must not exist yet, so
+        // the destination is named but never created here.
+        let dest = dir.path().join("snapshot.db");
+        state
+            .with_conn(|conn| db_admin::backup(conn, &dest))
+            .map_err(core_err)?;
+        std::fs::read(&dest).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("read snapshot: {e}"),
+            )
+        })
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("backup task: {e}"),
+        )
+    })?
+}
+
+/// `GET /api/admin/db/backup` — the snapshot as an attachment, so the browser
+/// saves it instead of rendering it. Failures answer as the usual JSON detail.
+async fn db_backup_download(state: &Arc<AppState>) -> Response {
+    match db_backup(state).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "application/octet-stream".to_string(),
+                ),
+                (
+                    axum::http::header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{}\"", backup_filename()),
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err((status, msg)) => detail(status, msg),
+    }
+}
+
+/// `POST /api/admin/db/import` — spill the upload to a temp dir, validate it,
+/// then merge (insert-only) or replace (destructive) per `mode`.
+///
+/// `validate_backup_source` runs before any `with_conn`, so a junk upload is a
+/// 400 with the live library untouched.
+async fn db_import(
+    state: &Arc<AppState>,
+    body: Option<&serde_json::Value>,
+) -> Result<DbImportResponse, (StatusCode, String)> {
+    let b = DbImportBody::deserialize(body.unwrap_or(&serde_json::Value::Null)).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("body must be {{file_b64, mode: \"merge\"|\"replace\"}}: {e}"),
+        )
+    })?;
+    if decoded_len_over(&b.file_b64, MAX_BODY) {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("snapshot exceeds the {} MB limit", MAX_BODY / 1024 / 1024),
+        ));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&b.file_b64)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("invalid base64: {e}")))?;
+    let mode = b.mode;
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let dir = tempfile::tempdir()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("temp dir: {e}")))?;
+        let src = dir.path().join("upload.db");
+        std::fs::write(&src, &bytes).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("spill upload: {e}"),
+            )
+        })?;
+        // Cheap refusal first: nothing below this line runs for a junk file.
+        db_admin::validate_backup_source(&src).map_err(core_err)?;
+        let report = match mode {
+            DbImportMode::Merge => Some(
+                state
+                    .with_conn(|conn| db_admin::import_merge(conn, &src))
+                    .map_err(core_err)?,
+            ),
+            DbImportMode::Replace => {
+                state
+                    .with_conn(|conn| db_admin::restore_in_place(conn, &src))
+                    .map_err(core_err)?;
+                None
+            }
+        };
+        Ok(DbImportResponse { mode, report })
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("import task: {e}"),
+        )
+    })?
+}
+
 async fn dispatch(State(ctx): State<Ctx>, req: Request) -> Response {
     // Static, secretless — the only route outside bearer auth.
     if req.method() == axum::http::Method::GET && req.uri().path() == "/admin" {
@@ -943,6 +1124,8 @@ mod tests {
             "/api/admin/transfers",
             "/api/admin/node-address",
             "/api/admin/actors",
+            "/api/admin/db/backup",
+            "/api/admin/db/import",
             "/api/settings",
             "/api/env",
             "/api/share/relay/reconnect",
@@ -1140,6 +1323,128 @@ mod tests {
     fn clean_log_id_strips_control_chars_and_clamps() {
         assert_eq!(super::clean_log_id("ab\x1b[31m\ncd\r\0"), "ab[31mcd");
         assert_eq!(super::clean_log_id(&"x".repeat(500)).len(), 128);
+    }
+
+    /// An in-memory library with the schema and one paper per id — the DI
+    /// shape `AppState::from_parts` exists for.
+    fn library(source_ids: &[&str]) -> super::Arc<super::AppState> {
+        let conn = linxiv_core::storage::open_in_memory().unwrap();
+        linxiv_core::storage::init_db(&conn).unwrap();
+        let st = super::Arc::new(super::AppState::from_parts(
+            conn,
+            std::env::temp_dir(),
+            std::env::temp_dir(),
+        ));
+        for sid in source_ids {
+            // Synthetic PaperMetadata via serde, like route/uploads.rs's tests.
+            let meta = serde_json::from_value(json!({
+                "source_id": sid,
+                "version": 1,
+                "title": "T",
+                "authors": ["A"],
+                "published": "2024-01-01",
+                "summary": "S",
+            }))
+            .unwrap();
+            st.with_conn(|c| linxiv_core::service::paper::save_paper_metadata(c, &meta, None))
+                .unwrap();
+        }
+        st
+    }
+
+    fn paper_count(st: &super::AppState) -> i64 {
+        st.with_conn(|c| c.query_row("SELECT count(*) FROM PAPER", [], |r| r.get(0)))
+            .unwrap()
+    }
+
+    fn b64(bytes: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    /// `validate_backup_source` runs before any `with_conn`, so junk is a 400
+    /// and the live library still has its paper — in either mode, so a junk
+    /// "replace" never reaches `restore_in_place`.
+    #[tokio::test]
+    async fn db_import_refuses_junk_without_touching_the_live_db() {
+        let st = library(&["arxiv:2204.11111"]);
+        for mode in ["merge", "replace"] {
+            let body = json!({ "file_b64": b64(b"this is not a database"), "mode": mode });
+            let (status, _) = super::db_import(&st, Some(&body)).await.unwrap_err();
+            assert_eq!(status, super::StatusCode::BAD_REQUEST, "{mode}");
+            assert_eq!(paper_count(&st), 1, "{mode}");
+        }
+    }
+
+    /// A merge answers with its `ImportReport`, insert-only: the paper both
+    /// sides hold is not counted or duplicated.
+    #[tokio::test]
+    async fn db_import_merge_returns_its_report() {
+        let source = library(&["arxiv:2204.11111", "arxiv:2204.22222"]);
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = dir.path().join("snap.db");
+        source
+            .with_conn(|c| super::db_admin::backup(c, &snapshot))
+            .unwrap();
+
+        let live = library(&["arxiv:2204.11111"]);
+        let body = json!({
+            "file_b64": b64(&std::fs::read(&snapshot).unwrap()),
+            "mode": "merge",
+        });
+        let out = super::db_import(&live, Some(&body)).await.unwrap();
+        let report = out.report.expect("a merge reports its counts");
+        assert_eq!((report.roots, report.papers), (1, 1));
+        assert_eq!(paper_count(&live), 2);
+    }
+
+    /// The mode is always explicit: a body without one is a 400, never a
+    /// silent replace.
+    #[tokio::test]
+    async fn db_import_requires_an_explicit_mode() {
+        let st = library(&[]);
+        let (status, _) = super::db_import(&st, Some(&json!({ "file_b64": "" })))
+            .await
+            .unwrap_err();
+        assert_eq!(status, super::StatusCode::BAD_REQUEST);
+        let (status, _) = super::db_import(&st, None).await.unwrap_err();
+        assert_eq!(status, super::StatusCode::BAD_REQUEST);
+    }
+
+    /// The size guard reads the base64 length, so an over-limit upload is
+    /// refused before it is decoded.
+    #[test]
+    fn decoded_len_over_reads_the_base64_length() {
+        // 8 base64 chars carry 6 bytes; 4 carry 3.
+        assert!(super::decoded_len_over("AAAAAAAA", 5));
+        assert!(!super::decoded_len_over("AAAAAAAA", 6));
+        assert!(!super::decoded_len_over("AAAA", 3));
+    }
+
+    /// Remote Query Mode only ever reaches `route()`, which does not route
+    /// `/api/admin/*` — the db front door lives in this bin's `relay_admin`,
+    /// behind the bearer token. (`remote_query::deny_reason` refuses the group
+    /// by name as well; that test lives with it.)
+    #[tokio::test]
+    async fn db_routes_are_not_on_the_remote_query_surface() {
+        let st = library(&["arxiv:2204.11111"]);
+        for (method, path) in [
+            ("GET", "/api/admin/db/backup"),
+            ("POST", "/api/admin/db/import"),
+        ] {
+            let err = super::route(
+                &st,
+                super::ApiRequest {
+                    method: method.into(),
+                    path: path.into(),
+                    body: None,
+                },
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err.status, 404, "{path}");
+        }
+        assert_eq!(paper_count(&st), 1);
     }
 
     #[test]

@@ -237,21 +237,27 @@ pub fn file_member_check() -> MemberCheckFn<Member> {
 
 /// The remote-surface gate, checked BEFORE `route()` ever runs. `None` =
 /// allowed through to the router.
-/// - `settings` / `storage` / `env` are operator-only: 403 for every role
-///   (`PATCH /api/env` writes secrets to UserSettings and the process env).
+/// - `settings` / `storage` / `env` / `admin` are operator-only: 403 for every
+///   role (`PATCH /api/env` writes secrets to UserSettings and the process env;
+///   `/api/admin/db/*` backs up and replaces the whole library).
 /// - `read` is GET-only.
 /// - External Provider fetches on the node's quota — the `route/sources.rs`
 ///   groups (`arxiv`/`openalex`/`crossref`/`doi`) and `GET /api/feed`, whose
 ///   `url=` makes the node fetch an arbitrary caller-supplied URL — need
 ///   Provider Access, which `read` lacks.
 ///
-/// Share dispatch and `/api/admin/*` need no arm here: the handler only ever
-/// calls `route()`, which routes neither (plain 404).
+/// Share dispatch needs no arm here: the handler only ever calls `route()`,
+/// which does not route it (plain 404). `/api/admin/*` is unrouted there too,
+/// but it is named above rather than left to that absence: the headless bin
+/// serves the db backup/import front door under it.
 pub fn deny_reason(role: Role, method: &str, path: &str) -> Option<&'static str> {
     let raw_path = path.split('?').next().unwrap_or(path);
     let segs = route::split_segments(raw_path);
     let group = segs.get(1).map(String::as_str);
-    if matches!(group, Some("settings") | Some("storage") | Some("env")) {
+    if matches!(
+        group,
+        Some("settings") | Some("storage") | Some("env") | Some("admin")
+    ) {
         return Some("operator-only route group");
     }
     // `pdf-path` answers the node's absolute filesystem path — operator
@@ -594,6 +600,8 @@ mod tests {
             denied(role, "PATCH", "/api/settings");
             denied(role, "PATCH", "/api/env");
             denied(role, "GET", "/api/storage/info");
+            denied(role, "GET", "/api/admin/db/backup");
+            denied(role, "POST", "/api/admin/db/import");
             denied(role, "GET", "/api/papers/2204.12985/pdf-path");
             denied(role, "GET", "/api/papers/2204.12985/pdf-path?version=2");
         }

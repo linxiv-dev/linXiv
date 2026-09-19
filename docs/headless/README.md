@@ -88,6 +88,15 @@ wedged node.
   Address once a relay is configured, and edits the node's settings
   (relay, workers, caps, provider mailtos, API keys) with a
   "reconnect relay" button.
+- `GET /api/admin/db/backup` downloads a snapshot of the node's database
+  and `POST /api/admin/db/import` uploads one back, so a node whose
+  filesystem you cannot reach is still recoverable from the browser. The
+  body's `mode` is explicit: `"merge"` inserts only the rows this node is
+  missing and answers with the counts, `"replace"` swaps the whole database
+  (core keeps a `.pre-restore` copy beside it). Uploads ride base64 in the
+  JSON body like the other file routes, so the 200 MB body cap makes about
+  150 MB the largest importable file. The admin page's "Database" section
+  drives both.
 - `GET /api/status` is the one-call health/config aggregate; the
   container healthcheck itself probes the lighter `GET /api/papers`.
 - Relay settings are the same on-disk user settings as the app

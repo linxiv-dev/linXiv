@@ -202,6 +202,20 @@
   <p class="row"><span id="node-address" class="mono muted">loading…</span><button id="copy-address" class="plain" hidden>copy</button></p>
 </section>
 
+<section>
+  <h2>Database</h2>
+  <p class="muted">Snapshot this node's library to your machine, or upload a .db snapshot back. Merge inserts only the rows this node is missing; replace discards everything here first. Uploads are capped at 150 MB.</p>
+  <p class="row"><button id="db-backup">Download snapshot</button><span id="db-status" class="muted"></span></p>
+  <form id="db-import-form" class="row">
+    <input id="db-file" type="file" accept=".db" required>
+    <select id="db-mode">
+      <option value="merge" selected>merge (insert only)</option>
+      <option value="replace">replace (destructive)</option>
+    </select>
+    <button type="submit">Import</button>
+  </form>
+</section>
+
 <section class="wide">
   <h2>Members</h2>
   <p class="muted">Presence grants relay access; the role grants remote query rights (read = GET only).</p>
@@ -277,9 +291,12 @@ async function api(path, opts = {}) {
     needToken(true);
     throw new Error("unauthorized — enter the API token");
   }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.detail || res.status + " " + res.statusText);
-  return body;
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || res.status + " " + res.statusText);
+  }
+  // `raw`: the caller wants the Response itself (bytes + headers), not JSON.
+  return opts.raw ? res : res.json().catch(() => ({}));
 }
 
 function text(el, s) { el.textContent = s; }
@@ -580,6 +597,96 @@ function refreshAll() {
   Promise.all([loadStatus(), loadNodeAddress(), loadSettings(), loadMembers().then(loadActors), loadLog(), loadTransfers()])
     .catch(e => msg(e.message));
 }
+
+// Base64 in the JSON body is how this codebase carries file bytes. FileReader
+// (not btoa over a byte array) because a 100 MB file blows the argument stack.
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1] || "");
+    r.onerror = () => reject(new Error("could not read " + file.name));
+    r.readAsDataURL(file);
+  });
+}
+
+// The node caps a request body at 200 MB and base64 inflates by 4/3, so a
+// snapshot over 150 MB never reaches the route. Say so here rather than let it
+// fail as a truncated body.
+const MAX_IMPORT_BYTES = 150 * 1024 * 1024;
+
+function dbStatus(s) { text($("db-status"), s); }
+
+// Non-zero counts only: an ImportReport has eleven fields and a merge usually
+// touches a handful.
+function reportLine(r) {
+  const moved = Object.entries(r)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => v + " " + k.replace(/_/g, " "));
+  return moved.length
+    ? "Merged " + moved.join(", ") + "."
+    : "Merged nothing: this node already had every row.";
+}
+
+$("db-backup").onclick = async () => {
+  const btn = $("db-backup");
+  btn.disabled = true;
+  dbStatus("snapshotting…");
+  try {
+    const res = await api("/api/admin/db/backup", { raw: true });
+    const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "");
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name ? name[1] : "linxiv-backup.db";
+    a.click();
+    // Revoke on the next task, not inline: revoking while the click is still
+    // being processed can cancel the download (and a 150 MB blob must not leak).
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    dbStatus("downloaded " + a.download);
+  } catch (e) {
+    dbStatus("");
+    msg(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$("db-import-form").onsubmit = async e => {
+  e.preventDefault();
+  msg("");
+  const file = $("db-file").files[0];
+  const mode = $("db-mode").value;
+  if (!file) return;
+  if (file.size > MAX_IMPORT_BYTES) {
+    msg(file.name + " is larger than the 150 MB upload limit.");
+    return;
+  }
+  if (mode === "replace" && !confirm(
+    "Replace this node's library with " + file.name + "?\n\n" +
+    "Every paper, project, note and annotation on this node is discarded and " +
+    "replaced by the uploaded snapshot. The node copies its current database " +
+    "to a .pre-restore file beside it first, but nothing in the app can undo this."
+  )) return;
+  const btn = e.target.querySelector("button");
+  btn.disabled = true;
+  dbStatus(mode === "merge" ? "merging…" : "replacing…");
+  try {
+    const body = { file_b64: await toBase64(file), mode };
+    const out = await api("/api/admin/db/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    dbStatus(out.report ? reportLine(out.report) : "Replaced this node's library with " + file.name + ".");
+    $("db-file").value = "";
+    refreshAll();
+  } catch (err) {
+    dbStatus("");
+    msg(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 $("token-form").onsubmit = e => {
   e.preventDefault();
