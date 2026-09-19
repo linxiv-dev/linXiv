@@ -6,129 +6,246 @@
 <title>linXiv headless admin</title>
 <style>
   :root {
-    --accent: #2f7bd9;
-    --fg: #1c1c1c;
-    --bg: #ffffff;
-    --muted: #6b6b6b;
-    --line: #d9d9d9;
+    --accent: #2f6fd0;
+    --fg: #1f2328;
+    --bg: #f4f6f8;
+    --panel: #ffffff;
+    --muted: #5f6b76;
+    --line: #e2e6ea;
+    --head: #eef1f4;
+    --zebra: #f8f9fb;
     --bad: #b3392f;
+    --bad-bg: #fdf1f0;
+    --gap: 1rem;
     color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --accent: #6aa5e8;
-      --fg: #e6e6e6;
-      --bg: #171717;
-      --muted: #9a9a9a;
-      --line: #3a3a3a;
+      --fg: #dde2e8;
+      --bg: #101215;
+      --panel: #1a1d21;
+      --muted: #929ba5;
+      --line: #2b2f35;
+      --head: #22262b;
+      --zebra: #1e2126;
       --bad: #e07068;
+      --bad-bg: #2b1d1c;
     }
   }
+  *, *::before, *::after { box-sizing: border-box; }
+  /* Several controls are toggled with the `hidden` property; keep it winning
+     over the display values set below. */
+  [hidden] { display: none !important; }
   body {
     font-family: system-ui, sans-serif;
     color: var(--fg);
     background: var(--bg);
-    max-width: 52rem;
-    margin: 2rem auto;
-    padding: 0 1rem;
-    line-height: 1.45;
+    max-width: 120rem;
+    margin: 0 auto;
+    padding: 1.5rem clamp(.75rem, 2vw, 2rem) 3rem;
+    line-height: 1.5;
   }
-  h1 { font-size: 1.3rem; }
-  h2 { font-size: 1.05rem; border-bottom: 1px solid var(--line); padding-bottom: .25rem; margin-top: 2rem; }
-  code, .mono { font-family: ui-monospace, monospace; font-size: .85em; }
+  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 var(--gap); }
+  h2 { font-size: .95rem; font-weight: 600; display: flex; align-items: center; gap: .5rem; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em; }
   .muted { color: var(--muted); font-size: .85rem; }
   .err { color: var(--bad); }
+  #msg {
+    margin: 0 0 var(--gap);
+    padding: .5rem .75rem;
+    border-left: 3px solid var(--bad);
+    border-radius: 0 6px 6px 0;
+    background: var(--bad-bg);
+    font-size: .9rem;
+  }
+
+  /* One column on a phone, two from 1100px, three from 1800px. A section is a
+     single column by default, so a new one needs no rule of its own; the ones
+     whose content is wide (tables, the member rows) opt into the whole row. */
+  main { display: grid; gap: var(--gap); grid-template-columns: minmax(0, 1fr); align-items: start; }
+  @media (min-width: 1100px) {
+    main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* Wide enough for a whole member row: shrink the inputs rather than break
+       the row and strand its buttons on a line of their own. */
+    li.row { flex-wrap: nowrap; }
+    li.row > input { flex: 1 1 8rem; min-width: 4rem; }
+  }
+  @media (min-width: 1800px) { main { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  main > .wide { grid-column: 1 / -1; }
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: .9rem 1rem 1rem;
+  }
+  section > * { margin: 0; }
+  section > h2 + .muted { margin-top: -.3rem; }
+
   button {
     font: inherit;
+    font-size: .9rem;
     color: var(--bg);
     background: var(--accent);
-    border: none;
-    border-radius: 4px;
-    padding: .25rem .7rem;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: .3rem .8rem;
     cursor: pointer;
   }
-  button.plain { background: none; color: var(--accent); padding: .1rem .3rem; }
-  input, select {
+  button:hover { filter: brightness(1.08); }
+  button.plain { background: none; color: var(--accent); border-color: var(--line); padding: .25rem .6rem; }
+  button.plain:hover { border-color: var(--accent); filter: none; }
+  input:not([type="checkbox"]), select {
     font: inherit;
+    font-size: .9rem;
     color: inherit;
-    background: none;
+    background: var(--bg);
     border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: .25rem .5rem;
+    border-radius: 6px;
+    padding: .3rem .5rem;
   }
-  select option { color: var(--fg); background: var(--bg); }
-  input:focus, select:focus { outline: 2px solid var(--accent); }
-  table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
-  th, td { text-align: left; padding: .2rem .6rem .2rem 0; border-bottom: 1px solid var(--line); }
-  th { font-weight: 600; font-size: .85rem; }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: .15rem 1rem; margin: .5rem 0; }
-  dt { color: var(--muted); }
-  dd { margin: 0; overflow-wrap: anywhere; }
-  ul { list-style: none; padding: 0; }
-  li { padding: .2rem 0; border-bottom: 1px solid var(--line); }
-  #token-box { border: 1px solid var(--line); border-radius: 6px; padding: 1rem; margin: 1rem 0; }
+  input[type="checkbox"] { accent-color: var(--accent); width: 1rem; height: 1rem; margin: 0; }
+  select option { color: var(--fg); background: var(--panel); }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  /* Size attributes keep their widths but may shrink; nothing grows, so the
+     controls in a row stay aligned however wide the section gets. */
+  .row > input, .row > select { flex: 0 1 auto; min-width: 6rem; }
+  /* A fixed track for the role, so a longer option cannot shunt the rest
+     of a member row out of line with its neighbours. */
+  li > select { flex: 0 0 10rem; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .875rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: .35rem .9rem .35rem 0; white-space: nowrap; }
+  /* The last column soaks up the spare width, so every column before it stays
+     as narrow as its content and the row reads as one group. */
+  th:last-child, td:last-child { width: 100%; padding-right: 0; }
+  th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--head);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: .75rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    /* A collapsed border scrolls away from a sticky header; an inset shadow
+       stays put. */
+    box-shadow: inset 0 -1px 0 var(--line);
+  }
+  th button { text-transform: none; letter-spacing: normal; }
+  tbody tr:nth-child(even) { background: var(--zebra); }
+  tbody tr:hover { background: var(--head); }
+  /* Ids are shown in full so they can be copied, but never reflow a row. */
+  td.mono, li > .mono { white-space: nowrap; }
+
+  ul { list-style: none; padding: 0; }
+  li { padding: .35rem 0; border-bottom: 1px solid var(--line); }
+  li:last-child { border-bottom: none; }
+
+  dl { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: .35rem .9rem; align-items: center; }
+  dt { color: var(--muted); font-size: .85rem; }
+  dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  dd > input:not([type="checkbox"]) { width: 100%; }
+
+  #token-box { max-width: 34rem; margin-bottom: var(--gap); }
+  #node-address { flex: 1 1 12rem; overflow-wrap: anywhere; }
+
+  @media (max-width: 899px) {
+    /* Too narrow for a full table row: scroll the section sideways rather than
+       wrap every id. Sticky headers go with it, which is the right trade here. */
+    main > .wide { overflow-x: auto; }
+    li > .mono { white-space: normal; overflow-wrap: anywhere; }
+  }
+  @media (max-width: 640px) {
+    dl { grid-template-columns: minmax(0, 1fr); gap: .1rem; }
+    dt { margin-top: .5rem; }
+    dt:first-child { margin-top: 0; }
+  }
 </style>
 </head>
 <body>
 <h1>linXiv headless admin</h1>
 
-<div id="token-box" hidden>
+<section id="token-box" hidden>
   <form id="token-form" class="row">
     <label for="token">API token</label>
     <input id="token" type="password" size="30" autocomplete="off">
     <button type="submit">Save</button>
   </form>
   <p class="muted">Kept in sessionStorage for this tab only.</p>
-</div>
+</section>
 <p id="msg" class="err" hidden></p>
 
-<h2>Status</h2>
-<dl id="status"><dd class="muted">loading…</dd></dl>
+<main>
 
-<h2>Node address</h2>
-<p class="muted">What members paste to add this node as a remote library. A locator, not a capability.</p>
-<p class="row"><span id="node-address" class="mono muted">loading…</span><button id="copy-address" class="plain" hidden>copy</button></p>
+<section>
+  <h2>Status</h2>
+  <dl id="status"><dd class="muted">loading…</dd></dl>
+</section>
 
-<h2>Members</h2>
-<p class="muted">Presence grants relay access; the role grants remote query rights (read = GET only).</p>
-<ul id="members"></ul>
-<form id="add-form" class="row">
-  <input id="add-id" size="66" placeholder="endpoint id (64 hex chars)" class="mono" required pattern="[0-9a-fA-F]{64}">
-  <input id="add-name" size="14" placeholder="name (optional)">
-  <select id="add-role">
-    <option value="none" selected>none</option>
-    <option value="read">read</option>
-    <option value="read-write">read-write</option>
-  </select>
-  <button type="submit">Add</button>
-</form>
+<section>
+  <h2>Settings</h2>
+  <p class="muted">Node settings, saved on change. Relay changes need "reconnect relay" to rebind. API keys are write only.</p>
+  <dl id="settings"><dd class="muted">loading…</dd></dl>
+  <p class="row"><button id="reconnect" class="plain">reconnect relay</button></p>
+</section>
 
-<h2>Settings</h2>
-<p class="muted">Node settings, saved on change. Relay changes need "reconnect relay" to rebind. API keys are write only.</p>
-<dl id="settings"><dd class="muted">loading…</dd></dl>
-<p class="row"><button id="reconnect" class="plain">reconnect relay</button></p>
+<section>
+  <h2>Node address</h2>
+  <p class="muted">What members paste to add this node as a remote library. A locator, not a capability.</p>
+  <p class="row"><span id="node-address" class="mono muted">loading…</span><button id="copy-address" class="plain" hidden>copy</button></p>
+</section>
 
-<h2>Attribution</h2>
-<p class="muted">Change authors seen across this node's docs. To name a change author: copy its actor id onto a member above.</p>
-<table>
-  <thead><tr><th>actor id</th><th>changes</th><th>last seen (UTC)</th><th>member</th></tr></thead>
-  <tbody id="actors"><tr><td colspan="4" class="muted">loading…</td></tr></tbody>
-</table>
+<section class="wide">
+  <h2>Members</h2>
+  <p class="muted">Presence grants relay access; the role grants remote query rights (read = GET only).</p>
+  <ul id="members"></ul>
+  <form id="add-form" class="row">
+    <input id="add-id" size="66" placeholder="endpoint id (64 hex chars)" class="mono" required pattern="[0-9a-fA-F]{64}">
+    <input id="add-name" size="14" placeholder="name (optional)">
+    <select id="add-role">
+      <option value="none" selected>none</option>
+      <option value="read">read</option>
+      <option value="read-write">read-write</option>
+    </select>
+    <button type="submit">Add</button>
+  </form>
+</section>
 
-<h2>Access log <button id="refresh" class="plain">refresh</button></h2>
-<p class="muted">To join: connect the device once, find its denied entry below, add its id above.</p>
-<table>
-  <thead><tr><th>#</th><th>when (UTC)</th><th>endpoint id</th><th>via</th><th>allowed</th></tr></thead>
-  <tbody id="log"><tr><td colspan="5" class="muted">loading…</td></tr></tbody>
-</table>
+<section class="wide">
+  <h2>Attribution</h2>
+  <p class="muted">Change authors seen across this node's docs. To name a change author: copy its actor id onto a member above.</p>
+  <table>
+    <thead><tr><th>actor id</th><th>changes</th><th>last seen (UTC)</th><th>member</th></tr></thead>
+    <tbody id="actors"><tr><td colspan="4" class="muted">loading…</td></tr></tbody>
+  </table>
+</section>
 
-<h2>Transfers</h2>
-<p class="muted">PDF byte-lane outcomes, as this sender saw them.</p>
-<table>
-  <thead><tr><th>#</th><th>endpoint id</th><th>outcome</th><th>bytes</th></tr></thead>
-  <tbody id="transfers"><tr><td colspan="4" class="muted">loading…</td></tr></tbody>
-</table>
+<section class="wide">
+  <h2>Access log <button id="refresh" class="plain">refresh</button></h2>
+  <p class="muted">To join: connect the device once, find its denied entry below, add its id above.</p>
+  <table>
+    <thead><tr><th>#</th><th>when (UTC)</th><th>endpoint id</th><th>via</th><th>allowed</th></tr></thead>
+    <tbody id="log"><tr><td colspan="5" class="muted">loading…</td></tr></tbody>
+  </table>
+</section>
+
+<section class="wide">
+  <h2>Transfers</h2>
+  <p class="muted">PDF byte-lane outcomes, as this sender saw them.</p>
+  <table>
+    <thead><tr><th>#</th><th>endpoint id</th><th>outcome</th><th>bytes</th></tr></thead>
+    <tbody id="transfers"><tr><td colspan="4" class="muted">loading…</td></tr></tbody>
+  </table>
+</section>
+
+</main>
 
 <script>
 const $ = id => document.getElementById(id);
