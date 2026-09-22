@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# Only Rust changes need rustfmt; frontend-only commits skip the check.
+git diff --cached --name-only --diff-filter=ACMR | grep -q '\.rs$' || exit 0
+
+# Check if cargo-fmt is available
+if ! command -v cargo-fmt >/dev/null 2>&1; then
+    echo "Error: cargo-fmt is not installed."
+    echo "Please install it by running: rustup component add rustfmt"
+    exit 1
+fi
+CARGO_PATH=./src-tauri/Cargo.toml
+# Run formatting check on the project
+echo "📦 Running cargo fmt check..."
+cargo fmt --manifest-path=$CARGO_PATH --all -- --check
+
+# Capture the exit code of the formatting command
+STATUS=$?
+
+if [ $STATUS -ne 0 ]; then
+    echo "Commit aborted: Code formatting issues found."
+    echo "Run 'cargo fmt --manifest-path=\"$CARGO_PATH\" --all' to fix them, re-stage your changes, and try again."
+    exit 1
+fi
+
+exit 0

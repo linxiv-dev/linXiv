@@ -93,6 +93,7 @@ git submodule update --init --recursive
 - [Headless server](#headless-server)
 - [Graph visualization](#graph-visualization)
 - [Data location](#data-location)
+- [Contributing](#contributing)
 - [Acknowledgements](#acknowledgements)
 
 ## Features
@@ -247,6 +248,16 @@ Papers and authors make up a force-directed network: papers link to their author
 ## Data location
 
 The database (`papers.db`), managed PDFs, and the Obsidian vault live in the per-user app data directory for `com.linxiv.app` (e.g. `~/.local/share/com.linxiv.app` on Linux, `~/Library/Application Support/com.linxiv.app` on macOS). Set the `LINXIV_DATA_DIR` environment variable to override the location; the app, CLI, and MCP server all honor it, so they share one library.
+
+## Contributing
+
+Turn on the repo's git hooks once per clone. They check commit messages and run `cargo fmt --check`:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) with short bodies; the rules are in `.githooks/commit-lint.sh`.
 
 ## Acknowledgements
 

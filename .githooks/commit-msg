@@ -1,0 +1,13 @@
+#!/bin/sh
+# Check the message being written against .githooks/commit-lint.sh.
+
+# $2 is the message source; git-generated merge/squash text is not ours.
+case "${2:-}" in merge|squash) exit 0 ;; esac
+
+if out=$(sh "$(dirname "$0")/commit-lint.sh" "$1"); then
+  [ -n "$out" ] && printf '%s\n' "$out" >&2
+  exit 0
+fi
+printf '\n  commit rejected by commit-msg hook\n\n%s\n\n' "$out" >&2
+printf '  Rules and the reasoning behind them: .githooks/commit-lint.sh\n\n' >&2
+exit 1
