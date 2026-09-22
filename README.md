@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/linxiv-dev/linXiv/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/linxiv-dev/linXiv/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/linxiv-dev/linXiv/releases"><img alt="Release" src="https://img.shields.io/github/v/release/linxiv-dev/linXiv?include_prereleases"></a>
-  <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/License-GPLv3-blue.svg"></a>
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg"></a>
   <a href="https://tauri.app"><img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=fff"></a>
 </p>
 
@@ -24,7 +24,7 @@ Upload your PDFs, create projects, manage notes, tags, and annotations to organi
 
 > **Development status:** Pre-1.0 (`0.5.x`). The schema is still evolving, but migration structure is in-place.
 
-> **Licensing:** linXiv is GPLv3. The vendored [`linxiv-p2p`](https://github.com/linxiv-dev/linxiv-p2p) submodule (`src-tauri/crates/p2p`) is licensed separately under Apache-2.0.
+> **Licensing:** linXiv, including the vendored [`linxiv-p2p`](https://github.com/linxiv-dev/linxiv-p2p) submodule (`src-tauri/crates/p2p`), is licensed under Apache-2.0.
 
 <p align="center">
   <a href="https://youtu.be/c4vQuXjFv34">

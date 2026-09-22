@@ -5,7 +5,7 @@ pkgrel=1
 pkgdesc='Local-first desktop application for managing academic papers'
 arch=('x86_64')
 url='https://github.com/linxiv-dev/linXiv'
-license=('GPL-3.0-only')
+license=('Apache-2.0')
 depends=(
   'gtk3'
   'libappindicator'
