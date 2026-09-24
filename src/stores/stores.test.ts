@@ -174,7 +174,7 @@ test("ui: page and export toggles change one key and persist", () => {
   assert.deepEqual(st.sidebarPages, { ...DEFAULT_SIDEBAR_PAGES, tags: true });
   assert.deepEqual(st.exportMethods, { ...DEFAULT_EXPORT_METHODS, zotero: false });
   const saved = persisted("linxiv-ui");
-  assert.equal(saved.version, 7);
+  assert.equal(saved.version, 8);
   assert.equal(saved.state.hideSingleAuthors, true);
   assert.equal(saved.state.sidebarPages.tags, true);
 });
