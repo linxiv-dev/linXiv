@@ -261,4 +261,6 @@ impl From<ImportPreview> for ImportPreviewResponse {
 #[derive(Debug, Clone, Serialize, ts_rs::TS)]
 pub struct ImportedProject {
     pub project_id: i64,
+    /// Bundled PDF basenames that could not be attached; the import still succeeds.
+    pub skipped_pdfs: Vec<String>,
 }

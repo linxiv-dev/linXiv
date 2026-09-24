@@ -273,13 +273,11 @@ fn import_commit(state: &AppState, ctx: &ReqCtx<'_>) -> Result<Value, ApiError> 
     let res =
         state.with_conn(|conn| export_import::commit_import(conn, &tmp, on_conflict, &pdf_dir));
     std::fs::remove_file(&tmp).ok();
-    let project_fk = res.map_err(|e| match e {
+    let imported = res.map_err(|e| match e {
         CoreError::ProjectImport(m) => ApiError::new(422, m),
         other => ApiError::new(400, other.to_string()),
     })?;
-    crate::route::to_value(&export_import::ImportedProject {
-        project_id: project_fk,
-    })
+    crate::route::to_value(&imported)
 }
 
 /// Spill upload bytes to a temp `.lxproj`. Created O_EXCL (`create_new`) so a

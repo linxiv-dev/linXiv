@@ -8,7 +8,9 @@ use std::path::Path;
 use rusqlite::Connection;
 
 use super::archive::{open_archive, read_manifest};
-use super::dto::{ArchivePdf, ArchivePdfName, ImportPreview, Manifest, OnConflict};
+use super::dto::{
+    ArchivePdf, ArchivePdfName, ImportPreview, ImportedProject, Manifest, OnConflict,
+};
 use crate::error::{CoreError, Result};
 use crate::models::{validate_anchor, AnnotationIn, NoteIn, ProjectIn};
 use crate::service::{annotation, note, paper, project};
@@ -40,14 +42,14 @@ pub fn preview_from_manifest(manifest: &Manifest) -> ImportPreview {
 /// project, imports papers (merge/overwrite), links them, writes bundled PDFs,
 /// then notes and annotations. On ANY failure the project is soft-deleted (trash)
 /// and `CoreError::ProjectImport` is returned — papers saved before the failure
-/// remain. Returns the new project_fk.
+/// remain. Returns the new project_fk plus any bundled PDFs that were skipped.
 pub fn commit_from_manifest(
     conn: &mut Connection,
     manifest: &Manifest,
     pdfs: &[ArchivePdf],
     on_conflict: OnConflict,
     pdf_dir: &Path,
-) -> Result<i64> {
+) -> Result<ImportedProject> {
     let color = match &manifest.project.color_hex {
         Some(hex) => Some(project::color_from_hex(hex)?),
         None => None,
@@ -64,7 +66,7 @@ pub fn commit_from_manifest(
         },
     )?;
     match commit_body(conn, project_fk, manifest, pdfs, on_conflict, pdf_dir) {
-        Ok(()) => {
+        Ok(skipped_pdfs) => {
             // Restore the archived share identity after a successful import.
             if let Some(share_id) = &manifest.project.share_id {
                 if let Ok(u) = uuid::Uuid::parse_str(share_id) {
@@ -73,7 +75,10 @@ pub fn commit_from_manifest(
                     }
                 }
             }
-            Ok(project_fk)
+            Ok(ImportedProject {
+                project_id: project_fk,
+                skipped_pdfs,
+            })
         }
         Err(e) => {
             // Trash the partially-built project.
@@ -96,7 +101,7 @@ fn commit_body(
     pdfs: &[ArchivePdf],
     on_conflict: OnConflict,
     pdf_dir: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     // Resolve every archived paper to a SOURCE_FK, in first-seen order. The
     // id→fk map feeds the note/annotation passes so they never re-resolve roots.
     let mut source_ids: Vec<String> = Vec::new();
@@ -146,24 +151,26 @@ fn commit_body(
         }
     }
 
-    import_pdfs(conn, pdfs, &source_ids, pdf_dir)?;
+    let skipped_pdfs = import_pdfs(conn, pdfs, &source_ids, pdf_dir)?;
     import_notes(conn, project_fk, manifest, &resolved)?;
     import_annotations(conn, project_fk, manifest, &resolved)?;
-    Ok(())
+    Ok(skipped_pdfs)
 }
 
 /// Write bundled PDFs into `pdf_dir` under their ARCHIVE basename
 /// (`{source_id}_v{version}.pdf` — kept verbatim, NOT the on-disk `v` form) and
 /// record the path on the matching paper version. A PDF naming a version that
-/// wasn't imported is skipped and its extracted file removed.
+/// wasn't imported is skipped and its extracted file removed; returns the
+/// skipped basenames.
 pub(super) fn import_pdfs(
     conn: &mut Connection,
     pdfs: &[ArchivePdf],
     source_ids: &[String],
     pdf_dir: &Path,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut skipped = Vec::new();
     if pdfs.is_empty() {
-        return Ok(());
+        return Ok(skipped);
     }
     std::fs::create_dir_all(pdf_dir).map_err(|e| CoreError::Internal(e.to_string()))?;
 
@@ -192,9 +199,10 @@ pub(super) fn import_pdfs(
             // Bundled PDF names a version that wasn't imported: drop the file, log, skip.
             crate::service::files::remove_pdf_counted(&dest);
             tracing::warn!("import: skipping PDF {basename}: {e}");
+            skipped.push(basename.to_string());
         }
     }
-    Ok(())
+    Ok(skipped)
 }
 
 fn import_notes(
@@ -273,13 +281,13 @@ fn import_annotations(
 }
 
 /// Parse a `.lxproj` archive (manifest + every `pdfs/*.pdf` entry) and import it.
-/// Returns the new project_fk.
+/// Returns the import receipt.
 pub fn commit_import(
     conn: &mut Connection,
     zip_path: &Path,
     on_conflict: OnConflict,
     pdf_dir: &Path,
-) -> Result<i64> {
+) -> Result<ImportedProject> {
     let mut archive = open_archive(zip_path)?;
     let manifest = read_manifest(&mut archive, &zip_path.display().to_string())?;
 

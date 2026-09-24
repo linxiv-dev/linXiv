@@ -184,7 +184,9 @@ fn build_and_commit_round_trip_annotations() {
 
     // Commit into a fresh DB and confirm the annotation lands project-scoped.
     let mut conn2 = db();
-    let new_pid = commit_from_manifest(&mut conn2, &m, &[], OnConflict::Merge, tmp.path()).unwrap();
+    let new_pid = commit_from_manifest(&mut conn2, &m, &[], OnConflict::Merge, tmp.path())
+        .unwrap()
+        .project_id;
     let anns = annotation::get_many(
         &conn2,
         &annotation::Annotations {
@@ -317,8 +319,9 @@ fn commit_creates_project_links_papers_notes_and_writes_pdf() {
         bytes: b"BYTES".to_vec(),
     }];
 
-    let pid =
-        commit_from_manifest(&mut conn, &manifest, &pdfs, OnConflict::Merge, pdf_dir).unwrap();
+    let pid = commit_from_manifest(&mut conn, &manifest, &pdfs, OnConflict::Merge, pdf_dir)
+        .unwrap()
+        .project_id;
 
     // Project created with tags + colour from the manifest.
     let got = project::get(
@@ -388,8 +391,9 @@ fn commit_skips_notes_and_annotations_naming_unlisted_papers() {
         uuid: None,
     }];
 
-    let pid =
-        commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path()).unwrap();
+    let pid = commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path())
+        .unwrap()
+        .project_id;
 
     let notes = note::get_many(
         &conn,
@@ -428,8 +432,9 @@ fn commit_merge_keeps_existing_metadata_overwrite_replaces_it() {
         let mut conn = db();
         paper::save_paper_metadata(&mut conn, &meta("arxiv:1", 1, "Stored Title", &[]), None)
             .unwrap();
-        let pid =
-            commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path()).unwrap();
+        let pid = commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path())
+            .unwrap()
+            .project_id;
         let p = paper::get(&conn, &paper::PaperRef::source("arxiv:1".into()))
             .unwrap()
             .unwrap();
@@ -545,6 +550,27 @@ fn import_pdfs_skips_unknown_version_and_removes_file() {
 }
 
 #[test]
+fn commit_reports_skipped_pdfs_in_receipt() {
+    let mut conn = db();
+    let tmp = tempfile::tempdir().unwrap();
+    let manifest = base_manifest("Skips", vec![paper_entry("arxiv:1", 1, "T", &[])], vec![]);
+    // v9 was never imported: the PDF can't attach, the import still succeeds.
+    let pdfs = vec![
+        ArchivePdf {
+            archive_name: "pdfs/arxiv:1_v1.pdf".into(),
+            bytes: b"OK".to_vec(),
+        },
+        ArchivePdf {
+            archive_name: "pdfs/arxiv:1_v9.pdf".into(),
+            bytes: b"X".to_vec(),
+        },
+    ];
+    let receipt =
+        commit_from_manifest(&mut conn, &manifest, &pdfs, OnConflict::Merge, tmp.path()).unwrap();
+    assert_eq!(receipt.skipped_pdfs, vec!["arxiv:1_v9.pdf".to_string()]);
+}
+
+#[test]
 fn paper_entry_to_metadata_defaults_published_today() {
     let mut pe = paper_entry("arxiv:1", 1, "T", &[]);
     pe.published = None;
@@ -617,7 +643,9 @@ fn zip_export_then_import_round_trips_to_a_fresh_db() {
     // Commit into a FRESH db + fresh pdf dir.
     let mut conn2 = db();
     let import_pdf_dir = tmp.path().join("import_pdfs");
-    let new_pid = commit_import(&mut conn2, &written, OnConflict::Merge, &import_pdf_dir).unwrap();
+    let new_pid = commit_import(&mut conn2, &written, OnConflict::Merge, &import_pdf_dir)
+        .unwrap()
+        .project_id;
 
     let proj = project::get(
         &conn2,
@@ -790,8 +818,9 @@ fn commit_adopts_valid_share_id() {
     let mut manifest = base_manifest("P", vec![paper_entry("arxiv:1", 1, "T", &[])], vec![]);
     manifest.project.share_id = Some(share_id.into());
 
-    let pid =
-        commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path()).unwrap();
+    let pid = commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path())
+        .unwrap()
+        .project_id;
 
     let proj = project::get(
         &conn,
@@ -819,8 +848,9 @@ fn commit_rejects_invalid_share_id() {
         let mut manifest = base_manifest("P", vec![paper_entry("arxiv:1", 1, "T", &[])], vec![]);
         manifest.project.share_id = Some(invalid_id.into());
 
-        let pid =
-            commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path()).unwrap();
+        let pid = commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path())
+            .unwrap()
+            .project_id;
         let proj = project::get(
             &conn,
             &project::Project {
@@ -847,8 +877,9 @@ fn commit_rejects_duplicate_share_id() {
     manifest.project.share_id = Some(share_id.into());
 
     // First import claims the share_id.
-    let pid1 =
-        commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path()).unwrap();
+    let pid1 = commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path())
+        .unwrap()
+        .project_id;
     let proj1 = project::get(
         &conn,
         &project::Project {
@@ -862,8 +893,9 @@ fn commit_rejects_duplicate_share_id() {
     // Second import with the same manifest (same share_id): adopt fails on the
     // live claimant, the import still succeeds, and the project has no share_id.
     manifest.project.name = "P2".into();
-    let pid2 =
-        commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path()).unwrap();
+    let pid2 = commit_from_manifest(&mut conn, &manifest, &[], OnConflict::Merge, tmp.path())
+        .unwrap()
+        .project_id;
     let proj2 = project::get(
         &conn,
         &project::Project {

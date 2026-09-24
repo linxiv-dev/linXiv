@@ -579,6 +579,10 @@ export type ImportPreviewResponse = {
 
 export type ImportedProject = {
   project_id: number,
+  /**
+   * Bundled PDF basenames that could not be attached; the import still succeeds.
+   */
+  skipped_pdfs: Array<string>,
 };
 
 export type SavedPdfListing = {

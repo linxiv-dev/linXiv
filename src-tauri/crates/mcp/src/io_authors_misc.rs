@@ -209,10 +209,10 @@ impl Server {
             OnConflict::Merge
         };
         let pdf_dir = self.pdf_dir.clone();
-        let fk = self
+        let imported = self
             .with_conn(|conn| svc_ei::commit_import(conn, &path, on_conflict, &pdf_dir))
             .map_err(map_core)?;
-        json_ok(&svc_ei::ImportedProject { project_id: fk })
+        json_ok(&imported)
     }
 
     // Route parity: `GET /api/projects/{}/export/bibtex`.

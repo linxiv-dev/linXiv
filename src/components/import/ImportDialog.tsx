@@ -206,7 +206,10 @@ export function ImportDialog({ open, onClose, projectId, onDone, initialFiles }:
         } else if (kind === "lxproj") {
           const r = await commitImport(file, onConflict);
           newProjectIds.push(r.project_id);
-          result = `Project imported`;
+          const skipped = r.skipped_pdfs.length;
+          result = skipped
+            ? `Project imported, ${skipped} PDF${skipped !== 1 ? "s" : ""} skipped`
+            : `Project imported`;
           // An .lxproj brings both a project and its papers.
           invalidatePaperMutationQueries(queryClient);
           invalidateProjectMutationQueries(queryClient);

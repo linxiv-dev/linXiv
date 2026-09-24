@@ -358,16 +358,16 @@ pub async fn run(cmd: ProjectCmd, ctx: &mut Ctx) -> anyhow::Result<()> {
                 };
                 output(&prev);
             } else {
-                let fk = match export_import::commit_import(
+                let imported = match export_import::commit_import(
                     &mut ctx.conn,
                     zip,
                     on_conflict.to_core(),
                     &ctx.pdf_dir,
                 ) {
-                    Ok(fk) => fk,
+                    Ok(imported) => imported,
                     Err(e) => fail(e),
                 };
-                output(&json!({ "project_id": fk }));
+                output(&imported);
             }
         }
 
