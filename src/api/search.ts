@@ -50,8 +50,9 @@ export async function resolveDoi(doi: string): Promise<DoiResolveResponse> {
   });
 }
 
-export async function saveDoi(doi: string): Promise<DoiSaveResponse> {
-  const body: DoiSaveBody = { doi };
+/** `pdfUrl`: publisher PDF to try after saving; a miss leaves the paper metadata-only. */
+export async function saveDoi(doi: string, pdfUrl?: string): Promise<DoiSaveResponse> {
+  const body: DoiSaveBody = { doi, pdf_url: pdfUrl };
   return libraryFetch("/api/doi/save", {
     method: "POST",
     body: JSON.stringify(body),

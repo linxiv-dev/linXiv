@@ -284,6 +284,7 @@ impl Server {
         json_ok(&linxiv_core::models::DoiSaveResponse {
             metadata: meta,
             saved: true,
+            pdf_saved: None,
         })
     }
 

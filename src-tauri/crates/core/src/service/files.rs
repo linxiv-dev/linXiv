@@ -281,6 +281,37 @@ pub async fn download_pdf(
     Ok(out)
 }
 
+/// Best-effort attach of a `download_pdf` result: kept and recorded only if it
+/// starts with `%PDF`. A paywall (403) or HTML page leaves the paper
+/// metadata-only. Returns whether a PDF was attached.
+pub fn keep_fetched_pdf(
+    conn: &mut rusqlite::Connection,
+    source_id: &str,
+    version: i64,
+    fetched: Result<PathBuf>,
+) -> bool {
+    let path = match fetched {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::info!("no PDF for {source_id}: {e}");
+            return false;
+        }
+    };
+    let mut magic = [0u8; 4];
+    let is_pdf = std::fs::File::open(&path)
+        .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut magic))
+        .is_ok()
+        && &magic == b"%PDF";
+    let saved = is_pdf
+        && crate::service::paper::mark_pdf_saved(conn, source_id, &path.to_string_lossy(), version)
+            .is_ok();
+    if !saved {
+        tracing::info!("no PDF for {source_id}: not a PDF or not recorded");
+        remove_pdf_counted(&path);
+    }
+    saved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +509,36 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(fs::read(&out).unwrap(), body);
+    }
+
+    /// A paywall's HTML page or a 403 leaves the paper metadata-only, no error;
+    /// a real PDF is recorded.
+    #[test]
+    fn keep_fetched_pdf_drops_non_pdf_and_keeps_pdf() {
+        use crate::service::paper as svc_paper;
+        let mut conn = crate::test_support::db();
+        let meta: crate::models::PaperMetadata = serde_json::from_value(serde_json::json!({
+            "source_id": "doi:10.1000/x", "version": 1, "title": "T",
+            "authors": ["A"], "published": "2024-01-01", "summary": "S",
+        }))
+        .unwrap();
+        let (sid, ver) = svc_paper::save_paper_metadata(&mut conn, &meta, None).unwrap();
+        let has_pdf =
+            |conn: &rusqlite::Connection| svc_paper::get_required(conn, &sid).unwrap().has_pdf;
+        let dir = tempfile::tempdir().unwrap();
+        let html = write_pdf(dir.path(), "a.pdf", 0);
+        fs::write(&html, "<html>Sign in</html>").unwrap();
+
+        assert!(!keep_fetched_pdf(&mut conn, &sid, ver, Ok(html.clone())));
+        assert!(!html.exists(), "non-PDF body is removed");
+        let forbidden = Err(CoreError::Upstream("download failed: HTTP 403".into()));
+        assert!(!keep_fetched_pdf(&mut conn, &sid, ver, forbidden));
+        assert!(!has_pdf(&conn));
+
+        let pdf = dir.path().join("b.pdf");
+        fs::write(&pdf, "%PDF-1.7 ok").unwrap();
+        assert!(keep_fetched_pdf(&mut conn, &sid, ver, Ok(pdf)));
+        assert!(has_pdf(&conn));
     }
 
     #[tokio::test]

@@ -13,8 +13,13 @@ use crate::sources::http::{assert_host_allowed, ARXIV_HOSTS};
 pub enum RecognizedInput {
     /// Bare arXiv id, extracted from an id or any arXiv-host URL.
     ArxivId(String),
-    /// Bare DOI, from a DOI, a doi.org/dx.doi.org URL, or a known publisher URL.
+    /// Bare DOI, from a DOI or a doi.org/dx.doi.org URL.
     Doi(String),
+    /// Known publisher URL: its DOI plus the publisher's PDF link for it.
+    DoiWithPdf {
+        doi: String,
+        pdf_url: String,
+    },
     /// http(s) URL whose path ends in `.pdf`, normalized (scheme added if pasted bare).
     DirectPdfUrl(String),
     Unrecognized,
@@ -63,8 +68,18 @@ pub fn recognize(input: &str) -> RecognizedInput {
             None => Unrecognized,
         };
     }
-    if let Some(doi) = publisher_doi(&url) {
-        return Doi(doi);
+    if let Some((doi, pdf_path)) = publisher_doi(&url) {
+        // A pasted PDF link keeps its URL (query and all); else swap in the PDF path.
+        let pdf_url = if url.path().trim_matches('/') == pdf_path {
+            url_str
+        } else {
+            let mut pdf = url;
+            pdf.set_path(&pdf_path);
+            pdf.set_query(None);
+            pdf.set_fragment(None);
+            pdf.to_string()
+        };
+        return DoiWithPdf { doi, pdf_url };
     }
     if url.path().to_ascii_lowercase().ends_with(".pdf") {
         return DirectPdfUrl(url_str);
@@ -84,31 +99,34 @@ const ATYPON_HOSTS: &[&str] = &[
 ];
 
 /// Publisher URLs that carry the DOI: (hosts sans `www.`, path prefix, optional
-/// suffixes, DOI registrant for suffix-only paths). Prefix segments are `*` or
-/// `a|b` alternatives. Not recoverable from the URL, so absent: Elsevier
-/// (sciencedirect.com `/pii/`), IEEE (`/document/<n>`), JSTOR (`/stable/<n>`).
+/// suffixes, DOI registrant for suffix-only paths, PDF path template). Prefix
+/// segments are `*` or `a|b` alternatives. The template fills `{1}` with the
+/// first prefix segment and `{id}` with the path's DOI part. Not recoverable
+/// from the URL, so absent: Elsevier (sciencedirect.com `/pii/`), IEEE
+/// (`/document/<n>`), JSTOR (`/stable/<n>`).
 #[rustfmt::skip]
-const PUBLISHER_DOI_PATHS: &[(&[&str], &str, &[&str], &str)] = &[
-    (&["journals.aps.org"], "*/pdf|abstract", &[], ""),
-    (ATYPON_HOSTS, "doi/pdf|epdf|abs|full", &[], ""),
-    (ATYPON_HOSTS, "doi", &[], ""),
-    (&["iopscience.iop.org"], "article", &["/pdf", "/meta"], ""),
-    (&["link.springer.com"], "content/pdf", &[".pdf"], ""),
-    (&["link.springer.com"], "article|chapter", &[], ""),
-    (&["nature.com"], "articles", &[".pdf"], "10.1038"),
+const PUBLISHER_DOI_PATHS: &[(&[&str], &str, &[&str], &str, &str)] = &[
+    (&["journals.aps.org"], "*/pdf|abstract", &[], "", "{1}/pdf/{id}"),
+    (ATYPON_HOSTS, "doi/pdf|epdf|abs|full", &[], "", "doi/pdf/{id}"),
+    (ATYPON_HOSTS, "doi", &[], "", "doi/pdf/{id}"),
+    (&["iopscience.iop.org"], "article", &["/pdf", "/meta"], "", "article/{id}/pdf"),
+    (&["link.springer.com"], "content/pdf", &[".pdf"], "", "content/pdf/{id}.pdf"),
+    (&["link.springer.com"], "article|chapter", &[], "", "content/pdf/{id}.pdf"),
+    (&["nature.com"], "articles", &[".pdf"], "10.1038", "articles/{id}.pdf"),
 ];
 
-/// DOI from a publisher landing/PDF URL listed in `PUBLISHER_DOI_PATHS`.
+/// (DOI, PDF path without leading `/`) from a URL listed in `PUBLISHER_DOI_PATHS`.
 // ponytail: path isn't percent-decoded, so old SICI DOIs with `<>` stay encoded.
-fn publisher_doi(url: &Url) -> Option<String> {
+fn publisher_doi(url: &Url) -> Option<(String, String)> {
     let host = url.host_str()?;
     let host = host.strip_prefix("www.").unwrap_or(host);
     let path = url.path().trim_start_matches('/').trim_end_matches('/');
     PUBLISHER_DOI_PATHS
         .iter()
         .filter(|(hosts, ..)| hosts.contains(&host))
-        .find_map(|&(_, prefix, suffixes, registrant)| {
+        .find_map(|&(_, prefix, suffixes, registrant, pdf)| {
             let mut rest = path;
+            let first = path.split('/').next().unwrap_or("");
             for seg in prefix.split('/') {
                 let (head, tail) = rest.split_once('/')?;
                 if seg != "*" && !seg.split('|').any(|alt| alt == head) {
@@ -126,7 +144,8 @@ fn publisher_doi(url: &Url) -> Option<String> {
                 r => format!("{r}/{rest}"),
             };
             let (reg, suffix) = doi.split_once('/')?;
-            (reg.starts_with("10.") && !suffix.is_empty()).then_some(doi)
+            let pdf = pdf.replace("{1}", first).replace("{id}", rest);
+            (reg.starts_with("10.") && !suffix.is_empty()).then_some((doi, pdf))
         })
 }
 
@@ -224,70 +243,109 @@ mod tests {
     }
 
     #[test]
-    fn publisher_urls_extract_the_doi() {
-        for (url, id) in [
+    fn publisher_urls_extract_the_doi_and_pdf_url() {
+        for (url, doi, pdf_url) in [
             (
                 "https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.128.073601",
                 "10.1103/PhysRevLett.128.073601",
+                "https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.128.073601",
             ),
             (
                 "https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.128.073601",
                 "10.1103/PhysRevLett.128.073601",
+                "https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.128.073601",
             ),
             (
                 "journals.aps.org/prl/pdf/10.1103/PhysRevLett.128.073601",
                 "10.1103/PhysRevLett.128.073601",
+                "https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.128.073601",
             ),
             (
                 "https://onlinelibrary.wiley.com/doi/epdf/10.1002/anie.202100001",
                 "10.1002/anie.202100001",
+                "https://onlinelibrary.wiley.com/doi/pdf/10.1002/anie.202100001",
             ),
             (
                 "https://pubs.acs.org/doi/pdf/10.1021/jacs.1c00001",
                 "10.1021/jacs.1c00001",
+                "https://pubs.acs.org/doi/pdf/10.1021/jacs.1c00001",
             ),
             (
                 "https://www.tandfonline.com/doi/full/10.1080/00268976.2021.1900001",
                 "10.1080/00268976.2021.1900001",
+                "https://www.tandfonline.com/doi/pdf/10.1080/00268976.2021.1900001",
             ),
             (
                 "https://dl.acm.org/doi/10.1145/3290605.3300234",
                 "10.1145/3290605.3300234",
+                "https://dl.acm.org/doi/pdf/10.1145/3290605.3300234",
             ),
             (
                 "https://epubs.siam.org/doi/abs/10.1137/20M1234567",
                 "10.1137/20M1234567",
+                "https://epubs.siam.org/doi/pdf/10.1137/20M1234567",
             ),
             (
                 "https://journals.sagepub.com/doi/pdf/10.1177/0956797620000001",
                 "10.1177/0956797620000001",
+                "https://journals.sagepub.com/doi/pdf/10.1177/0956797620000001",
             ),
             (
                 "https://www.science.org/doi/10.1126/science.abc1234",
                 "10.1126/science.abc1234",
+                "https://www.science.org/doi/pdf/10.1126/science.abc1234",
             ),
             (
-                "https://www.pnas.org/doi/full/10.1073/pnas.2000001117",
+                "https://www.pnas.org/doi/full/10.1073/pnas.2000001117?af=R#sec-1",
                 "10.1073/pnas.2000001117",
+                "https://www.pnas.org/doi/pdf/10.1073/pnas.2000001117",
             ),
             (
                 "https://iopscience.iop.org/article/10.1088/1742-6596/1234/1/012345/pdf",
                 "10.1088/1742-6596/1234/1/012345",
+                "https://iopscience.iop.org/article/10.1088/1742-6596/1234/1/012345/pdf",
             ),
             (
-                "https://link.springer.com/content/pdf/10.1007/s00220-020-03456-7.pdf",
+                "https://iopscience.iop.org/article/10.1088/1742-6596/1234/1/012345/meta",
+                "10.1088/1742-6596/1234/1/012345",
+                "https://iopscience.iop.org/article/10.1088/1742-6596/1234/1/012345/pdf",
+            ),
+            (
+                "https://iopscience.iop.org/article/10.1088/1742-6596/1234/1/012345",
+                "10.1088/1742-6596/1234/1/012345",
+                "https://iopscience.iop.org/article/10.1088/1742-6596/1234/1/012345/pdf",
+            ),
+            (
+                "https://link.springer.com/content/pdf/10.1007/s00220-020-03456-7.pdf?pdf=button",
                 "10.1007/s00220-020-03456-7",
+                "https://link.springer.com/content/pdf/10.1007/s00220-020-03456-7.pdf?pdf=button",
             ),
             (
                 "https://link.springer.com/article/10.1007/s00220-020-03456-7",
                 "10.1007/s00220-020-03456-7",
+                "https://link.springer.com/content/pdf/10.1007/s00220-020-03456-7.pdf",
+            ),
+            (
+                "https://link.springer.com/chapter/10.1007/978-3-030-12345-6_7",
+                "10.1007/978-3-030-12345-6_7",
+                "https://link.springer.com/content/pdf/10.1007/978-3-030-12345-6_7.pdf",
+            ),
+            (
+                "https://www.nature.com/articles/s41586-020-2649-2",
+                "10.1038/s41586-020-2649-2",
+                "https://www.nature.com/articles/s41586-020-2649-2.pdf",
             ),
             (
                 "https://www.nature.com/articles/s41586-020-2649-2.pdf",
                 "10.1038/s41586-020-2649-2",
+                "https://www.nature.com/articles/s41586-020-2649-2.pdf",
             ),
         ] {
-            assert_eq!(recognize(url), doi(id), "{url}");
+            let want = DoiWithPdf {
+                doi: doi.into(),
+                pdf_url: pdf_url.into(),
+            };
+            assert_eq!(recognize(url), want, "{url}");
         }
         for url in [
             "https://journals.aps.org/prl/issues/128/7",

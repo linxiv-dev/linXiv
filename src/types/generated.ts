@@ -675,6 +675,10 @@ export type DoiResolveResponse = {
 export type DoiSaveResponse = {
   metadata: PaperMetadata,
   saved: boolean,
+  /**
+   * Whether the requested publisher PDF was attached; null when none was asked for.
+   */
+  pdf_saved: boolean | null,
 };
 
 export type NoteListResponse = {
@@ -806,7 +810,8 @@ export type ImportPdfUrlBody = {
 export type RecognizedInput = {
   "kind": "arxiv_id",
   "value": string } | { "kind": "doi",
-  "value": string } | { "kind": "direct_pdf_url",
+  "value": string } | { "kind": "doi_with_pdf",
+  "value": { doi: string, pdf_url: string, } } | { "kind": "direct_pdf_url",
   "value": string } | { "kind": "unrecognized"
 };
 
@@ -881,6 +886,10 @@ export type DoiResolveBody = {
 
 export type DoiSaveBody = {
   doi: string,
+  /**
+   * Publisher PDF link to try after the save; a miss never fails it.
+   */
+  pdf_url?: string | null,
 };
 
 export type FeedDismissBody = {

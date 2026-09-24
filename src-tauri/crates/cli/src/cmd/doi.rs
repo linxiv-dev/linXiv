@@ -33,6 +33,7 @@ pub async fn run(cmd: DoiCmd, ctx: &mut Ctx) -> anyhow::Result<()> {
             output(&DoiSaveResponse {
                 metadata: meta,
                 saved: true,
+                pdf_saved: None,
             });
         }
     }
@@ -60,10 +61,11 @@ mod tests {
         let v = serde_json::to_value(DoiSaveResponse {
             metadata: meta,
             saved: true,
+            pdf_saved: None,
         })
         .unwrap();
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-        assert_eq!(keys, ["metadata", "saved"]);
+        assert_eq!(keys, ["metadata", "saved", "pdf_saved"]);
         assert_eq!(v["saved"], json!(true));
         assert_eq!(v["metadata"]["source_id"], json!("doi:10.1000/xyz"));
     }

@@ -11,7 +11,7 @@ import { importPdfUrl, recognizePaperInput } from "../../api/exportImport";
 import type { PaperMetadata } from "../../types/api";
 
 /** Recognize outcome for the non-DOI paths: paper already saved. */
-type AddOutcome = { doi: string } | { savedTitle: string };
+type AddOutcome = { doi: string; pdfUrl?: string } | { savedTitle: string };
 
 /** Paste-a-reference add flow, shared by the /doi page and the sidebar popover.
  *  `compact` drops the large loading mark for tight containers. */
@@ -21,6 +21,8 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
   // Capture the exact DOI string that was resolved, so Save always uses it
   // even if the user edits the input field afterwards.
   const [resolvedDoi, setResolvedDoi] = useState("");
+  // Publisher PDF link recognized alongside the DOI, tried on Save.
+  const [pdfUrl, setPdfUrl] = useState<string | undefined>();
   const [metadata, setMetadata] = useState<PaperMetadata | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [savedTitle, setSavedTitle] = useState<string | null>(null);
@@ -43,6 +45,8 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
       switch (rec.kind) {
         case "doi":
           return { doi: rec.value };
+        case "doi_with_pdf":
+          return { doi: rec.value.doi, pdfUrl: rec.value.pdf_url };
         case "arxiv_id": {
           const r = await fetchArxiv(rec.value, true);
           return { savedTitle: r.paper.title };
@@ -59,6 +63,7 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
     },
     onSuccess: (outcome) => {
       if ("doi" in outcome) {
+        setPdfUrl(outcome.pdfUrl);
         resolveMutation.mutate(outcome.doi);
       } else {
         setSavedTitle(outcome.savedTitle);
@@ -69,7 +74,7 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
 
   // Save mutation
   const saveMutation = useMutation({
-    mutationFn: (d: string) => saveDoi(d),
+    mutationFn: (d: string) => saveDoi(d, pdfUrl),
     onSuccess: () => {
       setSaveSuccess(true);
       invalidatePaperMutationQueries(queryClient);
@@ -93,6 +98,7 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
     setSavedTitle(null);
     setInput("");
     setResolvedDoi("");
+    setPdfUrl(undefined);
     addMutation.reset();
     resolveMutation.reset();
     saveMutation.reset();
@@ -220,6 +226,11 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
                 style={{ color: "var(--color-success)" }}
               >
                 Saved to library ✓
+                {saveMutation.data?.pdf_saved === false && (
+                  <span className="font-normal" style={{ color: "var(--color-muted)" }}>
+                    {" "}(PDF not retrieved: the publisher may require access)
+                  </span>
+                )}
               </p>
             ) : (
               <Button

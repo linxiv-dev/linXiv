@@ -234,6 +234,8 @@ pub struct DoiResolveResponse {
 pub struct DoiSaveResponse {
     pub metadata: PaperMetadata,
     pub saved: bool,
+    /// Whether the requested publisher PDF was attached; null when none was asked for.
+    pub pdf_saved: Option<bool>,
 }
 
 /// `{"ok": true}` — the bare acknowledgement for writes with nothing else to report.

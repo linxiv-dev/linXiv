@@ -9,13 +9,14 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use linxiv_core::config;
 use linxiv_core::error::CoreError;
 use linxiv_core::models::{
     strip_namespace, ArxivFetchResponse, ArxivSearchResponse, CrossrefSearchResponse,
     DoiResolveResponse, DoiSaveResponse, OpenAlexSaveResponse, OpenAlexSearchResponse,
     PaperMetadata, SearchResultOut,
 };
-use linxiv_core::service::{paper as svc_paper, source as svc_source};
+use linxiv_core::service::{files as svc_files, paper as svc_paper, source as svc_source};
 
 use crate::route::{to_value, ApiError, ReqCtx};
 use crate::state::AppState;
@@ -264,21 +265,39 @@ async fn doi_resolve_route(ctx: &ReqCtx<'_>) -> Result<Value, ApiError> {
 }
 
 #[derive(Deserialize, ts_rs::TS)]
+#[ts(optional_fields = nullable)]
 pub struct DoiSaveBody {
     pub doi: String,
+    /// Publisher PDF link to try after the save; a miss never fails it.
+    pub pdf_url: Option<String>,
 }
 
-/// `POST /api/doi/save` — resolve then save; returns the resolved meta.
+/// `POST /api/doi/save` — resolve then save; returns the resolved meta. With
+/// `pdf_url`, then best-effort fetches the PDF (SSRF/quota guarded) onto it.
 async fn doi_save_route(state: &AppState, ctx: &ReqCtx<'_>) -> Result<Value, ApiError> {
     let b: DoiSaveBody = ctx.parse_body()?;
     if b.doi.is_empty() {
         return Err(ApiError::new(422, "doi must not be empty"));
     }
     let meta = svc_source::resolve_doi(b.doi.trim()).await?;
-    state.with_conn(|conn| svc_paper::save_paper_metadata(conn, &meta, None))?;
+    let (sid, ver) = state.with_conn(|conn| svc_paper::save_paper_metadata(conn, &meta, None))?;
+    let pdf_saved = match b.pdf_url.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(url) => {
+            let fetched = match config::UserSettings::load() {
+                Ok(s) => {
+                    let max = s.pdf_save_limit_bytes();
+                    svc_files::download_pdf(&state.pdf_dir, &sid, ver, url, max).await
+                }
+                Err(e) => Err(e),
+            };
+            Some(state.with_conn(|conn| svc_files::keep_fetched_pdf(conn, &sid, ver, fetched)))
+        }
+    };
     to_value(&DoiSaveResponse {
         metadata: meta,
         saved: true,
+        pdf_saved,
     })
 }
 
