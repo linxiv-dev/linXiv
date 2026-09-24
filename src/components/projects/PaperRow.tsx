@@ -3,6 +3,7 @@ import type { Paper, Project } from "../../types/api";
 import { MathText } from "../../lib/tex";
 import { isReadingListProject } from "../../lib/readingStatus";
 import { StatusButton } from "../reading/StatusButton";
+import { clickMods, type ClickMods } from "../../stores/selection";
 
 // Deliberately NOT PaperCard (src/components/papers/PaperCard.tsx): this is a
 // compact list row for the project page. It intentionally omits PaperCard's
@@ -12,7 +13,8 @@ import { StatusButton } from "../reading/StatusButton";
 interface PaperRowProps {
   paper: Paper;
   checked: boolean;
-  onToggle: () => void;
+  /** Checkbox clicks and Ctrl/Cmd/Shift clicks on the row body. */
+  onSelect: (mods: ClickMods) => void;
   /** Project being viewed; passed as nav state so the note scope picker
    *  on the paper detail page pre-selects it (ADR 0003). */
   projectId: number;
@@ -24,7 +26,7 @@ interface PaperRowProps {
   onContextMenu?: React.MouseEventHandler;
 }
 
-export function PaperRow({ paper, checked, onToggle, projectId, project, selectable, onContextMenu }: PaperRowProps) {
+export function PaperRow({ paper, checked, onSelect, projectId, project, selectable, onContextMenu }: PaperRowProps) {
   const navigate = useNavigate();
   const authors = paper.authors.slice(0, 3).join(", ");
 
@@ -38,18 +40,18 @@ export function PaperRow({ paper, checked, onToggle, projectId, project, selecta
         <input
           type="checkbox"
           checked={checked}
-          onChange={onToggle}
+          onChange={(e) => onSelect(clickMods(e.nativeEvent as MouseEvent))}
           className="mt-1 accent-[var(--color-accent)] shrink-0 cursor-pointer"
           onClick={(e) => e.stopPropagation()}
         />
       )}
       <div
         className="flex-1 min-w-0 cursor-pointer"
-        onClick={() =>
-          navigate(`/library/${paper.source_fk}`, {
-            state: { fromProjectId: projectId },
-          })
-        }
+        onClick={(e) => {
+          const mods = clickMods(e);
+          if (selectable && (mods.ctrl || mods.shift)) onSelect(mods);
+          else navigate(`/library/${paper.source_fk}`, { state: { fromProjectId: projectId } });
+        }}
       >
         <p
           className="text-sm font-medium leading-snug line-clamp-2"

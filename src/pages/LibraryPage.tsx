@@ -11,7 +11,7 @@ import {
   addToProjectMutationOptions,
   createProjectMutationOptions,
 } from "../lib/paperMutations";
-import { useSelectionStore } from "../stores/selection";
+import { useSelectionStore, type ClickMods } from "../stores/selection";
 import { useLibraryStore } from "../stores/library";
 import type { LibraryFilterMode as FilterMode } from "../stores/library";
 import type { Paper } from "../types/api";
@@ -232,6 +232,16 @@ export default function LibraryPage() {
     [navigate]
   );
 
+  // Shift ranges run over the visible (filtered, sorted) order.
+  const visibleOrder = useMemo(() => filtered.map((p) => p.source_id), [filtered]);
+  const visibleOrderRef = useRef(visibleOrder);
+  visibleOrderRef.current = visibleOrder;
+  const select = useSelectionStore((s) => s.select);
+  const handleSelect = useCallback(
+    (id: string, mods: ClickMods) => select(id, mods, visibleOrderRef.current),
+    [select]
+  );
+
   // Right-click on a paper in a multi-selection acts on the whole selection
   // (OS convention); otherwise on the clicked paper alone. Selection is read
   // via getState() and the visible set via a ref so the callback stays stable
@@ -239,10 +249,7 @@ export default function LibraryPage() {
   // intersected with the currently visible papers so a selected-but-
   // filtered-out paper is never acted on invisibly.
   const visibleIdsRef = useRef<Set<string>>(new Set());
-  visibleIdsRef.current = useMemo(
-    () => new Set(filtered.map((p) => p.source_id)),
-    [filtered]
-  );
+  visibleIdsRef.current = useMemo(() => new Set(visibleOrder), [visibleOrder]);
   const handlePaperContextMenu = useCallback(
     (e: React.MouseEvent, paper: Paper) => {
       const sel = useSelectionStore.getState().selectedIds;
@@ -492,7 +499,7 @@ export default function LibraryPage() {
               >
                 <PaperCard
                   paper={filtered[vItem.index]}
-                  showCheckbox
+                  onSelect={handleSelect}
                   onNavigate={handleNavigate}
                   onContextMenu={handlePaperContextMenu}
                 />

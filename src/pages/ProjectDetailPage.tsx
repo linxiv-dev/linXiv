@@ -50,7 +50,7 @@ export default function ProjectDetailPage() {
   const navType = useNavigationType();
   const queryClient = useQueryClient();
 
-  const { selectedIds, toggle, clear, selectAll } = useSelectionStore();
+  const { selectedIds, select, clear, selectAll } = useSelectionStore();
 
   // Clear selection on mount/unmount.
   useEffect(() => {
@@ -562,7 +562,7 @@ export default function ProjectDetailPage() {
                 key={paper.source_id}
                 paper={paper}
                 checked={selectedIds.has(paper.source_id)}
-                onToggle={() => toggle(paper.source_id)}
+                onSelect={(mods) => select(paper.source_id, mods, projectPapers.map((p) => p.source_id))}
                 projectId={projectId}
                 project={project}
                 selectable={!readOnly}

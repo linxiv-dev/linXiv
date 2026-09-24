@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { Paper } from "../../types/api";
-import { useSelectionStore } from "../../stores/selection";
+import { clickMods, useSelectionStore, type ClickMods } from "../../stores/selection";
 import { labelForSource } from "../../lib/papers";
 import { MathText } from "../../lib/tex";
 
@@ -9,7 +9,8 @@ const MAX_TAGS_DISPLAY = 4;
 
 interface PaperCardProps {
   paper: Paper;
-  showCheckbox?: boolean;
+  /** Shows the checkbox; also gets Ctrl/Cmd/Shift clicks on the card body. */
+  onSelect?: (id: string, mods: ClickMods) => void;
   onNavigate: (sfk: number) => void;
   /** Native context menu (Tauri); browser dev falls through to the default.
    *  Takes the paper so pages can pass one stable callback (the card is memoized). */
@@ -18,12 +19,11 @@ interface PaperCardProps {
 
 export const PaperCard = memo(function PaperCard({
   paper,
-  showCheckbox = false,
+  onSelect,
   onNavigate,
   onContextMenu,
 }: PaperCardProps) {
   const isSelected = useSelectionStore((s) => s.selectedIds.has(paper.source_id));
-  const toggle = useSelectionStore((s) => s.toggle);
 
   const authors = paper.authors;
   const displayAuthors = authors.slice(0, MAX_AUTHORS_DISPLAY);
@@ -52,12 +52,12 @@ export const PaperCard = memo(function PaperCard({
       ].join(" ")}
       style={{ borderRadius: "var(--card-radius)", padding: "var(--card-pad)" }}
     >
-      {showCheckbox && (
+      {onSelect && (
         <div className="shrink-0 flex items-start">
           <input
             type="checkbox"
             checked={isSelected}
-            onChange={() => toggle(paper.source_id)}
+            onChange={(e) => onSelect(paper.source_id, clickMods(e.nativeEvent as MouseEvent))}
             className="mt-1 accent-[var(--color-accent)] cursor-pointer"
             aria-label={`Select ${paper.title}`}
           />
@@ -66,7 +66,11 @@ export const PaperCard = memo(function PaperCard({
       <button
         type="button"
         aria-label={`Open ${paper.title}`}
-        onClick={() => onNavigate(paper.source_fk)}
+        onClick={(e) => {
+          const mods = clickMods(e);
+          if (onSelect && (mods.ctrl || mods.shift)) onSelect(paper.source_id, mods);
+          else onNavigate(paper.source_fk);
+        }}
         className="flex-1 text-left hover:brightness-110 cursor-pointer min-w-0"
       >
         {/* Meta row: category · arXiv id · venue/year · status badge */}

@@ -14,6 +14,7 @@ import {
   partialFailureMessage,
 } from "../../lib/paperMutations";
 import { errText } from "../../lib/errText";
+import { applyClick, clickMods } from "../../stores/selection";
 
 interface AddPapersDialogProps {
   open: boolean;
@@ -30,7 +31,10 @@ export function AddPapersDialog({
 }: AddPapersDialogProps) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  // Local, not the selection store: the project page behind this dialog
+  // keeps its own row selection there.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +49,7 @@ export function AddPapersDialog({
     if (open) {
       setSearch("");
       setSelectedIds(new Set());
+      setAnchor(null);
       setError(null);
     }
   }, [open]);
@@ -60,16 +65,10 @@ export function AddPapersDialog({
       : true
   );
 
-  function toggleId(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  function handleRowClick(id: string, e: React.MouseEvent) {
+    const next = applyClick(selectedIds, anchor, id, clickMods(e), filtered.map((p) => p.source_id));
+    setSelectedIds(next.selectedIds);
+    setAnchor(next.anchor);
   }
 
   async function handleSubmit() {
@@ -125,15 +124,16 @@ export function AddPapersDialog({
             </p>
           ) : (
             filtered.map((paper) => (
-              <label
+              <div
                 key={paper.source_id}
+                onClick={(e) => handleRowClick(paper.source_id, e)}
                 className="flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-[var(--color-panel)]"
                 style={{ borderBottom: "1px solid var(--color-border)" }}
               >
                 <input
                   type="checkbox"
                   checked={selectedIds.has(paper.source_id)}
-                  onChange={() => toggleId(paper.source_id)}
+                  readOnly
                   className="mt-0.5 accent-[var(--color-accent)] shrink-0"
                 />
                 <div className="flex flex-col gap-0.5 min-w-0">
@@ -151,7 +151,7 @@ export function AddPapersDialog({
                     {paper.authors.join(", ") || paper.source_id}
                   </span>
                 </div>
-              </label>
+              </div>
             ))
           )}
         </div>
