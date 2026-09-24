@@ -33,20 +33,20 @@ const { DEFAULT_SIDEBAR_PAGES, DEFAULT_EXPORT_METHODS } = await import("./migrat
 
 const persisted = (key: string) => JSON.parse(storage.get(key) ?? "null");
 
-test("selection: toggle adds then removes, always as a fresh Set", () => {
+test("selection: a plain click adds then removes, always as a fresh Set", () => {
   const s = useSelectionStore.getState();
   const before = s.selectedIds;
-  s.toggle("a");
+  s.select("a", {}, []);
   const afterAdd = useSelectionStore.getState().selectedIds;
   assert.notEqual(afterAdd, before);
   assert.deepEqual([...afterAdd], ["a"]);
-  s.toggle("a");
+  s.select("a", {}, []);
   assert.equal(useSelectionStore.getState().selectedIds.size, 0);
 });
 
 test("selection: selectAll replaces the set, clear empties it", () => {
   const s = useSelectionStore.getState();
-  s.toggle("x");
+  s.select("x", {}, []);
   s.selectAll(["a", "b", "a"]);
   assert.deepEqual([...useSelectionStore.getState().selectedIds], ["a", "b"]);
   s.clear();
