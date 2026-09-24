@@ -11,6 +11,7 @@ import { SearchSection } from "../components/settings/SearchSection";
 import { FullTextSection } from "../components/settings/FullTextSection";
 import { HomeFeedSection } from "../components/settings/HomeFeedSection";
 import { SidebarSection } from "../components/settings/SidebarSection";
+import { AnnotationColorsSection } from "../components/settings/AnnotationColorsSection";
 import { ExportSection } from "../components/settings/ExportSection";
 import { IntegrationsSection } from "../components/settings/IntegrationsSection";
 import { SharingSection } from "../components/settings/SharingSection";
@@ -46,6 +47,7 @@ const GROUPS: SettingsGroup[] = [
         <SearchSection />
         <FullTextSection />
         <SidebarSection />
+        <AnnotationColorsSection />
         <VersionMonitorSection />
         <ExportSection />
       </div>
