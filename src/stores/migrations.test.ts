@@ -186,7 +186,7 @@ test("theme migrate keeps unknown keys it does not know about", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ui store: v1 -> v7
+// ui store: v1 -> v8
 // ---------------------------------------------------------------------------
 
 // Shared across the tests below without defensive copying: migrateUi copies on
@@ -198,9 +198,10 @@ const fullUi = {
   zoom: 1.5,
   density: "compact" as const,
   hideSingleAuthors: true,
+  colorLabels: [{ color: "#123456", name: "Key result" }],
 };
 
-test("ui v0 -> v7 fills every field from defaults", () => {
+test("ui v0 -> v8 fills every field from defaults", () => {
   assert.deepStrictEqual(migrateUi({ sidebarCollapsed: true }, 0), {
     sidebarCollapsed: true,
     sidebarPages: DEFAULT_SIDEBAR_PAGES,
@@ -208,10 +209,11 @@ test("ui v0 -> v7 fills every field from defaults", () => {
     zoom: DEFAULT_ZOOM,
     hideSingleAuthors: false,
     density: DEFAULT_DENSITY,
+    colorLabels: [],
   });
 });
 
-test("ui v1 -> v7 backfills exportMethods/zoom/hideSingleAuthors/density", () => {
+test("ui v1 -> v8 backfills exportMethods/zoom/hideSingleAuthors/density", () => {
   const migrated = migrateUi(
     { sidebarCollapsed: true, sidebarPages: { graph: false, search: true, doi: true } },
     1
@@ -224,10 +226,11 @@ test("ui v1 -> v7 backfills exportMethods/zoom/hideSingleAuthors/density", () =>
     zoom: DEFAULT_ZOOM,
     hideSingleAuthors: false,
     density: DEFAULT_DENSITY,
+    colorLabels: [],
   });
 });
 
-test("ui v2 -> v7 keeps the user's exportMethods choices", () => {
+test("ui v2 -> v8 keeps the user's exportMethods choices", () => {
   const migrated = migrateUi(
     { exportMethods: { lxproj: false, bibtex: true, obsidian: false }, sidebarPages: { doi: false } },
     2
@@ -238,10 +241,11 @@ test("ui v2 -> v7 keeps the user's exportMethods choices", () => {
     zoom: DEFAULT_ZOOM,
     hideSingleAuthors: false,
     density: DEFAULT_DENSITY,
+    colorLabels: [],
   });
 });
 
-test("ui v3 -> v7 keeps the saved zoom and seeds the v4/v5 fields", () => {
+test("ui v3 -> v8 keeps the saved zoom and seeds the v4/v5 fields", () => {
   // A real v3 blob has zoom but neither hideSingleAuthors nor density yet.
   const migrated = migrateUi(
     {
@@ -259,17 +263,18 @@ test("ui v3 -> v7 keeps the saved zoom and seeds the v4/v5 fields", () => {
     zoom: 1.5,
     hideSingleAuthors: false,
     density: DEFAULT_DENSITY,
+    colorLabels: [],
   });
 });
 
-test("ui v1/v2 -> v7 correctly resets zoom (introduced in v3)", () => {
+test("ui v1/v2 -> v8 correctly resets zoom (introduced in v3)", () => {
   // Verdict: reset is correct. zoom did not exist before v3, so a pre-v3 blob
   // carrying one is corrupt, not user data — overwrite, don't merge.
   assert.equal(migrateUi(fullUi, 1).zoom, DEFAULT_ZOOM);
   assert.equal(migrateUi(fullUi, 2).zoom, DEFAULT_ZOOM);
 });
 
-test("ui v4 -> v7 keeps hideSingleAuthors and backfills density", () => {
+test("ui v4 -> v8 keeps hideSingleAuthors and backfills density", () => {
   const migrated = migrateUi(fullUi, 4);
   assert.equal(migrated.hideSingleAuthors, true);
   assert.equal(migrated.zoom, 1.5);
@@ -277,7 +282,7 @@ test("ui v4 -> v7 keeps hideSingleAuthors and backfills density", () => {
   assert.equal(migrated.density, DEFAULT_DENSITY, "density is a v5 field, so it resets");
 });
 
-test("ui v5 -> v7 keeps density and backfills the shared page key", () => {
+test("ui v5 -> v8 keeps density and backfills the shared page key", () => {
   const migrated = migrateUi(fullUi, 5);
   assert.equal(migrated.density, "compact");
   assert.deepStrictEqual(migrated.sidebarPages, {
@@ -288,7 +293,7 @@ test("ui v5 -> v7 keeps density and backfills the shared page key", () => {
   });
 });
 
-test("ui v6 -> v7 backfills only the reading page key", () => {
+test("ui v6 -> v8 backfills only the reading page key", () => {
   const migrated = migrateUi(
     { sidebarPages: { ...DEFAULT_SIDEBAR_PAGES, shared: false }, zoom: 0.8, density: "compact" },
     6
@@ -297,7 +302,13 @@ test("ui v6 -> v7 backfills only the reading page key", () => {
     sidebarPages: { ...DEFAULT_SIDEBAR_PAGES, shared: false, reading: true },
     zoom: 0.8,
     density: "compact",
+    colorLabels: [],
   });
+});
+
+test("ui v7 -> v8 seeds empty colorLabels and keeps everything else", () => {
+  const { colorLabels: _c, ...v7 } = fullUi;
+  assert.deepStrictEqual(migrateUi(v7, 7), { ...v7, colorLabels: [] });
 });
 
 test("ui migrate handles undefined / null / empty blobs at every version", () => {
@@ -307,17 +318,19 @@ test("ui migrate handles undefined / null / empty blobs at every version", () =>
     zoom: DEFAULT_ZOOM,
     hideSingleAuthors: false,
     density: DEFAULT_DENSITY,
+    colorLabels: [],
   };
   // migrateUi copies on entry, so reusing one blob across the calls is safe.
   for (const blob of [undefined, null, {}]) {
     assert.deepStrictEqual(migrateUi(blob, 0), backfilled);
     assert.deepStrictEqual(migrateUi(blob, 1), backfilled);
-    assert.deepStrictEqual(migrateUi(blob, 6), { sidebarPages: DEFAULT_SIDEBAR_PAGES });
+    assert.deepStrictEqual(migrateUi(blob, 6), { sidebarPages: DEFAULT_SIDEBAR_PAGES, colorLabels: [] });
+    assert.deepStrictEqual(migrateUi(blob, 7), { colorLabels: [] });
   }
 });
 
 test("ui migrate leaves a current/future version untouched", () => {
-  for (const version of [7, 8, 99]) {
+  for (const version of [8, 9, 99]) {
     assert.deepStrictEqual(migrateUi(fullUi, version), fullUi);
   }
 });
