@@ -6,13 +6,14 @@ import {
   DEFAULT_EXPORT_METHODS,
   DEFAULT_SIDEBAR_PAGES,
   migrateUi,
+  type ColorLabel,
   type ExportFormatKey,
   type ExportMethods,
   type SidebarPageKey,
   type SidebarPages,
 } from "./migrations.ts";
 
-export type { ExportFormatKey, ExportMethods, SidebarPageKey, SidebarPages };
+export type { ColorLabel, ExportFormatKey, ExportMethods, SidebarPageKey, SidebarPages };
 
 interface UiState {
   sidebarCollapsed: boolean;
@@ -27,6 +28,8 @@ interface UiState {
   setDensity: (density: Density) => void;
   hideSingleAuthors: boolean;
   setHideSingleAuthors: (hide: boolean) => void;
+  colorLabels: ColorLabel[];
+  setColorLabels: (labels: ColorLabel[]) => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -38,6 +41,7 @@ export const useUiStore = create<UiState>()(
       zoom: DEFAULT_ZOOM,
       density: DEFAULT_DENSITY,
       hideSingleAuthors: false,
+      colorLabels: [],
 
       toggleSidebar() {
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
@@ -70,10 +74,14 @@ export const useUiStore = create<UiState>()(
       setHideSingleAuthors(hide) {
         set({ hideSingleAuthors: hide });
       },
+
+      setColorLabels(labels) {
+        set({ colorLabels: labels });
+      },
     }),
     {
       name: "linxiv-ui",
-      version: 7,
+      version: 8,
       migrate: migrateUi,
       // The webview starts every launch at the defaults; re-apply the persisted
       // zoom and density, normalized in case a stored value is out of range.

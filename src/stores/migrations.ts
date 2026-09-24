@@ -29,6 +29,12 @@ export const DEFAULT_EXPORT_METHODS: ExportMethods = {
   zotero: true,
 };
 
+/** A user's name for an annotation highlight color; local to this machine. */
+export interface ColorLabel {
+  color: string;
+  name: string;
+}
+
 /** The persisted slice of the ui store (no actions). */
 export interface UiPersisted {
   sidebarCollapsed: boolean;
@@ -37,9 +43,10 @@ export interface UiPersisted {
   zoom: number;
   density: Density;
   hideSingleAuthors: boolean;
+  colorLabels: ColorLabel[];
 }
 
-/** ui store, v0 -> v7. */
+/** ui store, v0 -> v8. */
 export function migrateUi(persisted: unknown, fromVersion: number): Partial<UiPersisted> {
   const state = { ...(persisted as Partial<UiPersisted>) };
   if (fromVersion < 1) {
@@ -67,6 +74,10 @@ export function migrateUi(persisted: unknown, fromVersion: number): Partial<UiPe
   if (fromVersion < 7) {
     // Backfill the new "reading" page key into persisted sidebarPages.
     state.sidebarPages = { ...DEFAULT_SIDEBAR_PAGES, ...state.sidebarPages };
+  }
+  if (fromVersion < 8) {
+    // Reset is correct: colorLabels was introduced in v8; nothing older to carry.
+    state.colorLabels = [];
   }
   return state;
 }
