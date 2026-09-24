@@ -10,6 +10,7 @@ import { useUiStore, type SidebarPageKey } from "../../stores/ui";
 import { useGlobalShortcuts } from "../../lib/shortcuts";
 import { getSettings } from "../../api/settings";
 import { useThemeStore } from "../../stores/theme";
+import { useBackendStore } from "../../stores/backend";
 import { VALID_HEX } from "../../lib/theme";
 import type { ThemeColors, ColorAlphas } from "../../lib/theme";
 
@@ -42,6 +43,7 @@ export default function AppShell() {
   const navigate = useNavigate();
   const sidebarPages = useUiStore((s) => s.sidebarPages);
   const onKeepAlive = KEEP_ALIVE.includes(pathname);
+  const backendId = useBackendStore((s) => s.defaultBackend?.id ?? "local");
 
   useEffect(() => {
     const key = ROUTE_PAGE_KEY[pathname];
@@ -91,7 +93,9 @@ export default function AppShell() {
           className="absolute inset-0 flex flex-col"
           style={{ display: pathname === "/graph" ? "flex" : "none" }}
         >
-          <GraphPage />
+          {/* Node ids are per-library row keys: a backend switch must remount, not
+              warm-reload a settled layout, viewport and selection onto another library. */}
+          <GraphPage key={backendId} />
         </div>
 
         <div
