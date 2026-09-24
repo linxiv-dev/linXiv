@@ -1,6 +1,6 @@
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { join as pathJoin } from "@tauri-apps/api/path";
-import { BASE_URL, bytesToBase64, isTauri } from "./client";
+import { BASE_URL, bytesToBase64, isTauri } from "./client.ts";
 import { libraryFetch } from "../stores/backend.ts";
 import type {
   BibtexImportReceipt,
