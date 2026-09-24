@@ -13,7 +13,7 @@ use crate::sources::http::{assert_host_allowed, ARXIV_HOSTS};
 pub enum RecognizedInput {
     /// Bare arXiv id, extracted from an id or any arXiv-host URL.
     ArxivId(String),
-    /// Bare DOI, extracted from a DOI or a doi.org/dx.doi.org URL.
+    /// Bare DOI, from a DOI, a doi.org/dx.doi.org URL, or a known publisher URL.
     Doi(String),
     /// http(s) URL whose path ends in `.pdf`, normalized (scheme added if pasted bare).
     DirectPdfUrl(String),
@@ -63,10 +63,27 @@ pub fn recognize(input: &str) -> RecognizedInput {
             None => Unrecognized,
         };
     }
+    if let Some(doi) = publisher_doi(&url) {
+        return Doi(doi);
+    }
     if url.path().to_ascii_lowercase().ends_with(".pdf") {
         return DirectPdfUrl(url_str);
     }
     Unrecognized
+}
+
+/// Publisher hosts whose `/<journal>/<section>/<doi>` paths carry the DOI.
+const PUBLISHER_DOI_PATHS: &[(&str, &[&str])] = &[("journals.aps.org", &["pdf", "abstract"])];
+
+/// DOI from a publisher landing/PDF URL listed in `PUBLISHER_DOI_PATHS`.
+fn publisher_doi(url: &Url) -> Option<String> {
+    let host = url.host_str()?;
+    let (_, sections) = PUBLISHER_DOI_PATHS.iter().find(|(h, _)| *h == host)?;
+    let mut parts = url.path().trim_start_matches('/').splitn(3, '/');
+    let (_journal, section, doi) = (parts.next()?, parts.next()?, parts.next()?);
+    let doi = doi.trim_end_matches('/');
+    (sections.contains(&section) && doi.starts_with("10.") && doi.contains('/'))
+        .then(|| doi.to_string())
 }
 
 /// arXiv id from an `/abs/…`, `/pdf/…(.pdf)`, or `/html/…` URL path.
@@ -160,6 +177,27 @@ mod tests {
         assert_eq!(recognize("doi.org/10.1000/xyz"), doi("10.1000/xyz"));
         // a bare doi.org URL strips to nothing
         assert_eq!(recognize("https://doi.org/"), Unrecognized);
+    }
+
+    #[test]
+    fn publisher_urls_extract_the_doi() {
+        for url in [
+            "https://journals.aps.org/prl/pdf/10.1103/PhysRevLett.128.073601",
+            "https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.128.073601",
+            "journals.aps.org/prl/pdf/10.1103/PhysRevLett.128.073601",
+        ] {
+            assert_eq!(
+                recognize(url),
+                doi("10.1103/PhysRevLett.128.073601"),
+                "{url}"
+            );
+        }
+        for url in [
+            "https://journals.aps.org/prl/issues/128/7",
+            "https://journals.aps.org/prl/pdf/not-a-doi",
+        ] {
+            assert_eq!(recognize(url), Unrecognized, "{url}");
+        }
     }
 
     #[test]
