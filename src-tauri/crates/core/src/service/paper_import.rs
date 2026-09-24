@@ -812,15 +812,18 @@ mod tests {
 
     #[tokio::test]
     async fn import_pdf_default_uses_real_resolver_and_mints_local_root() {
-        // Wiring: resolve first (junk bytes extract no arXiv/DOI/title, so
-        // enrichment makes no network call), then mint a local:<sha> identity.
+        // Wiring: resolve first (an empty but parseable PDF yields no arXiv/DOI/
+        // title, so enrichment makes no network call), then mint a local:<sha>.
         let mut conn = db();
         let dir = tempdir().unwrap();
         let data_dir = tempdir().unwrap();
         let res = import_pdf_default(
             &mut conn,
             dir.path(),
-            b"%PDF-1.4 junk",
+            b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n\
+              2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n\
+              3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 9 9]>>endobj\n\
+              trailer<</Root 1 0 R>>\n%%EOF\n",
             None,
             NO_LIMIT,
             data_dir.path(),

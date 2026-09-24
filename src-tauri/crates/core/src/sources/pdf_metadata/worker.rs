@@ -261,11 +261,8 @@ mod tests {
         );
         assert!(t0.elapsed() < std::time::Duration::from_secs(10));
 
-        // No worker found -> in-process fallback (junk -> default, no crash).
-        assert_eq!(
-            extract_isolated_with(None, b"%PDF junk"),
-            Extracted::default()
-        );
+        // No worker found -> in-process fallback (junk -> no metadata, no crash).
+        assert_eq!(extract_isolated_with(None, b"%PDF junk").title, None);
         // Worker routing via the dispatch seam.
         assert_eq!(
             extract_isolated_with(Some(&ok), b"junk").title.as_deref(),

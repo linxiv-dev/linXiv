@@ -5,7 +5,7 @@ use std::path::Path;
 
 use chrono::{NaiveDate, Utc};
 
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 use crate::models::PaperMetadata;
 use crate::sources::{arxiv, crossref, doi_resolve};
 
@@ -255,6 +255,13 @@ pub async fn resolve_pdf_metadata(
     let raw = tokio::task::spawn_blocking(move || extract_pdf_metadata_isolated(&owned))
         .await
         .unwrap_or_default();
+    // Only a pdfium format rejection fails the import; worker crash/timeout and
+    // a missing libpdfium still degrade to a bare record (can't blame the file).
+    if raw.unreadable {
+        return Err(CoreError::PdfImport(
+            "PDF is corrupt or could not be parsed".into(),
+        ));
+    }
     let local_id = pdf_source_id(bytes);
     resolve_from_extracted(local_id, raw, data_dir, mailto, verify_identity).await
 }
@@ -318,6 +325,7 @@ mod tests {
             doi: None,
             arxiv_id: Some("2604.21547v1".into()),
             year: Some(2026),
+            unreadable: false,
         };
         assert!(pdf_metadata_is_sufficient(&full));
 
@@ -460,6 +468,7 @@ mod tests {
             doi: Some("10.1234/x".into()),
             arxiv_id: Some("2604.99999".into()),
             year: None,
+            unreadable: false,
         };
         assert!(
             matches!(identity_candidate(&both), IdentityCandidate::Arxiv(id) if id == "2604.99999")
@@ -499,6 +508,7 @@ mod tests {
             doi: None,
             arxiv_id: None,
             year: None,
+            unreadable: false,
         };
         let dir = tempfile::tempdir().unwrap();
         let (meta, ext) = resolve_from_extracted("local:x".into(), raw, dir.path(), "", true)
@@ -525,6 +535,7 @@ mod tests {
             doi: Some("10.1234/would-be-verified-if-enabled".into()),
             arxiv_id: Some("2604.21547v1".into()),
             year: None,
+            unreadable: false,
         };
         let dir = tempfile::tempdir().unwrap();
         let (meta, ext) = resolve_from_extracted("local:x".into(), raw, dir.path(), "", false)
@@ -545,12 +556,13 @@ mod tests {
 
     // ---- partial-record builder ----
 
-    // Junk bytes extract no arXiv id / DOI / title, so enrich_external short-
-    // circuits to None with zero network calls — the offline fallthrough path.
+    // A PDF that opens but yields no arXiv id / DOI / title: enrich_external
+    // short-circuits to None with zero network calls — the offline fallthrough.
     #[tokio::test]
     async fn resolve_partial_record_shape() {
         let dir = tempfile::tempdir().unwrap();
-        let (m, ext) = resolve_pdf_metadata(b"some pdf bytes", dir.path(), "", true)
+        let local_id = pdf_source_id(b"some pdf bytes");
+        let (m, ext) = resolve_from_extracted(local_id, Extracted::default(), dir.path(), "", true)
             .await
             .unwrap();
         assert_eq!(ext, None);

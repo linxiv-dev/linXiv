@@ -21,6 +21,9 @@ pub(crate) struct Extracted {
     pub doi: Option<String>,
     pub arxiv_id: Option<String>,
     pub year: Option<i32>,
+    /// pdfium rejected the bytes as malformed (FPDF_ERR_FORMAT). Distinct from
+    /// all-None: a PDF that opens but carries no metadata leaves this false.
+    pub unreadable: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -105,8 +108,16 @@ pub(crate) fn extract_pdf_metadata(bytes: &[u8]) -> Extracted {
         let Some(pdfium) = bind_pdfium() else {
             return Extracted::default();
         };
-        let Ok(doc) = pdfium.load_pdf_from_byte_slice(bytes, None) else {
-            return Extracted::default();
+        let doc = match pdfium.load_pdf_from_byte_slice(bytes, None) {
+            Ok(doc) => doc,
+            Err(PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::FormatError)) => {
+                return Extracted {
+                    unreadable: true,
+                    ..Extracted::default()
+                };
+            }
+            // Password/security/other load errors: keep degrading to all-None.
+            Err(_) => return Extracted::default(),
         };
         extract_from_doc(&doc)
     }))
@@ -151,6 +162,7 @@ fn extract_from_doc(doc: &PdfDocument) -> Extracted {
         doi,
         arxiv_id,
         year,
+        unreadable: false,
     }
 }
 
@@ -279,17 +291,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn malformed_pdf_degrades_not_panics() {
-        // catch-and-fall-through: garbage in -> all-None, no panic.
+    async fn malformed_pdf_is_a_pdf_import_error() {
+        if bind_pdfium().is_none() {
+            eprintln!("skipping malformed_pdf_is_a_pdf_import_error: libpdfium not available");
+            return;
+        }
+        // %PDF magic + garbage: pdfium refuses to open it -> flagged, no panic.
         let m = extract_pdf_metadata(b"%PDF-1.4 not really a pdf");
-        assert_eq!(m, Extracted::default());
-        // resolve still yields a partial record (deterministic local id); no
-        // arXiv/DOI/title extracted, so enrichment makes no network call.
+        assert!(m.unreadable);
+        assert_eq!(m.title, None);
+        // resolve surfaces it as PdfImport (422) before any network call,
+        // rather than saving a bare `local:` record.
         let dir = tempfile::tempdir().unwrap();
-        let (meta, ext) = resolve_pdf_metadata(b"%PDF junk", dir.path(), "", true)
+        let err = resolve_pdf_metadata(b"%PDF junk", dir.path(), "", true)
             .await
-            .unwrap();
-        assert!(meta.source_id.starts_with("local:"));
-        assert_eq!(ext, None);
+            .unwrap_err();
+        assert!(
+            matches!(err, crate::error::CoreError::PdfImport(_)),
+            "{err:?}"
+        );
+        assert_eq!(err.http_status(), 422);
     }
 }

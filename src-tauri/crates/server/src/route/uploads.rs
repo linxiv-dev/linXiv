@@ -123,10 +123,9 @@ async fn import_pdf(state: &AppState, ctx: &ReqCtx<'_>) -> Result<Value, ApiErro
     // `pdf_save_limit_mb` — a user-configurable TOTAL-storage cap, layered under
     // the fixed 100 MB per-upload ceiling above (DI'd here; core never reads config).
     let max_pdf_bytes = config::UserSettings::load()?.pdf_save_limit_bytes();
-    // ProjectNotFound → 404, ProjectDeleted/PaperLink → 400 flow through `?`. NOTE:
-    // resolve_pdf_metadata degrades a pdfium extraction failure to empty metadata
-    // (it never errors), so a %PDF-but-corrupt file saves a minimal paper + 200
-    // rather than a 422; surfacing PdfImport from the resolver is deferred.
+    // ProjectNotFound → 404, ProjectDeleted/PaperLink → 400 flow through `?`.
+    // A %PDF-but-corrupt file pdfium can't open → PdfImport → 422; one that opens
+    // but has no extractable metadata still imports as a minimal paper.
     // Fail-fast: a bad project_id is rejected before the network resolve; the
     // commit lock re-checks (project can vanish in between).
     state.with_conn(|conn| paper_import::precheck_import_pdf(conn, project_id))?;
