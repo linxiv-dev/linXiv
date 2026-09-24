@@ -23,7 +23,7 @@ import { formSubmitOnCtrlEnter } from "../lib/submitShortcut";
 import { Button } from "../components/ui/button";
 import { Dialog } from "../components/ui/dialog";
 import { PaperCard } from "../components/papers/PaperCard";
-import { SelectionBar } from "../components/papers/SelectionBar";
+import { SelectionBar, SelectionBarButton } from "../components/papers/SelectionBar";
 import { ImportDialog } from "../components/import/ImportDialog";
 import { HistoryDialog } from "../components/history/HistoryDialog";
 import { useUrlDialog } from "../hooks/useUrlDialog";
@@ -510,12 +510,14 @@ export default function LibraryPage() {
       </div>
 
       {/* Selection bar */}
-      <SelectionBar
-        count={selectedIds.size}
-        onAddToProject={() => setProjectPickerOpen(true)}
-        onDelete={handleDeleteRequest}
-        onClear={clear}
-      />
+      <SelectionBar count={selectedIds.size} onClear={clear}>
+        <SelectionBarButton onClick={() => setProjectPickerOpen(true)}>
+          Add to Project
+        </SelectionBarButton>
+        <SelectionBarButton danger onClick={handleDeleteRequest}>
+          Delete
+        </SelectionBarButton>
+      </SelectionBar>
 
       {/* Delete confirmation dialog */}
       <Dialog

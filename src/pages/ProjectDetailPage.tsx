@@ -23,6 +23,7 @@ import { ColorSwatch } from "../components/projects/ColorSwatch";
 import { EditProjectDialog } from "../components/projects/EditProjectDialog";
 import { AddPapersDialog } from "../components/projects/AddPapersDialog";
 import { PaperRow } from "../components/projects/PaperRow";
+import { SelectionBar, SelectionBarButton } from "../components/papers/SelectionBar";
 import { ExportDialog } from "../components/projects/ExportDialog";
 import { Button } from "../components/ui/button";
 import { TagBadge } from "../components/tags/TagBadge";
@@ -337,7 +338,7 @@ export default function ProjectDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-8 overflow-y-auto">
+    <div className={`flex flex-col gap-6 p-8 overflow-y-auto ${!readOnly && selectedIds.size > 0 ? "pb-20" : ""}`}>
       {/* Back nav */}
       <button
         onClick={() => navType !== "POP" ? navigate(-1) : navigate("/projects")}
@@ -500,39 +501,17 @@ export default function ProjectDetailPage() {
         </div>
 
         {/* Selection action bar */}
-        {!readOnly && selectedIds.size > 0 && (
-          <div
-            className="flex items-center justify-between rounded-lg px-4 py-2.5"
-            style={{
-              backgroundColor: "var(--color-panel)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <span className="text-sm" style={{ color: "var(--color-text)" }}>
-              {selectedIds.size} paper{selectedIds.size !== 1 ? "s" : ""} selected
-            </span>
-            <div className="flex items-center gap-2">
-              {removeError && (
-                <span
-                  className="text-xs"
-                  style={{ color: "var(--color-danger)" }}
-                >
-                  {removeError}
-                </span>
-              )}
-              <Button variant="muted" size="sm" onClick={clear}>
-                Clear
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={handleRemoveSelected}
-                disabled={removing}
-              >
-                {removing ? <Spinner size={12} /> : "Remove from Project"}
-              </Button>
-            </div>
-          </div>
+        {!readOnly && (
+          <SelectionBar count={selectedIds.size} onClear={clear}>
+            {removeError && (
+              <span className="px-2.5 text-xs" style={{ color: "var(--color-danger)" }}>
+                {removeError}
+              </span>
+            )}
+            <SelectionBarButton danger onClick={handleRemoveSelected} disabled={removing}>
+              {removing ? <Spinner size={12} /> : "Remove from Project"}
+            </SelectionBarButton>
+          </SelectionBar>
         )}
 
         {/* Papers list */}

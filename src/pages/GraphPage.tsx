@@ -23,6 +23,7 @@ import { copyItem, showContextMenu } from "../lib/contextMenu";
 import GraphPanels from "../components/graph/GraphPanels";
 import { LogoMark } from "../components/ui/logo-mark";
 import { Button } from "../components/ui/button";
+import { SelectionBar, SelectionBarButton } from "../components/papers/SelectionBar";
 import { formSubmitOnCtrlEnter } from "../lib/submitShortcut";
 import { Dialog } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
@@ -443,22 +444,11 @@ export default function GraphPage() {
         )}
       </div>
 
-      {selectedIds.size > 0 && (
-        <div
-          className="shrink-0 flex items-center justify-between px-6 py-3 border-t border-border shadow-lg"
-          style={{ backgroundColor: "var(--color-panel)" }}
-        >
-          <span className="text-sm font-medium text-text">{selectedIds.size} selected</span>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={clearSelection}>
-              Clear
-            </Button>
-            <Button variant="muted" size="sm" onClick={() => setProjectPickerOpen(true)}>
-              Add to Project
-            </Button>
-          </div>
-        </div>
-      )}
+      <SelectionBar count={selectedIds.size} onClear={clearSelection}>
+        <SelectionBarButton onClick={() => setProjectPickerOpen(true)}>
+          Add to Project
+        </SelectionBarButton>
+      </SelectionBar>
 
       <Dialog
         open={projectPickerOpen}

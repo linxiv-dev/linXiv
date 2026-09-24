@@ -1,16 +1,13 @@
+import type { ReactNode } from "react";
+
 interface SelectionBarProps {
   count: number;
-  onAddToProject: () => void;
-  onDelete: () => void;
   onClear: () => void;
+  /** Page-specific actions, rendered before Done. */
+  children: ReactNode;
 }
 
-export function SelectionBar({
-  count,
-  onAddToProject,
-  onDelete,
-  onClear,
-}: SelectionBarProps) {
+export function SelectionBar({ count, onClear, children }: SelectionBarProps) {
   if (count === 0) return null;
 
   return (
@@ -28,28 +25,33 @@ export function SelectionBar({
       </span>
       <span aria-hidden className="h-4 w-px" style={{ backgroundColor: "rgba(255,255,255,0.15)" }} />
       <div className="flex items-center gap-1">
-        <button
-          onClick={onAddToProject}
-          className="rounded px-2.5 py-1 text-xs font-medium transition-colors hover:bg-white/10"
-          style={{ color: "#ffffff" }}
-        >
-          Add to Project
-        </button>
-        <button
-          onClick={onDelete}
-          className="rounded px-2.5 py-1 text-xs font-medium transition-colors hover:bg-white/10"
-          style={{ color: "var(--color-danger)" }}
-        >
-          Delete
-        </button>
-        <button
-          onClick={onClear}
-          className="rounded px-2.5 py-1 text-xs font-medium transition-colors hover:bg-white/10"
-          style={{ color: "rgba(255,255,255,0.65)" }}
-        >
+        {children}
+        <SelectionBarButton onClick={onClear} color="rgba(255,255,255,0.65)">
           Done
-        </button>
+        </SelectionBarButton>
       </div>
     </div>
+  );
+}
+
+interface SelectionBarButtonProps {
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+  color?: string;
+  children: ReactNode;
+}
+
+export function SelectionBarButton({ onClick, disabled, danger, color, children }: SelectionBarButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded px-2.5 py-1 text-xs font-medium transition-colors hover:bg-white/10 disabled:opacity-40"
+      style={{ color: color ?? (danger ? "var(--color-danger)" : "#ffffff") }}
+    >
+      {children}
+    </button>
   );
 }
