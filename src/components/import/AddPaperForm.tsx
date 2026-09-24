@@ -8,10 +8,8 @@ import { Spinner } from "../ui/spinner";
 import { LogoMark } from "../ui/logo-mark";
 import { fetchArxiv, resolveDoi, saveDoi } from "../../api/search";
 import { importPdfUrl, recognizePaperInput } from "../../api/exportImport";
+import { addPaper } from "../../lib/addPaper";
 import type { PaperMetadata } from "../../types/api";
-
-/** Recognize outcome for the non-DOI paths: paper already saved. */
-type AddOutcome = { doi: string; pdfUrl?: string } | { savedTitle: string };
 
 /** Paste-a-reference add flow, shared by the /doi page and the sidebar popover.
  *  `compact` drops the large loading mark for tight containers. */
@@ -40,27 +38,8 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
   // Recognize + dispatch: a DOI hands off to the preview flow above; arXiv ids
   // and direct PDF URLs save immediately.
   const addMutation = useMutation({
-    mutationFn: async (raw: string): Promise<AddOutcome> => {
-      const rec = await recognizePaperInput(raw);
-      switch (rec.kind) {
-        case "doi":
-          return { doi: rec.value };
-        case "doi_with_pdf":
-          return { doi: rec.value.doi, pdfUrl: rec.value.pdf_url };
-        case "arxiv_id": {
-          const r = await fetchArxiv(rec.value, true);
-          return { savedTitle: r.paper.title };
-        }
-        case "direct_pdf_url": {
-          const r = await importPdfUrl(rec.value);
-          return { savedTitle: r.title };
-        }
-        default:
-          throw new Error(
-            "Not a recognized paper reference. Paste an arXiv link or ID, a DOI, or a direct PDF link."
-          );
-      }
-    },
+    mutationFn: (raw: string) =>
+      addPaper(raw, { recognize: recognizePaperInput, fetchArxiv, importPdfUrl }),
     onSuccess: (outcome) => {
       if ("doi" in outcome) {
         setPdfUrl(outcome.pdfUrl);
