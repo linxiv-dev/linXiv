@@ -15,12 +15,16 @@ import { layoutRng, randomizePositions, seedPositions } from "../../lib/graph/la
 import { fitViewport, placeFloatingBox, FIT_PADDING } from "../../lib/graph/fit";
 import { syncMoved } from "../../lib/graph/sync";
 import {
+  AUTHOR_LABEL,
+  ellipsize,
   eventsFor,
   graphStylesheet,
   highlightColor,
+  labelWidth,
   MAX_ZOOM,
   MIN_ZOOM,
   opacityFor,
+  PAPER_LABEL,
   paperColor,
   whenLabelFontReady,
 } from "../../lib/graph/style";
@@ -95,6 +99,9 @@ interface TooltipState extends TooltipContent {
  *  across (14px for an author diamond), leaving room for the label hanging off
  *  the right. */
 const COLLIDE_RADIUS = 14;
+
+/** Main-thread ms per frame the settling layout may spend on extra ticks. */
+const TICK_BUDGET_MS = 12;
 
 const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function GraphCanvas(
   {
@@ -287,17 +294,32 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
       ) as SimNode[];
       nodesRef.current = new Map(simNodes.map((n) => [n.id, n]));
 
+      // `label` stays whole for tag routes and "Copy Label"; `display` is drawn.
+      const paperWidth = labelWidth(PAPER_LABEL.size);
+      const authorWidth = labelWidth(AUTHOR_LABEL.size);
       const cy = cytoscape({
         container,
         elements: [
           ...view.papers.map((p) => ({
             group: "nodes" as const,
-            data: { id: p.id, type: "paper", label: p.label, source_id: p.source_id },
+            data: {
+              id: p.id,
+              type: "paper",
+              label: p.label,
+              display: ellipsize(p.label, PAPER_LABEL.maxWidth, paperWidth),
+              source_id: p.source_id,
+            },
             position: { x: nodesRef.current.get(p.id)!.x, y: nodesRef.current.get(p.id)!.y },
           })),
           ...view.authors.map((a) => ({
             group: "nodes" as const,
-            data: { id: a.id, type: "author", label: a.label, author_id: a.author_id },
+            data: {
+              id: a.id,
+              type: "author",
+              label: a.label,
+              display: ellipsize(a.label, AUTHOR_LABEL.maxWidth, authorWidth),
+              author_id: a.author_id,
+            },
             position: { x: nodesRef.current.get(a.id)!.x, y: nodesRef.current.get(a.id)!.y },
           })),
           ...view.tags.map((t) => ({
@@ -449,7 +471,24 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
           );
         });
       };
-      sim.on("tick", () => syncPositions(0.5 / cy.zoom()));
+      // d3 ticks once per frame and a frame's redraw costs 10x a tick, so an
+      // anneal would crawl at the renderer's pace. Spend a budget on extra ticks
+      // first: same ticks, same layout, fewer frames. Not while dragging, where
+      // alphaTarget holds the sim warm and extra ticks would speed up the feel.
+      let tickMs = 0;
+      sim.on("tick", () => {
+        const start = performance.now();
+        while (
+          sim.alphaTarget() === 0 &&
+          sim.alpha() >= sim.alphaMin() &&
+          performance.now() - start + tickMs < TICK_BUDGET_MS
+        ) {
+          const t = performance.now();
+          sim.tick();
+          tickMs = performance.now() - t;
+        }
+        syncPositions(0.5 / cy.zoom());
+      });
       // Frame the settled layout, not the seed positions fitted above. Fires on
       // every drag/filter restart too, hence the one-shot flag.
       sim.on("end", () => {
