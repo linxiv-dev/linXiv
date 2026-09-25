@@ -127,7 +127,10 @@ test("non-members neither push nor get pushed by either force", () => {
   const base = randomNodes(40, 400);
   const members = allIds(base);
   // A ghost dropped right in the middle of the pack.
-  const withGhost = [...structuredClone(base), { id: "ghost", x: 1, y: 1, vx: 0, vy: 0 }];
+  const withGhost = [
+    ...structuredClone(base),
+    { id: "ghost", index: base.length, x: 1, y: 1, vx: 0, vy: 0 },
+  ];
   const without = structuredClone(base);
 
   for (const factory of [
@@ -156,10 +159,10 @@ test("coincident and near-coincident points separate instead of hanging", () => 
   // Exact duplicates exercise the chain + jiggle path; a 1e-9 offset rounds
   // to the same f32 and exercises the depth-capped chain path.
   const nodes: Node[] = [
-    { id: "a", x: 0, y: 0, vx: 0, vy: 0 },
-    { id: "b", x: 0, y: 0, vx: 0, vy: 0 },
-    { id: "c", x: 1e-9, y: 0, vx: 0, vy: 0 },
-    { id: "d", x: 200, y: 200, vx: 0, vy: 0 },
+    { id: "a", index: 0, x: 0, y: 0, vx: 0, vy: 0 },
+    { id: "b", index: 1, x: 0, y: 0, vx: 0, vy: 0 },
+    { id: "c", index: 2, x: 1e-9, y: 0, vx: 0, vy: 0 },
+    { id: "d", index: 3, x: 200, y: 200, vx: 0, vy: 0 },
   ];
   const charge = f32ManyBody<Node>(allIds(nodes), 180);
   charge.initialize!(nodes, mulberry32(7));
@@ -178,8 +181,8 @@ test("axis-aligned nodes get a per-component jiggle, like d3", () => {
   // Same x, different y: d3 jiggles the zero x component so a vertical stack
   // still spreads horizontally under charge alone.
   const nodes: Node[] = [
-    { id: "a", x: 5, y: 0, vx: 0, vy: 0 },
-    { id: "b", x: 5, y: 40, vx: 0, vy: 0 },
+    { id: "a", index: 0, x: 5, y: 0, vx: 0, vy: 0 },
+    { id: "b", index: 1, x: 5, y: 40, vx: 0, vy: 0 },
   ];
   const charge = f32ManyBody<Node>(allIds(nodes), 180);
   charge.initialize!(nodes, mulberry32(7));

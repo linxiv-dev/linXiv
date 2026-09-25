@@ -32,11 +32,15 @@ test("diffSummary: counts with signs, pluralized, meta by field name", () => {
   const d: HistoryDiff = {
     ...empty,
     papers_added: [
-      { source_id: "arxiv:1", title: "A" },
-      { source_id: "arxiv:2", title: "B" },
+      { source_id: "arxiv:1", title: "A", source_fk: null },
+      { source_id: "arxiv:2", title: "B", source_fk: null },
     ],
-    notes_removed: [{ uuid: "u", title: "n", from: "x", to: null }],
-    annotations_changed: [{ uuid: "v", title: "arxiv:1", from: "a", to: "b" }],
+    notes_removed: [
+      { uuid: "u", title: "n", from: "x", to: null, note_id: null, paper_sfk: null },
+    ],
+    annotations_changed: [
+      { uuid: "v", title: "arxiv:1", from: "a", to: "b", note_id: null, paper_sfk: null },
+    ],
     meta: [{ field: "name", from: "Old", to: "New" }],
   };
   assert.equal(

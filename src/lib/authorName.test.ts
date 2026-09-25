@@ -5,6 +5,7 @@ import { parseFullName, nameSortKey } from "./authorName.ts";
 import type { Author } from "../types/api";
 
 const author = (overrides: Partial<Author>): Author => ({
+  paper_count: 0,
   author_id: 1,
   full_name: null,
   first_name: null,
