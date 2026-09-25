@@ -22,6 +22,36 @@ export const FULL_OPACITY = 1;
 export const MIN_ZOOM = 0.05;
 export const MAX_ZOOM = 10;
 
+/** Label caps (px) and sizes for the two ellipsized node types. */
+export const PAPER_LABEL = { size: 13, maxWidth: 180 };
+export const AUTHOR_LABEL = { size: 12, maxWidth: 140 };
+
+/**
+ * Cut `text` to fit `maxWidth`, ending in "…". Done once per payload in place
+ * of cytoscape's `text-wrap: ellipsis`, which re-measures the label a character
+ * at a time on every position change: on a real 1.3k-node graph that was most
+ * of each layout tick.
+ */
+export function ellipsize(text: string, maxWidth: number, width: (s: string) => number): string {
+  if (width(text) < maxWidth) return text;
+  // Longest prefix whose ellipsized width still fits.
+  let lo = 0;
+  let hi = text.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (width(text.slice(0, mid) + "…") <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo) + "…";
+}
+
+/** Label width in px as cytoscape measures it: same font string, rounded up. */
+export function labelWidth(size: number): (s: string) => number {
+  const ctx = document.createElement("canvas").getContext("2d")!;
+  ctx.font = `normal 600 ${size}px ${LABEL_FONT}`;
+  return (s) => Math.ceil(ctx.measureText(s).width);
+}
+
 export function paperColor(t: ThemeColors): string {
   return t.accent;
 }
@@ -41,7 +71,7 @@ export function graphStylesheet(t: ThemeColors): StylesheetJson {
         width: 20,
         height: 20,
         "background-color": paperColor(t),
-        label: "data(label)",
+        label: "data(display)",
         "font-size": 13,
         "font-weight": 600,
         // Theme text with a background-coloured halo over edges/nodes.
@@ -55,8 +85,6 @@ export function graphStylesheet(t: ThemeColors): StylesheetJson {
         "text-valign": "center",
         "text-halign": "right",
         "text-margin-x": 8,
-        "text-max-width": "180px",
-        "text-wrap": "ellipsis",
         "border-width": 1.5,
         "border-color": t.bg,
       },
@@ -68,7 +96,7 @@ export function graphStylesheet(t: ThemeColors): StylesheetJson {
         width: 14,
         height: 14,
         "background-color": AUTHOR_COLOR,
-        label: "data(label)",
+        label: "data(display)",
         "font-size": 12,
         "font-weight": 600,
         color: t.text,
@@ -80,8 +108,6 @@ export function graphStylesheet(t: ThemeColors): StylesheetJson {
         "text-valign": "center",
         "text-halign": "right",
         "text-margin-x": 7,
-        "text-max-width": "140px",
-        "text-wrap": "ellipsis",
       },
     },
     {
@@ -129,7 +155,7 @@ export function graphStylesheet(t: ThemeColors): StylesheetJson {
  * style and not by whether the family had arrived. Inter is a self-hosted
  * webfont, so on a cold load every label can be measured in the fallback face
  * and keep that width all session: tag chips (`width: 'label'`) size wrong and
- * `text-max-width` ellipsizes at the wrong point. Reinstalling the stylesheet
+ * `ellipsize` cuts labels at the wrong point. Reinstalling the stylesheet
  * later does NOT help — have the face in hand before the first render.
  */
 export function whenLabelFontReady(): Promise<void> {
