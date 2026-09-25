@@ -1,5 +1,5 @@
-import { isTauri } from "./client";
-import { isHttpUrl } from "../lib/papers";
+import { isTauri } from "./client.ts";
+import { isHttpUrl } from "../lib/papers.ts";
 
 // Releases ship on GitHub, so "check for updates" compares the installed
 // version against the latest published GitHub Release.

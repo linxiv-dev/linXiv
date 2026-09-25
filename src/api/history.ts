@@ -1,4 +1,4 @@
-import { apiFetch } from "./client";
+import { apiFetch } from "./client.ts";
 import { libraryFetch } from "../stores/backend.ts";
 import type {
   DeviceActor,
