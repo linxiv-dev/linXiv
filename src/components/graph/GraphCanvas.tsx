@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import cytoscape from "cytoscape";
-import type { Core, NodeSingular } from "cytoscape";
+import type { Core, NodeSingular, Position } from "cytoscape";
 import { forceLink, forceSimulation, forceX, forceY } from "d3-force";
 import type { ForceLink, Simulation, SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 
@@ -13,6 +13,7 @@ import { f32Collide, f32ManyBody } from "../../lib/graph/f32forces";
 import type { ForceSettings } from "../../lib/graph/layout";
 import { layoutRng, randomizePositions, seedPositions } from "../../lib/graph/layout";
 import { fitViewport, placeFloatingBox, FIT_PADDING } from "../../lib/graph/fit";
+import { syncMoved } from "../../lib/graph/sync";
 import {
   eventsFor,
   graphStylesheet,
@@ -40,7 +41,8 @@ interface SimNode extends SimulationNodeDatum {
    *  writers, two release rules — a filter pin goes when the node re-enters the
    *  layout, a drag pin when the user lets go — and neither clears the other's. */
   filterPinned?: boolean;
-  cyNode?: NodeSingular;
+  /** `silentPosition` is public cytoscape API its typings omit. */
+  cyNode?: NodeSingular & { silentPosition(pos: Position): void };
 }
 
 type SimLink = SimulationLinkDatum<SimNode>;
@@ -324,7 +326,7 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
 
       // Cache each node's handle so the per-tick sync skips a lookup per node
       // per frame.
-      for (const n of simNodes) n.cyNode = cy.getElementById(n.id);
+      for (const n of simNodes) n.cyNode = cy.getElementById(n.id) as unknown as SimNode["cyNode"];
 
       cy.on("grab", "node", (e) => {
         fitOnSettle.current = false; // the user took control — don't reframe under them
@@ -434,14 +436,24 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
         .force("collision", collideForce());
       simRef.current = sim;
 
-      sim.on("tick", () => {
+      // `silentPosition` still fires the `bounds` notification the renderer
+      // redraws on, but skips a `position` event per node that nothing here
+      // listens to. Nodes that drifted under half a screen pixel wait a tick.
+      const syncPositions = (eps: number) => {
         cy.batch(() => {
-          for (const n of simNodes) n.cyNode?.position({ x: n.x, y: n.y });
+          syncMoved(
+            simNodes,
+            (n) => n.cyNode!.position(),
+            (n) => n.cyNode!.silentPosition({ x: n.x, y: n.y }),
+            eps
+          );
         });
-      });
+      };
+      sim.on("tick", () => syncPositions(0.5 / cy.zoom()));
       // Frame the settled layout, not the seed positions fitted above. Fires on
       // every drag/filter restart too, hence the one-shot flag.
       sim.on("end", () => {
+        syncPositions(0);
         if (!fitOnSettle.current) return;
         fitOnSettle.current = false;
         fit();
