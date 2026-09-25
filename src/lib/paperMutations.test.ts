@@ -1,7 +1,7 @@
 // Run: node --experimental-transform-types --test src/lib/paperMutations.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 import {
   PAPER_QUERY_KEYS,
   PAPER_MUTATION_QUERY_KEYS,
@@ -27,7 +27,7 @@ import {
 
 /** Seeds one cached entry per key and returns the keys left stale afterwards. */
 async function staleAfter(
-  keys: string[][],
+  keys: QueryKey[],
   run: (qc: QueryClient) => Promise<void>
 ): Promise<Set<string>> {
   const qc = new QueryClient();
@@ -234,6 +234,9 @@ test("partial-failure message reports the failed count against the total", () =>
   assert.equal(partialFailureMessage(1, 1), "1 of 1 paper could not be added");
 });
 
+/** The mutation context react-query passes callbacks; unused by the handlers. */
+const ctx = { client: new QueryClient(), meta: undefined };
+
 /** Records every ProjectPickerActions call for asserting against. */
 function fakePicker() {
   const calls = {
@@ -257,7 +260,7 @@ test("add-to-project partial failure re-selects failures and stays open", () => 
   const { ui, calls } = fakePicker();
   const opts = addToProjectMutationOptions(new QueryClient(), ui);
 
-  opts.onSuccess?.(["arxiv:2"], { projectId: 1, sourceIds: ["arxiv:1", "arxiv:2"] }, undefined);
+  opts.onSuccess?.(["arxiv:2"], { projectId: 1, sourceIds: ["arxiv:1", "arxiv:2"] }, undefined, ctx);
 
   assert.deepEqual(calls.selected, [["arxiv:2"]]);
   assert.deepEqual(calls.errors, ["1 of 2 papers could not be added"]);
@@ -268,7 +271,7 @@ test("add-to-project full success closes the picker", () => {
   const { ui, calls } = fakePicker();
   const opts = addToProjectMutationOptions(new QueryClient(), ui);
 
-  opts.onSuccess?.([], { projectId: 1, sourceIds: ["arxiv:1"] }, undefined);
+  opts.onSuccess?.([], { projectId: 1, sourceIds: ["arxiv:1"] }, undefined, ctx);
 
   assert.equal(calls.done, 1);
   assert.deepEqual(calls.selected, []);
@@ -279,14 +282,14 @@ test("create-project clears the name even on partial failure", () => {
   const { ui, calls } = fakePicker();
   const opts = createProjectMutationOptions(new QueryClient(), ui);
 
-  opts.onSuccess?.(["arxiv:1"], { name: "p", sourceIds: ["arxiv:1"] }, undefined);
+  opts.onSuccess?.(["arxiv:1"], { name: "p", sourceIds: ["arxiv:1"] }, undefined, ctx);
 
   assert.equal(calls.namesCleared, 1);
   assert.deepEqual(calls.selected, [["arxiv:1"]]);
   assert.deepEqual(calls.errors, ["Project created, but 1 paper could not be added"]);
   assert.equal(calls.done, 0);
 
-  opts.onSuccess?.([], { name: "p", sourceIds: ["arxiv:1"] }, undefined);
+  opts.onSuccess?.([], { name: "p", sourceIds: ["arxiv:1"] }, undefined, ctx);
   assert.equal(calls.namesCleared, 2);
   assert.equal(calls.done, 1);
 });
@@ -296,8 +299,8 @@ test("mutation errors surface as picker messages", () => {
   const add = addToProjectMutationOptions(new QueryClient(), ui);
   const create = createProjectMutationOptions(new QueryClient(), ui);
 
-  add.onError?.(new Error("boom"), { projectId: 1, sourceIds: [] }, undefined);
-  create.onError?.(new Error("bang"), { name: "p", sourceIds: [] }, undefined);
+  add.onError?.(new Error("boom"), { projectId: 1, sourceIds: [] }, undefined, ctx);
+  create.onError?.(new Error("bang"), { name: "p", sourceIds: [] }, undefined, ctx);
 
   assert.deepEqual(calls.errors, ["boom", "bang"]);
 });
