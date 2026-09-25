@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { applyTheme, VALID_HEX } from "../lib/theme";
+import { applyTheme, clampAlpha, sanitizeOverrides, upsertByName, VALID_HEX } from "../lib/theme";
 import type { ColorAlphas, PresetName, ThemeColors, ThemeMode } from "../lib/theme";
 import { pushThemeToEditor, EDITOR_ORIGIN } from "../pages/editorConfig";
 import { migrateTheme } from "./migrations.ts";
@@ -46,10 +46,6 @@ interface ThemeState {
 }
 
 export type AppThemeState = ReturnType<typeof useThemeStore.getState>;
-
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
 
 export const useThemeStore = create<ThemeState>()(
   persist(
@@ -98,14 +94,14 @@ export const useThemeStore = create<ThemeState>()(
 
         setOverrideAlpha(key, alpha) {
           if (get().overrides[key] === undefined) return;
-          const next = { ...get().overrideAlphas, [key]: clamp(alpha, 0, 100) };
+          const next = { ...get().overrideAlphas, [key]: clampAlpha(alpha) };
           applyAndSet({ overrideAlphas: next });
         },
 
         setOverrideWithAlpha(key, hex, alpha) {
           if (!VALID_HEX.test(hex)) return;
           const nextOverrides = { ...get().overrides, [key]: hex };
-          const nextAlphas = { ...get().overrideAlphas, [key]: clamp(alpha, 0, 100) };
+          const nextAlphas = { ...get().overrideAlphas, [key]: clampAlpha(alpha) };
           applyAndSet({ overrides: nextOverrides, overrideAlphas: nextAlphas });
         },
 
@@ -118,15 +114,7 @@ export const useThemeStore = create<ThemeState>()(
             overrides: { ...overrides },
             overrideAlphas: { ...overrideAlphas },
           };
-          const nameLower = name.toLowerCase();
-          const idx = customPalettes.findIndex((p) => p.name.toLowerCase() === nameLower);
-          if (idx === -1) {
-            set({ customPalettes: [...customPalettes, palette] });
-          } else {
-            const next = [...customPalettes];
-            next[idx] = palette;
-            set({ customPalettes: next });
-          }
+          set({ customPalettes: upsertByName(customPalettes, palette) });
         },
 
         deleteCustomPalette(name) {
@@ -144,17 +132,7 @@ export const useThemeStore = create<ThemeState>()(
         },
 
         restoreFromSettings(overrides, overrideAlphas) {
-          const safeOverrides: Partial<ThemeColors> = {};
-          for (const k of Object.keys(overrides) as Array<keyof ThemeColors>) {
-            const v = overrides[k];
-            if (v && VALID_HEX.test(v)) safeOverrides[k] = v;
-          }
-          const safeAlphas: ColorAlphas = {};
-          for (const k of Object.keys(overrideAlphas) as Array<keyof ThemeColors>) {
-            const v = overrideAlphas[k];
-            if (typeof v === "number") safeAlphas[k] = clamp(v, 0, 100);
-          }
-          applyAndSet({ overrides: safeOverrides, overrideAlphas: safeAlphas });
+          applyAndSet(sanitizeOverrides(overrides, overrideAlphas));
         },
       };
     },

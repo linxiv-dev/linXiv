@@ -202,6 +202,37 @@ export type PresetName = keyof typeof PRESETS;
 
 export const VALID_HEX = /^#[0-9a-fA-F]{6}$/;
 
+export function clampAlpha(v: number): number {
+  return Math.max(0, Math.min(100, v));
+}
+
+/** Keeps only valid hex overrides and numeric alphas (clamped to 0-100). */
+export function sanitizeOverrides(
+  overrides: Partial<ThemeColors>,
+  overrideAlphas: ColorAlphas
+): { overrides: Partial<ThemeColors>; overrideAlphas: ColorAlphas } {
+  const safeOverrides: Partial<ThemeColors> = {};
+  for (const k of Object.keys(overrides) as Array<keyof ThemeColors>) {
+    const v = overrides[k];
+    if (v && VALID_HEX.test(v)) safeOverrides[k] = v;
+  }
+  const safeAlphas: ColorAlphas = {};
+  for (const k of Object.keys(overrideAlphas) as Array<keyof ThemeColors>) {
+    const v = overrideAlphas[k];
+    if (typeof v === "number") safeAlphas[k] = clampAlpha(v);
+  }
+  return { overrides: safeOverrides, overrideAlphas: safeAlphas };
+}
+
+/** Replaces the item whose name matches case-insensitively in place, else appends. */
+export function upsertByName<T extends { name: string }>(list: T[], item: T): T[] {
+  const lower = item.name.toLowerCase();
+  const idx = list.findIndex((p) => p.name.toLowerCase() === lower);
+  if (idx === -1) return [...list, item];
+  const next = [...list];
+  next[idx] = item;
+  return next;
+}
 
 export function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
