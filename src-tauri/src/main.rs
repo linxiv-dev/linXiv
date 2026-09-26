@@ -85,6 +85,7 @@ fn main() {
                 }
              },
         ))
+        .plugin(tauri_plugin_deep_link::init())
         // linxiv:// serves local and proxied PDF bytes to the webview —
         // invoke() can't stream binary into react-pdf or an `<iframe src>`.
         .register_asynchronous_uri_scheme_protocol(protocol::SCHEME, protocol::handler)
@@ -95,6 +96,11 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_texbrain::init())
         .setup(|app| {
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+              {
+               use tauri_plugin_deep_link::DeepLinkExt;
+               app.deep_link().register_all()?;
+              }
             // In-process backend: open the DB once and manage it. The webview
             // reaches linxiv-core through the invoke commands below plus the
             // linxiv:// scheme — no sidecar, no HTTP hop, nothing to reap.

@@ -1,0 +1,99 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  background: #ffffff;
+  color: #18181b;
+}
+
+.popup {
+  width: 360px;
+  padding: 18px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.brand {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.site {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.authors {
+  margin: 0 0 12px;
+  color: #52525b;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #71717a;
+}
+
+.abstract {
+  display: -webkit-box;
+  margin: 12px 0;
+  overflow: hidden;
+  color: #52525b;
+  font-size: 12px;
+  line-height: 1.5;
+
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.save-button {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 12px;
+
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.save-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.next-step,
+.muted,
+.error {
+  margin-bottom: 0;
+  font-size: 12px;
+  color: #71717a;
+}
+
+.error {
+  color: #b91c1c;
+}
