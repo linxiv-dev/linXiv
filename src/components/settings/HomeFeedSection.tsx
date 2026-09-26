@@ -132,6 +132,21 @@ function FeedFilterRulesSection() {
   );
 }
 
+const FEED_PRESETS: { label: string; value: string }[] = [
+  { label: "arXiv cs.LG", value: "https://rss.arxiv.org/rss/cs.LG" },
+  { label: "arXiv quant-ph", value: "https://rss.arxiv.org/rss/quant-ph" },
+  { label: "arXiv hep-th", value: "https://rss.arxiv.org/rss/hep-th" },
+  { label: "APS prl", value: "https://feeds.aps.org/rss/recent/prl.xml" },
+  { label: "APS pra", value: "https://feeds.aps.org/rss/recent/pra.xml" },
+  { label: "APS prb", value: "https://feeds.aps.org/rss/recent/prb.xml" },
+  { label: "APS prd", value: "https://feeds.aps.org/rss/recent/prd.xml" },
+  { label: "APS pre", value: "https://feeds.aps.org/rss/recent/pre.xml" },
+  { label: "APS prx", value: "https://feeds.aps.org/rss/recent/prx.xml" },
+  { label: "APS prxquantum", value: "https://feeds.aps.org/rss/recent/prxquantum.xml" },
+  { label: "APS rmp", value: "https://feeds.aps.org/rss/recent/rmp.xml" },
+  { label: "APS physics", value: "https://feeds.aps.org/rss/recent/physics.xml" },
+];
+
 const DEFAULT_RETENTION_DAYS = 30;
 
 export function HomeFeedSection() {
@@ -149,9 +164,20 @@ export function HomeFeedSection() {
   const [input, setInput] = useState("");
   const [prevSaved, setPrevSaved] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [preset, setPreset] = useState("");
   if (settings && saved !== prevSaved) {
     setInput(saved);
     setPrevSaved(saved);
+    const match = FEED_PRESETS.find((p) => p.value === saved);
+    setPreset(match ? match.value : "");
+  }
+
+  function handlePresetChange(value: string) {
+    setPreset(value);
+    if (value !== "") {
+      setInput(value);
+      setError("");
+    }
   }
 
   function handleBlur() {
@@ -228,7 +254,7 @@ export function HomeFeedSection() {
       <SettingGroup>
         <SettingRow
           label="Home feed URL"
-          description="RSS/Atom feed shown on the home page, e.g. https://rss.arxiv.org/rss/cs.LG. Leave empty for the default dashboard"
+          description="RSS/Atom feed shown on the home page. Pick a preset or enter any URL."
           descriptionId="home-feed-url-desc"
         >
           {settingsLoading ? (
@@ -239,12 +265,23 @@ export function HomeFeedSection() {
             <span className="text-xs text-danger">Could not load settings.</span>
           ) : (
             <div className="flex flex-col gap-2">
+              <OptionSelect
+                aria-label="Preset feeds"
+                options={[
+                  { value: "", label: "Custom URL" },
+                  ...FEED_PRESETS.map((p) => ({ value: p.value, label: p.label })),
+                ]}
+                value={preset}
+                onChange={handlePresetChange}
+                size="sm"
+              />
               <Input
                 type="url"
                 value={input}
                 onChange={(e) => {
                   setInput(e.target.value);
                   setError("");
+                  setPreset("");
                 }}
                 onBlur={handleBlur}
                 placeholder="https://rss.arxiv.org/rss/cs.LG"
