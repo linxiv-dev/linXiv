@@ -21,7 +21,7 @@
     "build:all": "npm run build:sidecar && npm run tauri build",
     "build:arch": "bash scripts/build_arch_package.sh",
     "extension:typecheck": "tsc -p browser-extension/tsconfig.json",
-    "extension:test": "node --experimental-transform-types --test \" browser-extension/src/**/*.test.ts\\",
+    "extension:test": "node --experimental-transform-types --test \"browser-extension/src/**/*.test.ts\"",
     "extension:build": "vite build --config browser-extension/vite.config.ts"
   },
   "dependencies": {
