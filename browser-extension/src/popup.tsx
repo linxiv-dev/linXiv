@@ -48,6 +48,17 @@ function Popup() {
     void loadPreview();
   }, []);
 
+  function handleSave() {
+    if (!preview) {
+      return;
+    }
+
+    const deepLink =
+      `linxiv-clip://add?input=${encodeURIComponent(preview.target.value)}`;
+
+    window.location.href = deepLink;
+  }
+
   if (loading) {
     return (
       <main className="popup">
@@ -99,15 +110,10 @@ function Popup() {
       <button
         className="save-button"
         type="button"
-        disabled
-        title="linXiv integration is the next milestone"
+        onClick={handleSave}
       >
         Save to linXiv
       </button>
-
-      <p className="next-step">
-        Desktop save integration comes next.
-      </p>
     </main>
   );
 }
