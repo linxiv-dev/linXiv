@@ -1,6 +1,8 @@
 import { lazy, useEffect } from "react";
 import { isTauri } from "./api/client";
-import { clipInputFromDeepLink } from "./lib/clipDeepLink";
+import { importBibtex } from "./api/exportImport";
+import { getPaper } from "./api/papers";
+import { clipPayloadFromDeepLink } from "./lib/clipDeepLink";
 import { createBrowserRouter, useParams } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import AppShell from "./components/layout/AppShell";
@@ -64,17 +66,34 @@ function DeepLinkBridge() {
 
     let unlisten: (() => void) | undefined;
 
-    function handleUrls(urls: string[]) {
+    async function handleUrls(urls: string[]) {
       for (const rawUrl of urls) {
-        const input = clipInputFromDeepLink(rawUrl);
+        const payload = clipPayloadFromDeepLink(rawUrl);
 
-        if (input) {
-          void router.navigate(
-            `/doi?input=${encodeURIComponent(input)}&submit=1`
+        if (!payload) {
+          continue;
+        }
+
+        if (payload.kind === "input") {
+          await router.navigate(
+            `/doi?input=${encodeURIComponent(payload.value)}&submit=1`
           );
-
           return;
         }
+
+        const file = new File([payload.value], "linxiv-clip.bib", {
+          type: "application/x-bibtex",
+        });
+        const receipt = await importBibtex(file);
+        const sourceId = receipt.source_ids[0];
+
+        if (!sourceId) {
+          throw new Error("BibTeX import did not return a paper source id.");
+        }
+
+        const paper = await getPaper(sourceId);
+        await router.navigate(`/library/${paper.source_fk}`);
+        return;
       }
     }
 
@@ -85,11 +104,17 @@ function DeepLinkBridge() {
       const currentUrls = await getCurrent();
 
       if (currentUrls) {
-        handleUrls(currentUrls);
+        await handleUrls(currentUrls);
       }
 
-      unlisten = await onOpenUrl(handleUrls);
-    })();
+      unlisten = await onOpenUrl((urls) => {
+        void handleUrls(urls).catch((error) => {
+          console.error("Failed to handle linXiv clip deep link", error);
+        });
+      });
+    })().catch((error) => {
+      console.error("Failed to initialize linXiv clip deep links", error);
+    });
 
     return () => {
       unlisten?.();
