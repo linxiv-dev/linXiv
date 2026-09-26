@@ -22,6 +22,7 @@ export interface ClipPreview {
 
   abstract?: string;
   doi?: string;
+  year?: string;
   pdfUrl?: string;
 
   canonicalUrl: string;
