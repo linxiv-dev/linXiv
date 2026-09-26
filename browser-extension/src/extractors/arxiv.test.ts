@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { extractArxivIdFromUrl } from "./arxiv.ts";
+import {
+  extractArxivIdFromUrl,
+  extractArxivYearFromId,
+} from "./arxiv.ts";
 
 test("extracts arXiv id from abstract URL", () => {
   assert.equal(
@@ -50,4 +53,18 @@ test("rejects malformed URLs", () => {
     extractArxivIdFromUrl("not-a-url"),
     null
   );
+});
+
+test("derives year from new-style arXiv id", () => {
+  assert.equal(extractArxivYearFromId("2301.08243"), "2023");
+  assert.equal(extractArxivYearFromId("1706.03762v7"), "2017");
+});
+
+test("derives year from old-style arXiv id", () => {
+  assert.equal(extractArxivYearFromId("hep-th/9901001"), "1999");
+  assert.equal(extractArxivYearFromId("math.NT/0301001v2"), "2003");
+});
+
+test("returns undefined for unknown arXiv id shape", () => {
+  assert.equal(extractArxivYearFromId("not-an-arxiv-id"), undefined);
 });
