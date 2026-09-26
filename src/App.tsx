@@ -1,4 +1,6 @@
-import { lazy } from "react";
+import { lazy, useEffect } from "react";
+import { isTauri } from "./api/client";
+import { clipInputFromDeepLink } from "./lib/clipDeepLink";
 import { createBrowserRouter, useParams } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import AppShell from "./components/layout/AppShell";
@@ -54,9 +56,53 @@ const router = createBrowserRouter([
   },
 ]);
 
+function DeepLinkBridge() {
+  useEffect(() => {
+    if (!isTauri) {
+      return;
+    }
+
+    let unlisten: (() => void) | undefined;
+
+    function handleUrls(urls: string[]) {
+      for (const rawUrl of urls) {
+        const input = clipInputFromDeepLink(rawUrl);
+
+        if (input) {
+          void router.navigate(
+            `/doi?input=${encodeURIComponent(input)}&submit=1`
+          );
+
+          return;
+        }
+      }
+    }
+
+    void (async () => {
+      const { getCurrent, onOpenUrl } =
+        await import("@tauri-apps/plugin-deep-link");
+
+      const currentUrls = await getCurrent();
+
+      if (currentUrls) {
+        handleUrls(currentUrls);
+      }
+
+      unlisten = await onOpenUrl(handleUrls);
+    })();
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  return null;
+}
+
 export default function App() {
   return (
     <TermsGate>
+      <DeepLinkBridge />
       <RouterProvider router={router} />
     </TermsGate>
   );

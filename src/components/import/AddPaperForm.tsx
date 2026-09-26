@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../ui/button";
 import { formSubmitOnCtrlEnter } from "../../lib/submitShortcut";
@@ -13,9 +13,18 @@ import type { PaperMetadata } from "../../types/api";
 
 /** Paste-a-reference add flow, shared by the /doi page and the sidebar popover.
  *  `compact` drops the large loading mark for tight containers. */
-export function AddPaperForm({ compact = false }: { compact?: boolean }) {
+export function AddPaperForm({
+  compact = false,
+  initialInput = "",
+  autoSubmit = false,
+}: {
+  compact?: boolean;
+  initialInput?: string;
+  autoSubmit?: boolean;
+}) {
   const queryClient = useQueryClient();
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialInput);
+  const autoSubmittedRef = useRef(false);
   // Capture the exact DOI string that was resolved, so Save always uses it
   // even if the user edits the input field afterwards.
   const [resolvedDoi, setResolvedDoi] = useState("");
@@ -50,6 +59,24 @@ export function AddPaperForm({ compact = false }: { compact?: boolean }) {
       }
     },
   });
+
+  useEffect(() => {
+    const trimmed = initialInput.trim();
+
+    if (!autoSubmit || !trimmed || autoSubmittedRef.current) {
+        return;
+    }
+
+    autoSubmittedRef.current = true;
+
+    setInput(trimmed);
+    setMetadata(null);
+    setSaveSuccess(false);
+    setSavedTitle(null);
+    resolveMutation.reset();
+
+    addMutation.mutate(trimmed);
+  }, [autoSubmit, initialInput]);
 
   // Save mutation
   const saveMutation = useMutation({
