@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { extractArxivIdFromUrl } from "./arxiv";
+import { extractArxivIdFromUrl } from "./arxiv.ts";
 
 test("extracts arXiv id from abstract URL", () => {
   assert.equal(
