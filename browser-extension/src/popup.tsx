@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import { buildBibtex } from "./bibtex";
 import type { ClipPreview, GetClipPreviewMessage } from "./types";
 
 import "./popup.css";
@@ -53,8 +54,9 @@ function Popup() {
       return;
     }
 
+    const bibtex = buildBibtex(preview);
     const deepLink =
-      `linxiv-clip://add?input=${encodeURIComponent(preview.target.value)}`;
+      `linxiv-clip://add?bibtex=${encodeURIComponent(bibtex)}`;
 
     window.location.href = deepLink;
   }
