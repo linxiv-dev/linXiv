@@ -14,6 +14,23 @@ function bibtexKey(preview: ClipPreview): string {
   return raw.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "linxiv_clip";
 }
 
+function yearFromArxivId(arxivId: string): string | undefined {
+  const newStyle = arxivId.match(/^(\d{2})\d{2}\.\d{4,5}(?:v\d+)?$/);
+
+  if (newStyle) {
+    return String(2000 + Number(newStyle[1]));
+  }
+
+  const oldStyle = arxivId.match(/^[a-z-]+(?:\.[A-Z]{2})?\/(\d{2})\d{5}(?:v\d+)?$/);
+
+  if (!oldStyle) {
+    return undefined;
+  }
+
+  const shortYear = Number(oldStyle[1]);
+  return String(shortYear >= 91 ? 1900 + shortYear : 2000 + shortYear);
+}
+
 export function buildBibtex(preview: ClipPreview): string {
   const fields: string[] = [
     `  title = ${bibtexValue(preview.title)}`,
@@ -25,8 +42,16 @@ export function buildBibtex(preview: ClipPreview): string {
     );
   }
 
-  if (preview.year) {
-    fields.push(`  year = ${bibtexValue(preview.year)}`);
+  const year =
+    preview.year ??
+    (preview.target.kind === "arxiv"
+      ? yearFromArxivId(preview.target.value)
+      : undefined);
+
+  // Keep the year numeric instead of wrapping it in braces. The backend's
+  // BibTeX parser first attempts to decode this field as an integer.
+  if (year) {
+    fields.push(`  year = ${year}`);
   }
 
   if (preview.abstract) {
