@@ -77,6 +77,13 @@ export function extractArxiv(
 
   const doi = metaContent(document, "citation_doi");
 
+  const publicationDate =
+    metaContent(document, "citation_date") ??
+    metaContent(document, "citation_publication_date") ??
+    metaContent(document, "citation_online_date");
+
+  const year = publicationDate?.match(/\b(?:19|20)\d{2}\b/)?.[0];
+
   const pdfUrl =
     metaContent(document, "citation_pdf_url") ??
     `https://arxiv.org/pdf/${arxivId}`;
@@ -93,6 +100,7 @@ export function extractArxiv(
     authors,
     abstract,
     doi,
+    year,
     pdfUrl,
     canonicalUrl: `https://arxiv.org/abs/${arxivId}`,
   };
