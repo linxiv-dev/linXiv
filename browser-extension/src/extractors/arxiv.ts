@@ -38,6 +38,23 @@ export function extractArxivIdFromUrl(rawUrl: string): string | null {
   return decodeURIComponent(match[1]);
 }
 
+export function extractArxivYearFromId(arxivId: string): string | undefined {
+  const newStyle = arxivId.match(/^(\d{2})\d{2}\.\d{4,5}(?:v\d+)?$/);
+
+  if (newStyle) {
+    return String(2000 + Number(newStyle[1]));
+  }
+
+  const oldStyle = arxivId.match(/^[a-z-]+(?:\.[A-Z]{2})?\/(\d{2})\d{5}(?:v\d+)?$/);
+
+  if (!oldStyle) {
+    return undefined;
+  }
+
+  const shortYear = Number(oldStyle[1]);
+  return String(shortYear >= 91 ? 1900 + shortYear : 2000 + shortYear);
+}
+
 export function extractArxiv(
   document: Document,
   rawUrl: string
@@ -82,7 +99,12 @@ export function extractArxiv(
     metaContent(document, "citation_publication_date") ??
     metaContent(document, "citation_online_date");
 
-  const year = publicationDate?.match(/\b(?:19|20)\d{2}\b/)?.[0];
+  const dateline = document.querySelector<HTMLElement>(".dateline")?.textContent;
+
+  const year =
+    publicationDate?.match(/\b(?:19|20)\d{2}\b/)?.[0] ??
+    dateline?.match(/\b(?:19|20)\d{2}\b/)?.[0] ??
+    extractArxivYearFromId(arxivId);
 
   const pdfUrl =
     metaContent(document, "citation_pdf_url") ??
