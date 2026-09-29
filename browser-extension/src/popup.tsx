@@ -8,6 +8,7 @@ import "./popup.css";
 
 function Popup() {
   const [preview, setPreview] = useState<ClipPreview | null>(null);
+  const [tabId, setTabId] = useState<number>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -36,6 +37,7 @@ function Popup() {
           throw new Error("This page is not supported yet.");
         }
 
+        setTabId(tab.id);
         setPreview(result);
       } catch {
         setError(
@@ -49,8 +51,8 @@ function Popup() {
     void loadPreview();
   }, []);
 
-  function handleSave() {
-    if (!preview) {
+  async function handleSave() {
+    if (!preview || tabId === undefined) {
       return;
     }
 
@@ -58,7 +60,9 @@ function Popup() {
     const deepLink =
       `linxiv-clip://add?bibtex=${encodeURIComponent(bibtex)}`;
 
-    window.location.href = deepLink;
+    // Firefox won't hand a custom scheme to the OS from the popup itself.
+    await chrome.tabs.update(tabId, { url: deepLink });
+    window.close();
   }
 
   if (loading) {
@@ -112,7 +116,7 @@ function Popup() {
       <button
         className="save-button"
         type="button"
-        onClick={handleSave}
+        onClick={() => void handleSave()}
       >
         Save to linXiv
       </button>

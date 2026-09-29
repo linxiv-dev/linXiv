@@ -10,7 +10,7 @@
     "predev:api": "npm run submodules",
     "dev:api": "cd src-tauri && cargo run -p linxiv-server --bin linxiv-dev-server",
     "build": "tsc && tsc -p tsconfig.test.json && vite build",
-    "pretest": "node -e \"if(!require('node:fs').globSync('src/**/*.test.ts').length)throw Error('no test files matched src/**/*.test.ts')\"",
+    "pretest": "node -e \"if(!process.allowedNodeEnvironmentFlags.has('--experimental-transform-types'))throw Error('Node '+process.version+' lacks --experimental-transform-types; use Node 22');if(!require('node:fs').globSync('src/**/*.test.ts').length)throw Error('no test files matched src/**/*.test.ts')\"",
     "test": "node --experimental-transform-types --test \"src/**/*.test.ts\"",
     "types:gen": "cd src-tauri && UPDATE_BINDINGS=1 cargo test -p linxiv-server ts_bindings",
     "types:check": "cd src-tauri && cargo test -p linxiv-server ts_bindings",
@@ -21,8 +21,9 @@
     "build:all": "npm run build:sidecar && npm run tauri build",
     "build:arch": "bash scripts/build_arch_package.sh",
     "extension:typecheck": "tsc -p browser-extension/tsconfig.json",
-    "extension:test": "node --experimental-transform-types --test \"browser-extension/src/**/*.test.ts\"",
-    "extension:build": "vite build --config browser-extension/vite.config.ts"
+    "extension:test": "node --test \"browser-extension/src/**/*.test.ts\"",
+    "extension:build": "vite build --config browser-extension/vite.config.ts",
+    "extension:build:firefox": "LINXIV_BROWSER=firefox vite build --config browser-extension/vite.config.ts"
   },
   "dependencies": {
     "@mathjax/src": "^4.1.3",

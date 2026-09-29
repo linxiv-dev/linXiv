@@ -46,6 +46,8 @@ docs/headless/*
 # Node / Frontend
 node_modules/
 dist/
+dist-firefox/
+.nvmrc
 
 # Tauri build artifacts
 src-tauri/target/
