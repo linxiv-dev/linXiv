@@ -14,7 +14,7 @@ import {
   partialFailureMessage,
 } from "../../lib/paperMutations";
 import { errText } from "../../lib/errText";
-import { applyClick, clickMods } from "../../stores/selection";
+import { applyClick, clickMods, noShiftTextSelect, shiftWheelScrollsVertically } from "../../stores/selection";
 
 interface AddPapersDialogProps {
   open: boolean;
@@ -106,6 +106,7 @@ export function AddPapersDialog({
 
         <div
           className="overflow-y-auto rounded-md border border-[var(--color-border)]"
+          onWheel={shiftWheelScrollsVertically}
           style={{ maxHeight: 280, backgroundColor: "var(--color-bg)" }}
           onKeyDown={submitOnCtrlEnter(handleSubmit)}
         >
@@ -127,6 +128,7 @@ export function AddPapersDialog({
               <div
                 key={paper.source_id}
                 onClick={(e) => handleRowClick(paper.source_id, e)}
+                onMouseDown={noShiftTextSelect}
                 className="flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-[var(--color-panel)]"
                 style={{ borderBottom: "1px solid var(--color-border)" }}
               >

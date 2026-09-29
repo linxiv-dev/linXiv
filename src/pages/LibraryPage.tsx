@@ -11,7 +11,7 @@ import {
   addToProjectMutationOptions,
   createProjectMutationOptions,
 } from "../lib/paperMutations";
-import { useSelectionStore, type ClickMods } from "../stores/selection";
+import { shiftWheelScrollsVertically, useSelectionStore, type ClickMods } from "../stores/selection";
 import { useLibraryStore } from "../stores/library";
 import type { LibraryFilterMode as FilterMode } from "../stores/library";
 import type { Paper } from "../types/api";
@@ -436,6 +436,7 @@ export default function LibraryPage() {
 
       <div
         ref={scrollRef}
+        onWheel={shiftWheelScrollsVertically}
         className={`flex-1 overflow-y-auto px-7.5 pt-4.5 ${selectedIds.size > 0 ? "pb-20" : "pb-10"}`}
       >
         {filtered.length === 0 ? (

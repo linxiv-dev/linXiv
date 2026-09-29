@@ -3,7 +3,7 @@ import type { Paper, Project } from "../../types/api";
 import { MathText } from "../../lib/tex";
 import { isReadingListProject } from "../../lib/readingStatus";
 import { StatusButton } from "../reading/StatusButton";
-import { clickMods, type ClickMods } from "../../stores/selection";
+import { clickMods, noShiftTextSelect, type ClickMods } from "../../stores/selection";
 
 // Deliberately NOT PaperCard (src/components/papers/PaperCard.tsx): this is a
 // compact list row for the project page. It intentionally omits PaperCard's
@@ -13,7 +13,7 @@ import { clickMods, type ClickMods } from "../../stores/selection";
 interface PaperRowProps {
   paper: Paper;
   checked: boolean;
-  /** Checkbox clicks and Ctrl/Cmd/Shift clicks on the row body. */
+  /** Checkbox clicks and Ctrl/Cmd/Shift clicks anywhere on the row. */
   onSelect: (mods: ClickMods) => void;
   /** Project being viewed; passed as nav state so the note scope picker
    *  on the paper detail page pre-selects it (ADR 0003). */
@@ -33,24 +33,32 @@ export function PaperRow({ paper, checked, onSelect, projectId, project, selecta
   return (
     <div
       onContextMenu={onContextMenu}
+      onMouseDown={selectable ? noShiftTextSelect : undefined}
+      onClick={(e) => {
+        const mods = clickMods(e);
+        if (selectable && (mods.ctrl || mods.shift)) onSelect(mods);
+      }}
       className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-[var(--color-panel)]"
       style={{ borderBottom: "1px solid var(--color-border)" }}
     >
       {selectable && (
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onSelect(clickMods(e.nativeEvent as MouseEvent))}
-          className="mt-1 accent-[var(--color-accent)] shrink-0 cursor-pointer"
+        <label
+          className="shrink-0 self-stretch flex items-start cursor-pointer"
           onClick={(e) => e.stopPropagation()}
-        />
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e) => onSelect(clickMods(e.nativeEvent as MouseEvent))}
+            className="mt-1 accent-[var(--color-accent)] cursor-pointer"
+          />
+        </label>
       )}
       <div
         className="flex-1 min-w-0 cursor-pointer"
         onClick={(e) => {
           const mods = clickMods(e);
-          if (selectable && (mods.ctrl || mods.shift)) onSelect(mods);
-          else navigate(`/library/${paper.source_fk}`, { state: { fromProjectId: projectId } });
+          if (!(selectable && (mods.ctrl || mods.shift))) navigate(`/library/${paper.source_fk}`, { state: { fromProjectId: projectId } });
         }}
       >
         <p

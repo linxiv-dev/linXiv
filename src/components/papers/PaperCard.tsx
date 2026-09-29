@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { Paper } from "../../types/api";
-import { clickMods, useSelectionStore, type ClickMods } from "../../stores/selection";
+import { clickMods, noShiftTextSelect, useSelectionStore, type ClickMods } from "../../stores/selection";
 import { labelForSource } from "../../lib/papers";
 import { MathText } from "../../lib/tex";
 
@@ -9,7 +9,7 @@ const MAX_TAGS_DISPLAY = 4;
 
 interface PaperCardProps {
   paper: Paper;
-  /** Shows the checkbox; also gets Ctrl/Cmd/Shift clicks on the card body. */
+  /** Shows the checkbox; also gets Ctrl/Cmd/Shift clicks anywhere on the card. */
   onSelect?: (id: string, mods: ClickMods) => void;
   onNavigate: (sfk: number) => void;
   /** Native context menu (Tauri); browser dev falls through to the default.
@@ -46,6 +46,11 @@ export const PaperCard = memo(function PaperCard({
   return (
     <div
       onContextMenu={onContextMenu && ((e) => onContextMenu(e, paper))}
+      onMouseDown={onSelect && noShiftTextSelect}
+      onClick={(e) => {
+        const mods = clickMods(e);
+        if (onSelect && (mods.ctrl || mods.shift)) onSelect(paper.source_id, mods);
+      }}
       className={[
         "flex items-start gap-4 bg-panel border border-border shadow-card transition-all",
         isSelected ? "ring-1 ring-accent" : "",
@@ -53,7 +58,10 @@ export const PaperCard = memo(function PaperCard({
       style={{ borderRadius: "var(--card-radius)", padding: "var(--card-pad)" }}
     >
       {onSelect && (
-        <div className="shrink-0 flex items-start">
+        <label
+          className="shrink-0 self-stretch flex items-start cursor-pointer"
+          onClick={(e) => e.stopPropagation()}
+        >
           <input
             type="checkbox"
             checked={isSelected}
@@ -61,15 +69,14 @@ export const PaperCard = memo(function PaperCard({
             className="mt-1 accent-[var(--color-accent)] cursor-pointer"
             aria-label={`Select ${paper.title}`}
           />
-        </div>
+        </label>
       )}
       <button
         type="button"
         aria-label={`Open ${paper.title}`}
         onClick={(e) => {
           const mods = clickMods(e);
-          if (onSelect && (mods.ctrl || mods.shift)) onSelect(paper.source_id, mods);
-          else onNavigate(paper.source_fk);
+          if (!(onSelect && (mods.ctrl || mods.shift))) onNavigate(paper.source_fk);
         }}
         className="flex-1 text-left hover:brightness-110 cursor-pointer min-w-0"
       >

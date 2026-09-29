@@ -18,7 +18,7 @@ import { ImportDialog } from "../components/import/ImportDialog";
 import { HistoryDialog } from "../components/history/HistoryDialog";
 import { useUrlDialog } from "../hooks/useUrlDialog";
 import type { Paper } from "../types/api";
-import { useSelectionStore } from "../stores/selection";
+import { shiftWheelScrollsVertically, useSelectionStore } from "../stores/selection";
 import { ColorSwatch } from "../components/projects/ColorSwatch";
 import { EditProjectDialog } from "../components/projects/EditProjectDialog";
 import { AddPapersDialog } from "../components/projects/AddPapersDialog";
@@ -338,7 +338,7 @@ export default function ProjectDetailPage() {
   }
 
   return (
-    <div className={`flex flex-col gap-6 p-8 overflow-y-auto ${!readOnly && selectedIds.size > 0 ? "pb-20" : ""}`}>
+    <div onWheel={shiftWheelScrollsVertically} className={`flex flex-col gap-6 p-8 overflow-y-auto ${!readOnly && selectedIds.size > 0 ? "pb-20" : ""}`}>
       {/* Back nav */}
       <button
         onClick={() => navType !== "POP" ? navigate(-1) : navigate("/projects")}
