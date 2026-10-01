@@ -212,7 +212,7 @@ fn old_style_arxiv(sid: &str) -> bool {
 // ── BibTeX import ────────────────────────────────────────────────────────────
 
 /// Parse BibTeX into `PaperMetadata`: source_id `doi:<doi>` or `local:<key>`,
-/// version 1, source "bibtex", year→Jan-1 date (falling back to 1900-01-01).
+/// version 1, source "bibtex", ISO `date` or year→Jan-1 (falling back to 1900-01-01).
 pub fn bibtex_import(text: &str) -> Result<Vec<PaperMetadata>, String> {
     let bib = Bibliography::parse(text).map_err(|e| format!("BibTeX parse error: {e}"))?;
     let mut out = Vec::new();
@@ -229,7 +229,7 @@ pub fn bibtex_import(text: &str) -> Result<Vec<PaperMetadata>, String> {
         let summary = field(&entry, "abstract").unwrap_or_default();
         let journal_ref = field(&entry, "journal").or_else(|| field(&entry, "booktitle"));
         let url = field(&entry, "url");
-        let published = parse_year(&entry);
+        let published = parse_published(&entry);
         out.push(PaperMetadata {
             // ADR 0002 / CONTEXT.md § source_id: always namespaced. A DOI keys the
             // root under `doi:`; an entry without one is unidentified, so its BibTeX
@@ -267,7 +267,12 @@ fn field(entry: &biblatex::Entry, key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn parse_year(entry: &biblatex::Entry) -> NaiveDate {
+fn parse_published(entry: &biblatex::Entry) -> NaiveDate {
+    if let Some(date) =
+        field(entry, "date").and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok())
+    {
+        return date;
+    }
     let year = entry
         .get_as::<i64>("year")
         .ok()
@@ -367,6 +372,17 @@ mod tests {
         let m2 = &bibtex_import("@misc{k, title={T}}").unwrap()[0];
         assert_eq!(m2.source_id, "local:k");
         assert_eq!(m2.published, NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
+    }
+
+    #[test]
+    fn bibtex_import_prefers_iso_date_over_year() {
+        let m =
+            &bibtex_import("@article{k, title={T}, year = 2017, date = {2017-06-12}}").unwrap()[0];
+        assert_eq!(m.published, NaiveDate::from_ymd_opt(2017, 6, 12).unwrap());
+        // a non-ISO date falls back to the year
+        let m2 =
+            &bibtex_import("@article{k, title={T}, year = 2017, date = {2017-06}}").unwrap()[0];
+        assert_eq!(m2.published, NaiveDate::from_ymd_opt(2017, 1, 1).unwrap());
     }
 
     #[test]

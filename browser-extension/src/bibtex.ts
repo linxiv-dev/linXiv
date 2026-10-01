@@ -54,6 +54,10 @@ export function buildBibtex(preview: ClipPreview): string {
     fields.push(`  year = ${year}`);
   }
 
+  if (preview.submitted) {
+    fields.push(`  date = ${bibtexValue(preview.submitted)}`);
+  }
+
   if (preview.abstract) {
     fields.push(`  abstract = ${bibtexValue(preview.abstract)}`);
   }

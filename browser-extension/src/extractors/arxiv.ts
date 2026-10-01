@@ -55,6 +55,24 @@ export function extractArxivYearFromId(arxivId: string): string | undefined {
   return String(shortYear >= 91 ? 1900 + shortYear : 2000 + shortYear);
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+// "[Submitted on 12 Jun 2017 (v1), ...]" -> "2017-06-12"; accepts 2- or 4-digit years.
+export function parseArxivDateline(dateline: string): string | undefined {
+  const match = dateline.match(/Submitted on (\d{1,2}) ([A-Z][a-z]{2}) (\d{4}|\d{2})\b/);
+  const month = match ? MONTHS.indexOf(match[2]) + 1 : 0;
+
+  if (!match || month === 0) {
+    return undefined;
+  }
+
+  const shortYear = Number(match[3]);
+  const year =
+    match[3].length === 4 ? shortYear : shortYear >= 91 ? 1900 + shortYear : 2000 + shortYear;
+
+  return `${year}-${String(month).padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+}
+
 export function extractArxiv(
   document: Document,
   rawUrl: string
@@ -99,11 +117,12 @@ export function extractArxiv(
     metaContent(document, "citation_publication_date") ??
     metaContent(document, "citation_online_date");
 
-  const dateline = document.querySelector<HTMLElement>(".dateline")?.textContent;
+  const dateline = document.querySelector<HTMLElement>("#abs .dateline")?.textContent;
+  const submitted = dateline ? parseArxivDateline(dateline) : undefined;
 
   const year =
     publicationDate?.match(/\b(?:19|20)\d{2}\b/)?.[0] ??
-    dateline?.match(/\b(?:19|20)\d{2}\b/)?.[0] ??
+    submitted?.slice(0, 4) ??
     extractArxivYearFromId(arxivId);
 
   const pdfUrl =
@@ -123,6 +142,7 @@ export function extractArxiv(
     abstract,
     doi,
     year,
+    submitted,
     pdfUrl,
     canonicalUrl: `https://arxiv.org/abs/${arxivId}`,
   };

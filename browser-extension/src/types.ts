@@ -23,6 +23,8 @@ export interface ClipPreview {
   abstract?: string;
   doi?: string;
   year?: string;
+  // ISO date from the abs page "Submitted on" dateline.
+  submitted?: string;
   pdfUrl?: string;
 
   canonicalUrl: string;

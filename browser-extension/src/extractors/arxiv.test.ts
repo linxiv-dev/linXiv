@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   extractArxivIdFromUrl,
   extractArxivYearFromId,
+  parseArxivDateline,
 } from "./arxiv.ts";
 
 test("extracts arXiv id from abstract URL", () => {
@@ -67,4 +68,14 @@ test("derives year from old-style arXiv id", () => {
 
 test("returns undefined for unknown arXiv id shape", () => {
   assert.equal(extractArxivYearFromId("not-an-arxiv-id"), undefined);
+});
+
+test("parses submitted date from arXiv dateline", () => {
+  assert.equal(
+    parseArxivDateline("[Submitted on 12 Jun 2017 (v1), last revised 2 Aug 2023 (this version, v7)]"),
+    "2017-06-12"
+  );
+  assert.equal(parseArxivDateline("[Submitted on 3 Jan 99]"), "1999-01-03");
+  assert.equal(parseArxivDateline("[Submitted on 3 Foo 2020]"), undefined);
+  assert.equal(parseArxivDateline("no date here"), undefined);
 });

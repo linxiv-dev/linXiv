@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "linXiv Web Clipper",
+  "version": "0.1.0",
+  "description": "Clip academic papers from the browser into linXiv.",
+  "host_permissions": [
+    "https://arxiv.org/*",
+    "https://www.arxiv.org/*"
+  ],
+  "action": {
+    "default_title": "Clip to linXiv",
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://arxiv.org/*",
+        "https://www.arxiv.org/*"
+      ],
+      "js": [
+        "assets/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "web-clipper@linxiv.app",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}
