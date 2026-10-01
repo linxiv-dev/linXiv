@@ -274,7 +274,7 @@ jobs:
 
       - name: Derive image tags
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository_owner }}/linxiv-headless
           # `latest` only for the newest stable tag; prereleases and older-line
