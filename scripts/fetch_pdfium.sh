@@ -45,4 +45,8 @@ if [ "$ASSET_LIB_DIR" != "lib" ]; then
   mv -f "$DEST/$ASSET_LIB_DIR"/* "$DEST/lib/"
 fi
 
+# bblanchon ships the .so with its full symbol table (~1.1MB); pdfium-render
+# binds through .dynsym only.
+if [ "$(uname -s)" = Linux ]; then strip --strip-unneeded "$DEST/lib/libpdfium.so"; fi
+
 echo "[fetch_pdfium] done: $(find "$DEST" -name 'libpdfium*' -o -name 'pdfium.dll' | head)"

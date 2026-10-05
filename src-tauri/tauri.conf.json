@@ -53,6 +53,11 @@
     ],
     "resources": {
       "vendor/pdfium/lib/": "pdfium/"
+    },
+    "linux": {
+      "rpm": {
+        "compression": { "type": "xz", "level": 9 }
+      }
     }
   },
   "plugins": {
