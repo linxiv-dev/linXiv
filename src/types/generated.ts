@@ -186,6 +186,10 @@ export type FullTextReceipt = {
   reason?: string,
 };
 
+export type SetFullTextBody = {
+  file: string,
+};
+
 export type PaperMembershipReceipt = {
   ok: boolean,
   project_id: number,

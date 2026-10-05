@@ -78,6 +78,13 @@ pub enum PaperCmd {
         #[arg(long, default_value_t = 25)]
         limit: usize,
     },
+    // No route (MCP: `set_full_text`): text for papers with no arXiv source.
+    /// Set a paper's full text from a file and index it for full-text search
+    SetText {
+        source_id: String,
+        /// Text file to store (`-` reads stdin)
+        file: std::path::PathBuf,
+    },
 }
 
 /// Fetch one paper's TeX source and store it — `service::paper`'s two-phase
@@ -253,6 +260,23 @@ pub async fn run(cmd: PaperCmd, ctx: &mut Ctx) -> anyhow::Result<()> {
         // paper's failure is reported and skipped, never aborting the run.
         PaperCmd::IndexSources { limit } => {
             output(&index_sources_result(ctx, limit).await);
+        }
+
+        // Latest version, like fetch-source; blank input is refused in core.
+        PaperCmd::SetText { source_id, file } => {
+            let source_id = as_source_id(&ctx.conn, &source_id);
+            let paper = resolve_paper_or_exit(ctx, &source_id);
+            let text = if file.as_os_str() == "-" {
+                std::io::read_to_string(std::io::stdin())
+            } else {
+                std::fs::read_to_string(&file)
+            }
+            .unwrap_or_else(|e| fail(format!("{}: {e}", file.display())));
+            match svc_paper::set_supplied_full_text(&mut ctx.conn, &paper, &text) {
+                Ok(receipt) => output(&receipt),
+                Err(e @ linxiv_core::error::CoreError::Validation(_)) => fail(e),
+                Err(e) => return Err(e.into()),
+            }
         }
     }
     Ok(())

@@ -128,6 +128,14 @@ pub struct FetchFullTextParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetFullTextParams {
+    /// The paper source id (e.g. "local:17f870be4f426c9d").
+    pub paper_id: String,
+    /// Path to the text file on disk (TeX or plain text).
+    pub file: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct FullTextPendingParams {
     /// Maximum number of candidate ids to return (default: all).
     #[serde(default)]
@@ -324,6 +332,32 @@ impl Server {
         let receipt = self
             .with_conn(|conn| fetched.commit(conn))
             .map_err(map_fetch_err)?;
+        json_ok(&receipt)
+    }
+
+    // No route (CLI: `paper set-text`): text for papers with no arXiv source.
+    #[tool(
+        description = "Store a paper's full text from a file on disk and index it so \
+                       search_full_text can find it. For papers fetch_full_text can't reach \
+                       (local PDFs, non-arXiv); replaces any text already stored."
+    )]
+    pub async fn set_full_text(
+        &self,
+        Parameters(SetFullTextParams { paper_id, file }): Parameters<SetFullTextParams>,
+    ) -> Result<String, ErrorData> {
+        let text = std::fs::read_to_string(&file).map_err(|e| invalid(format!("{file}: {e}")))?;
+        let receipt = self
+            .with_conn(|conn| {
+                let paper = svc_paper::get(conn, &paper_key(&paper_id))?
+                    .ok_or_else(|| CoreError::PaperNotFound(paper_id.clone()))?;
+                svc_paper::set_supplied_full_text(conn, &paper, &text)
+            })
+            .map_err(|e| match e {
+                e @ (CoreError::Validation(_) | CoreError::PaperNotFound(_)) => {
+                    invalid(e.to_string())
+                }
+                other => core_err(other),
+            })?;
         json_ok(&receipt)
     }
 
@@ -684,6 +718,43 @@ mod tests {
             .unwrap();
         let out: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(out["candidates"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn set_full_text_indexes_a_local_paper() {
+        let srv = server();
+        srv.with_conn(|conn| {
+            svc_paper::save_paper_metadata(conn, &meta("local:ab", Some("pdf"), None), None)
+        })
+        .unwrap();
+        let dir = std::env::temp_dir().join(format!("linxiv-mcp-set-text-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = dir.join("body.tex");
+        std::fs::write(&body, "the rare word zymurgy").unwrap();
+        let blank = dir.join("blank.tex");
+        std::fs::write(&blank, " \n").unwrap();
+        let set = |paper_id: &str, file: &std::path::Path| {
+            srv.set_full_text(Parameters(SetFullTextParams {
+                paper_id: paper_id.into(),
+                file: file.to_str().unwrap().into(),
+            }))
+        };
+
+        let out: Value = serde_json::from_str(&set("local:ab", &body).await.unwrap()).unwrap();
+        assert_eq!(out["indexed"], serde_json::json!(true));
+        assert_eq!(out["chars"], serde_json::json!(21));
+
+        // Blank text and unknown papers are refusals, not server faults.
+        let err = set("local:ab", &blank).await.unwrap_err();
+        assert!(err.message.contains("no text to store"), "{}", err.message);
+        let err = set("local:nope", &body).await.unwrap_err();
+        assert_eq!(err.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+
+        let hits = srv
+            .with_conn(|conn| svc_paper::search_library(conn, "zymurgy", 10))
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An already-indexed paper short-circuits without `force`; `force=true`

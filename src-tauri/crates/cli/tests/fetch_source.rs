@@ -1,4 +1,4 @@
-//! Subprocess integration tests for `paper fetch-source` via the real clap dispatch.
+//! Subprocess integration tests for `paper fetch-source` and `paper set-text` via the real clap dispatch.
 //! Both cases resolve before any network await, so neither needs a live connection.
 
 use std::process::Command;
@@ -73,6 +73,53 @@ fn fetch_source_via_cli_dispatch() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let json: serde_json::Value = serde_json::from_str(&stderr).expect("expected valid JSON");
     assert!(json["error"].is_string());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn set_text_indexes_a_local_paper() {
+    let dir = std::env::temp_dir().join(format!("linxiv-cli-set-text-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let mut conn = storage::open(&dir.join("papers.db")).unwrap();
+    storage::init_db(&conn).unwrap();
+    let mut meta = arxiv_meta("local:abc", "");
+    meta.url = None;
+    svc_paper::save_paper_metadata(&mut conn, &meta, None).unwrap();
+    drop(conn);
+
+    let body = dir.join("body.tex");
+    std::fs::write(&body, "the rare word zymurgy").unwrap();
+    let empty = dir.join("empty.tex");
+    std::fs::write(&empty, "  \n").unwrap();
+
+    let bin = env!("CARGO_BIN_EXE_linxiv-cli");
+    let run = |args: &[&str]| {
+        Command::new(bin)
+            .env("LINXIV_DATA_DIR", &dir)
+            .args(args)
+            .output()
+            .expect("failed to run linxiv-cli")
+    };
+
+    let output = run(&["paper", "set-text", "local:abc", body.to_str().unwrap()]);
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["indexed"], true);
+    assert_eq!(json["chars"], 21);
+
+    // Empty input never clobbers the indexed body.
+    assert!(
+        !run(&["paper", "set-text", "local:abc", empty.to_str().unwrap()])
+            .status
+            .success()
+    );
+
+    let output = run(&["paper", "search", "zymurgy"]);
+    assert!(output.status.success(), "stderr: {:?}", output.stderr);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("local:abc"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

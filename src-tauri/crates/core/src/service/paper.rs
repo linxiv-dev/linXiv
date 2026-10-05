@@ -823,6 +823,35 @@ impl FetchedFullText {
     }
 }
 
+/// Set-full-text request body; the paper id rides in the path. `file` is on the server's disk.
+#[derive(Debug, Deserialize, ts_rs::TS)]
+pub struct SetFullTextBody {
+    pub file: String,
+}
+
+/// Store caller-supplied text on the paper's latest version (non-arXiv papers).
+/// Blank text is refused so it can't wipe an indexed body.
+pub fn set_supplied_full_text(
+    conn: &mut Connection,
+    paper: &PaperDetails,
+    text: &str,
+) -> Result<FullTextReceipt> {
+    if text.trim().is_empty() {
+        return Err(CoreError::Validation(format!(
+            "no text to store for {}",
+            paper.source_id
+        )));
+    }
+    set_full_text(conn, &paper.source_id, paper.version, text)?;
+    Ok(FullTextReceipt {
+        source_id: paper.source_id.clone(),
+        version: paper.version,
+        indexed: true,
+        chars: Some(text.chars().count()),
+        reason: None,
+    })
+}
+
 /// Backfill work list: SOURCE_IDs of arXiv papers with no TeX source yet,
 /// oldest-published first. Same `arxiv:` / `/pdf/` rules `source_fetch_url` uses.
 pub fn full_text_backfill_candidates(conn: &Connection) -> Result<Vec<String>> {

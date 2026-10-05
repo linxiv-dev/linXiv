@@ -101,6 +101,7 @@ pub(crate) fn render() -> String {
         linxiv_core::storage::queries::paper::DoiVersionCandidate,
     >());
     out.push_str(&decl::<linxiv_core::service::paper::FullTextReceipt>());
+    out.push_str(&decl::<linxiv_core::service::paper::SetFullTextBody>());
     out.push_str(&decl::<linxiv_core::service::project::PaperMembershipReceipt>());
     out.push_str(&decl::<
         linxiv_core::service::paper_import::BibtexImportReceipt,

@@ -31,6 +31,7 @@ linxiv paper search "scaled dot-product"     # full-text search of the local lib
 linxiv paper fetch-source 2204.12985         # pull the arXiv TeX source so `search` can find it
 linxiv paper fetch-source 2204.12985 --force # re-fetch a paper already indexed
 linxiv paper index-sources --limit 25        # backfill papers with no TeX source yet (~7s each)
+linxiv paper set-text local:17f870be4f426c9d body.tex  # index text for a non-arXiv paper (`-` = stdin)
 linxiv paper doi-candidates 2204.12985       # other paper roots sharing this paper's DOI
 linxiv paper repair 2204.12985 --title "Attention Is All You Need" --authors "A. Vaswani" "N. Shazeer" --published 2017-06-12 --summary "..." --category cs.CL --doi 10.48550/arXiv.1706.03762 --url https://arxiv.org/abs/1706.03762 --tags attention transformers
 linxiv paper delete 2204.12985               # soft-delete

@@ -135,6 +135,7 @@ PUT /api/papers/{}/pdf	-	-
 PUT /api/reading-status/{}	-	-
 -	annotation get	-
 -	paper restore	-
+-	paper set-text	-
 -	pdf storage	-
 -	project restore	-
 -	tag add-project	-
@@ -153,3 +154,4 @@ PUT /api/reading-status/{}	-	-
 -	-	resolve_refs
 -	-	restore_paper
 -	-	restore_project
+-	-	set_full_text

@@ -1,8 +1,8 @@
 usage: linxiv paper [-h]
-                    {get,delete,versions,repair,restore,search,remove-from-all-projects,doi-candidates,merge,fetch-source,index-sources} ...
+                    {get,delete,versions,repair,restore,search,remove-from-all-projects,doi-candidates,merge,fetch-source,index-sources,set-text} ...
 
 positional arguments:
-  {get,delete,versions,repair,restore,search,remove-from-all-projects,doi-candidates,merge,fetch-source,index-sources}
+  {get,delete,versions,repair,restore,search,remove-from-all-projects,doi-candidates,merge,fetch-source,index-sources,set-text}
     get                 Get full details for a paper
     delete              Soft-delete a paper
     versions            List all stored versions of a paper
@@ -18,6 +18,8 @@ positional arguments:
                         full-text search
     index-sources       Backfill full-text search over stored arXiv papers with
                         no TeX source yet
+    set-text            Set a paper's full text from a file and index it for
+                        full-text search
 
 options:
   -h, --help            show this help message and exit
