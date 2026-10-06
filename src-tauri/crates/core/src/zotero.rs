@@ -140,12 +140,7 @@ fn identity(item: &CslItem) -> (String, i64) {
         })
         .or_else(|| item.doi.as_deref().and_then(arxiv_doi_id));
     if let Some(id) = arxiv {
-        let (root, version) = match id.rsplit_once('v') {
-            Some((r, v)) if !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()) => {
-                (r.to_string(), v.parse().unwrap_or(1))
-            }
-            _ => (id, 1),
-        };
+        let (root, version) = crate::formats::split_arxiv_version(&id);
         return (arxiv_source_id(&root), version);
     }
     // Zotero's `id` is the item URI (stable across re-exports of one library),
