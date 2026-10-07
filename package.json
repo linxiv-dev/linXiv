@@ -14,6 +14,8 @@
     "test": "node --experimental-transform-types --test \"src/**/*.test.ts\"",
     "types:gen": "cd src-tauri && UPDATE_BINDINGS=1 cargo test -p linxiv-server ts_bindings",
     "types:check": "cd src-tauri && cargo test -p linxiv-server ts_bindings",
+    "api:gen": "cd src-tauri && UPDATE_API_DOCS=1 cargo test -p linxiv-server api_docs",
+    "api:check": "cd src-tauri && cargo test -p linxiv-server api_docs",
     "preview": "vite preview",
     "pretauri": "npm run submodules",
     "tauri": "tauri",

@@ -239,7 +239,8 @@ self-hosted or containerized always-on node. Run it from source
 build the repo's `Dockerfile`; a bearer token gates the API when it
 binds beyond loopback, and `GET /admin` serves a small management page.
 Setup steps, a ready-made compose file, the environment reference, and
-relay configuration: [docs/headless](docs/headless/README.md).
+relay configuration: [docs/headless](docs/headless/README.md). Every
+route is listed in [docs/api.md](docs/api.md), generated from the router.
 
 ## Graph visualization
 
