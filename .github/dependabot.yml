@@ -23,3 +23,10 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+
+    # Explicitly define pip to control its branching behavior
+  - package-ecosystem: "pip"
+    directory: "/"
+    target-branch: "main"   # Forces Dependabot to only evaluate and target 'main'
+    schedule:
+      interval: "monthly"
