@@ -11,6 +11,7 @@ import {
   importReceived,
   listReceivedPapers,
   syncShare,
+  type MemberRole,
   type SharedSummary,
   type SyncReceipt,
   shareErrText,
@@ -24,7 +25,18 @@ import { SHARE_SYNC_MUTATION_KEY } from "../../lib/syncPill";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 
-export type ShareRoleLabel = "Hoster" | "Reader";
+/** A card's role: "Hoster" for a share this device published, otherwise the
+ * member's own live capability on a received e2ee share. Undefined while the
+ * role is unknown (pending join, node offline, plain mirror). */
+export type ShareRoleLabel = "Hoster" | MemberRole;
+
+const ROLE_DISPLAY: Record<ShareRoleLabel, string> = {
+  Hoster: "Hoster",
+  admin: "Admin",
+  "co-admin": "Co-admin",
+  editor: "Editor",
+  viewer: "Viewer",
+};
 
 function RolePill({ role }: { role: ShareRoleLabel }) {
   const hosted = role === "Hoster";
@@ -39,7 +51,7 @@ function RolePill({ role }: { role: ShareRoleLabel }) {
           : "var(--color-surface-2)",
       }}
     >
-      {role}
+      {ROLE_DISPLAY[role]}
     </span>
   );
 }
@@ -152,7 +164,7 @@ export function ShareCard({
   onSettings,
 }: {
   share: SharedSummary;
-  role: ShareRoleLabel;
+  role?: ShareRoleLabel;
   onSettings: () => void;
 }) {
   const hosted = role === "Hoster";
@@ -261,7 +273,7 @@ export function ShareCard({
             </span>
           )}
           <SyncBadge syncing={syncingThis} synced={share.synced_at != null} />
-          <RolePill role={role} />
+          {role && <RolePill role={role} />}
         </div>
         {share.description && (
           <p

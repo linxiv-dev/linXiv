@@ -28,7 +28,7 @@ export default function SharePage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [settingsFor, setSettingsFor] = useState<{
     shareId: string;
-    role: ShareRoleLabel;
+    role?: ShareRoleLabel;
   } | null>(null);
   const [joinInput, setJoinInput] = useState("");
   const [joining, setJoining] = useState(false);
@@ -135,9 +135,11 @@ export default function SharePage() {
   }
 
   const loading = published.isLoading || received.isLoading;
-  const cards: { share: SharedSummary; role: ShareRoleLabel }[] = [
+  // Published shares are hosted here; a received share carries the member's
+  // own live role (undefined while pending / node offline).
+  const cards: { share: SharedSummary; role?: ShareRoleLabel }[] = [
     ...(published.data ?? []).map((s) => ({ share: s, role: "Hoster" as const })),
-    ...(received.data ?? []).map((s) => ({ share: s, role: "Reader" as const })),
+    ...(received.data ?? []).map((s) => ({ share: s, role: s.role })),
   ];
 
   return (

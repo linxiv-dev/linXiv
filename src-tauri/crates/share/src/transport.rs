@@ -912,6 +912,26 @@ impl ShareNode {
             .await
             .ok_or_else(|| ShareError::NotFound(share_id.to_string()))?
     }
+
+    /// Push this device's SQLite edits into a received e2ee doc: union `local`
+    /// into the live doc and reconcile. Only an editor/admin should call this —
+    /// the host drops a viewer's writes from its scratch core. The next
+    /// [`Self::sync_e2ee`] flushes the merged doc to the host.
+    pub async fn merge_received_edits(&self, share_id: &str, local: &SharedProject) -> Result<()> {
+        self.with_e2ee_doc(share_id, |doc| {
+            let mut merged = if doc.get_heads().is_empty() {
+                local.clone()
+            } else {
+                autosurgeon::hydrate(doc).map_err(super::crdt)?
+            };
+            crate::merge_shared_project(&mut merged, local);
+            let mut tx = doc.transaction();
+            autosurgeon::reconcile(&mut tx, &merged).map_err(super::crdt)?;
+            tx.commit();
+            Ok(())
+        })
+        .await
+    }
 }
 
 /// Minimum gap between two heartbeat commits for one member; a reading
