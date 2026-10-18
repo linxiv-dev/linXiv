@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/SrueZGZxh"><img src="https://dcbadge.limes.pink/api/server/SrueZGZxh" alt="" /></a>
+  <a href="https://discord.gg/AqyqT5Zt7"><img src="https://dcbadge.limes.pink/api/server/AqyqT5Zt7" alt="" /></a>
 </p>
 <p align="center">
   <picture>
