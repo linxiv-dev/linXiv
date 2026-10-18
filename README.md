@@ -242,6 +242,18 @@ Setup steps, a ready-made compose file, the environment reference, and
 relay configuration: [docs/headless](docs/headless/README.md). Every
 route is listed in [docs/api.md](docs/api.md), generated from the router.
 
+## Unofficial server implementation with extra feautres
+An great community project is [ToledoEM's linXiv-web](https://github.com/ToledoEM/linXiv-web)
+
+In ToledoEM's own words:
+
+"linXiv-web is a browser UI for linXiv. You can search arXiv, OpenAlex and
+Crossref, add papers to a library, tag them, organize them into projects and
+reading lists, read and highlight their PDFs, and take notes."
+
+The linXiv team hopes to adapt some of the core components as part of the
+official project in v0.8.0, and adapt others as offical plugins.
+
 ## Graph visualization
 
 Papers and authors make up a force-directed network: papers link to their authors and tags, laid out by a d3-force simulation and drawn with Cytoscape. The control panel gives you real-time sliders to steer how the nodes and links work together, plus filters over categories, dates, tags and projects. Everything — the graph libraries, MathJax and the UI font — is bundled locally, so the graph works offline like the rest of the app.
