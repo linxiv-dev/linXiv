@@ -22,7 +22,7 @@ A local-first desktop application for discovering, managing, and visualizing aca
 
 Upload your PDFs, create projects, manage notes, tags, and annotations to organize your library; all locally. linXiv aims to be a one-stop shop for researchers managing their literature, with the near-term goal of extending to research groups who want to share knowledge without going to the web.
 
-> **Development status:** Pre-1.0 (`0.5.x`). The schema is still evolving, but migration structure is in-place.
+> **Development status:** Pre-1.0 (`v0.7.0`). The schema is still evolving, but migration structure is in-place.
 
 > **Licensing:** linXiv, including the vendored [`linxiv-p2p`](https://github.com/linxiv-dev/linxiv-p2p) submodule (`src-tauri/crates/p2p`), is licensed under Apache-2.0.
 
@@ -36,14 +36,14 @@ Upload your PDFs, create projects, manage notes, tags, and annotations to organi
 
 ## Install
 
-Prebuilt installers for Linux, macOS, and Windows are on the [releases page](https://github.com/linxiv-dev/linXiv/releases/latest) — latest release: [v0.5.1](https://github.com/linxiv-dev/linXiv/releases/tag/v0.5.1):
+Prebuilt installers for Linux, macOS, and Windows are on the [releases page](https://github.com/linxiv-dev/linXiv/releases/latest) — latest release: [v0.6.0](https://github.com/linxiv-dev/linXiv/releases/tag/v0.6.0):
 
 | Platform | Download |
 | --- | --- |
-| Linux | [`.deb`](https://github.com/linxiv-dev/linXiv/releases/download/v0.5.1/linXiv_0.5.1_amd64.deb), [`.rpm`](https://github.com/linxiv-dev/linXiv/releases/download/v0.5.1/linXiv-0.5.1-1.x86_64.rpm), or [`.AppImage`](https://github.com/linxiv-dev/linXiv/releases/download/v0.5.1/linXiv_0.5.1_amd64.AppImage) |
-| macOS (Apple silicon) | [`.dmg`](https://github.com/linxiv-dev/linXiv/releases/download/v0.5.1/linXiv_0.5.1_aarch64.dmg) (arm64) |
-| macOS (Intel) | [raw app binary](https://github.com/linxiv-dev/linXiv/releases/download/v0.5.1/raw-linxiv-app-x86_64-apple-darwin) (x86_64, no `.dmg`) |
-| Windows | [`.exe`](https://github.com/linxiv-dev/linXiv/releases/download/v0.5.1/linXiv_0.5.1_x64-setup.exe) (NSIS) or [`.msi`](https://github.com/linxiv-dev/linXiv/releases/download/v0.5.1/linXiv_0.5.1_x64_en-US.msi) |
+| Linux | [`.deb`](https://github.com/linxiv-dev/linXiv/releases/download/v0.6.0/linXiv_0.6.0_amd64.deb), [`.rpm`](https://github.com/linxiv-dev/linXiv/releases/download/v0.6.0/linXiv-0.6.0-1.x86_64.rpm), or [`.AppImage`](https://github.com/linxiv-dev/linXiv/releases/download/v0.6.0/linXiv_0.6.0_amd64.AppImage) |
+| macOS (Apple silicon) | [`.dmg`](https://github.com/linxiv-dev/linXiv/releases/download/v0.6.0/linXiv_0.6.0_aarch64.dmg) (arm64) |
+| macOS (Intel) | [raw app binary](https://github.com/linxiv-dev/linXiv/releases/download/v0.6.0/raw-linxiv-app-x86_64-apple-darwin) (x86_64, no `.dmg`) |
+| Windows | [`.exe`](https://github.com/linxiv-dev/linXiv/releases/download/v0.6.0/linXiv_0.6.0_x64-setup.exe) (NSIS) or [`.msi`](https://github.com/linxiv-dev/linXiv/releases/download/v0.6.0/linXiv_0.6.0_x64_en-US.msi) |
 
 The macOS and Windows builds are unsigned.
 
