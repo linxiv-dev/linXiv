@@ -173,12 +173,22 @@ mod tests {
             !fresh_dir.join("backups").exists(),
             "fresh install must not write a backup"
         );
+        let seq = |c: &Connection| -> i64 {
+            c.query_row(
+                "SELECT seq FROM sqlite_sequence WHERE name = 'DB_VERSION'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let before = seq(&conn);
         init_db(&conn).unwrap();
         assert_eq!(
             event_count(&conn),
             1,
             "same-version relaunch must not add a row"
         );
+        assert_eq!(seq(&conn), before, "relaunch must not burn DB_VERSION ids");
 
         // Legacy upgrade: event row pointing at a real copy in backups/.
         let legacy_dir = dir.join("legacy");

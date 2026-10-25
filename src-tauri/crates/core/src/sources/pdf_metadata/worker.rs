@@ -126,6 +126,15 @@ fn run_worker(worker: &Path, pdf: &Path, timeout: std::time::Duration) -> Option
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        // The metadata worker is a console executable. When spawned from the
+        // Windows GUI app, suppress the transient console window.
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     // Thread the resolved lib to the child so it binds the same libpdfium even
     // when the parent found it by exe-adjacent lookup rather than env.
     if let Some(lib) = pdfium_lib_path() {

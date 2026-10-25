@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/SrueZGZxh"><img src="https://dcbadge.limes.pink/api/server/SrueZGZxh" alt="" /></a>
+  <a href="https://discord.gg/AqyqT5Zt7"><img src="https://dcbadge.limes.pink/api/server/AqyqT5Zt7" alt="" /></a>
 </p>
 <p align="center">
   <picture>
@@ -239,7 +239,20 @@ self-hosted or containerized always-on node. Run it from source
 build the repo's `Dockerfile`; a bearer token gates the API when it
 binds beyond loopback, and `GET /admin` serves a small management page.
 Setup steps, a ready-made compose file, the environment reference, and
-relay configuration: [docs/headless](docs/headless/README.md).
+relay configuration: [docs/headless](docs/headless/README.md). Every
+route is listed in [docs/api.md](docs/api.md), generated from the router.
+
+## Unofficial server implementation with extra feautres
+An great community project is [ToledoEM's linXiv-web](https://github.com/ToledoEM/linXiv-web)
+
+In ToledoEM's own words:
+
+"linXiv-web is a browser UI for linXiv. You can search arXiv, OpenAlex and
+Crossref, add papers to a library, tag them, organize them into projects and
+reading lists, read and highlight their PDFs, and take notes."
+
+The linXiv team hopes to adapt some of the core components as part of the
+official project in v0.8.0, and adapt others as offical plugins.
 
 ## Graph visualization
 

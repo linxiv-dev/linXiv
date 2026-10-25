@@ -377,10 +377,10 @@ fn dedup_nonblank(items: &[String]) -> Vec<String> {
 /// Library search: FTS hits (TeX source + note index) merged with the LIKE scan
 /// over note title/body, deduped by source_id, bm25 rows first then note-recency.
 pub fn search_library(conn: &Connection, query: &str, limit: i64) -> Result<Vec<PaperDetails>> {
-    // A missing or corrupt FTS index yields no rows rather than failing the whole
-    // search, so note hits still populate.
+    // A broken FTS index propagates: the note LIKE scan must not turn "search
+    // did not run" into a smaller success.
     let limit = limit.max(0) as usize;
-    let mut papers = search_store::search_full_text(conn, query, limit as i64).unwrap_or_default();
+    let mut papers = search_store::search_full_text(conn, query, limit as i64)?;
     // FTS already filled the limit: every LIKE extra below would be truncated.
     if papers.len() >= limit {
         papers.truncate(limit);
@@ -1734,6 +1734,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["arxiv:ftA", "arxiv:ntB"]
         );
+    }
+
+    // A broken FTS index must fail the search even when the note LIKE scan
+    // could still return hits: silently returning those would make a broken
+    // search look like a smaller successful one.
+    #[test]
+    fn search_library_propagates_a_broken_fts_index() {
+        let mut conn = db();
+        save_paper_metadata(&mut conn, &meta("arxiv:N", 1, "cs.LG", &[]), None).unwrap();
+        ensure_paper_root(&mut conn, "arxiv:N").unwrap();
+        conn.execute(
+            "INSERT INTO NOTE (SOURCE_FK, TITLE, NOTE) \
+             SELECT SOURCE_FK, 'n', 'on zephyranthes morphology' \
+             FROM PAPER_ROOTS WHERE SOURCE_ID = ?1",
+            ["arxiv:N"],
+        )
+        .unwrap();
+        conn.execute_batch("DROP TABLE papers_fts;").unwrap();
+        assert!(search_library(&conn, "zephyranthes", 10).is_err());
     }
 
     // Repair input rules live behind the service seam, not in one caller.
