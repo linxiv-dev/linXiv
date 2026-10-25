@@ -12,8 +12,8 @@ use crate::models::PaperDetails;
 /// `papers_fts.source_id` is the lineage string that `latest_papers` is then
 /// read by — a hit on an older version's body still surfaces the paper as its
 /// latest version; notes_fts carries SOURCE_FK, joined back through
-/// PAPER_ROOTS. `match_expr` turns raw input into FTS5 syntax; an unqueryable
-/// index yields no hits, not an error.
+/// PAPER_ROOTS. `match_expr` turns raw input into FTS5 syntax; an index that
+/// cannot be queried is an error, never an empty result.
 pub fn search_full_text(conn: &Connection, query: &str, limit: i64) -> Result<Vec<PaperDetails>> {
     let limit = limit.clamp(0, 1000);
     let Some(expr) = match_expr(query) else {
@@ -38,7 +38,7 @@ pub fn search_full_text(conn: &Connection, query: &str, limit: i64) -> Result<Ve
          GROUP BY source_id ORDER BY 2 LIMIT ?2",
         &expr,
         limit,
-    )
+    )?
     .into_iter()
     .chain(fts_matches(
         conn,
@@ -50,7 +50,7 @@ pub fn search_full_text(conn: &Connection, query: &str, limit: i64) -> Result<Ve
          GROUP BY r.SOURCE_ID ORDER BY 2 LIMIT ?2",
         &expr,
         limit,
-    )) {
+    )?) {
         best.entry(sid)
             .and_modify(|s| {
                 if score < *s {
@@ -169,32 +169,22 @@ fn push_term(out: &mut Vec<String>, term: &str, prefix: bool) {
     });
 }
 
-/// Run one FTS MATCH query, returning (source_id, bm25 score) pairs. A prepare
-/// or execute error (a missing or corrupt index) yields an empty result instead
-/// of propagating, so one unusable index doesn't zero out the other's hits.
-fn fts_matches(conn: &Connection, sql: &str, query: &str, limit: i64) -> Vec<(String, f64)> {
+/// Run one FTS MATCH query, returning (source_id, bm25 score) pairs. A missing,
+/// corrupt, or unqueryable index propagates: callers must be able to tell a
+/// broken search from one that genuinely found nothing.
+fn fts_matches(
+    conn: &Connection,
+    sql: &str,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<(String, f64)>> {
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query((query, limit))?;
     let mut out = Vec::new();
-    let mut stmt = match conn.prepare(sql) {
-        Ok(stmt) => stmt,
-        Err(e) => {
-            tracing::warn!("fts_matches prepare failed for {sql:?}: {e}");
-            return out;
-        }
-    };
-    let mut rows = match stmt.query((query, limit)) {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("fts_matches query failed for {sql:?}: {e}");
-            return out;
-        }
-    };
-    while let Ok(Some(row)) = rows.next() {
-        let (Ok(sid), Ok(score)) = (row.get::<_, String>(0), row.get::<_, f64>(1)) else {
-            continue;
-        };
-        out.push((sid, score));
+    while let Some(row) = rows.next()? {
+        out.push((row.get(0)?, row.get(1)?));
     }
-    out
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -428,6 +418,22 @@ mod tests {
         }
     }
 
+    /// A missing or corrupt index is a broken search, not one that found
+    /// nothing. Callers (MCP included) must get the error so they can't read
+    /// failure as "no match".
+    #[test]
+    fn a_broken_fts_index_is_an_error_not_an_empty_result() {
+        for table in ["papers_fts", "notes_fts"] {
+            let conn = db::open_in_memory().unwrap();
+            storage::init_db(&conn).unwrap();
+            conn.execute_batch(&format!("DROP TABLE {table};")).unwrap();
+            assert!(
+                search_full_text(&conn, "manifold", 20).is_err(),
+                "a missing {table} must fail the search"
+            );
+        }
+    }
+
     /// Column-filter syntax (`full_text:foo`) used to reach FTS5 and is now read
     /// as literal text — the trade for making hyphens work. A plain query
     /// still finds the paper.
@@ -479,10 +485,9 @@ mod tests {
     }
 
     /// The invariant the rewrite rests on: whatever `match_expr` emits parses as
-    /// FTS5, for any input at all. An expression FTS5 rejects comes back through
-    /// `fts_matches` as "no rows", which is indistinguishable from a genuine
-    /// empty search, so a regression here would be invisible from the UI. Runs
-    /// MATCH directly and unwraps, going around that swallow.
+    /// FTS5, for any input at all. An expression FTS5 rejects would surface as
+    /// an error from `fts_matches`, indistinguishable from a broken index, so
+    /// pin the invariant at the source: run MATCH directly and unwrap.
     #[test]
     fn every_match_expr_output_parses_as_fts5() {
         let conn = db::open_in_memory().unwrap();

@@ -5,7 +5,6 @@ use rmcp::handler::server::wrapper::Parameters;
 use rmcp::{tool, tool_router, ErrorData};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::Value;
 
 use linxiv_core::error::CoreError;
 use linxiv_core::models::SearchResultOut;
@@ -291,12 +290,14 @@ impl Server {
         &self,
         Parameters(SearchFullTextParams { query, limit }): Parameters<SearchFullTextParams>,
     ) -> Result<String, ErrorData> {
-        // Any read failure degrades to []; the log goes to STDERR (STDOUT is JSON-RPC).
+        // A read failure is an MCP error, not []; clients must be able to tell
+        // "no match" from "the search did not run". Logs go to STDERR (STDOUT is
+        // JSON-RPC).
         match self.with_conn(|conn| svc_paper::search_library(conn, &query, limit)) {
             Ok(results) => json_ok(&results),
             Err(exc) => {
                 tracing::warn!(%query, error = %exc, "search_full_text failed");
-                json_ok(&Value::Array(Vec::new()))
+                Err(core_err(exc))
             }
         }
     }
@@ -539,6 +540,7 @@ mod tests {
 
     use linxiv_core::models::PaperMetadata;
     use linxiv_core::storage;
+    use serde_json::Value;
 
     use super::*;
 
@@ -755,6 +757,31 @@ mod tests {
             .unwrap();
         assert_eq!(hits.len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Empty stays `[]`; a broken index is an MCP error. A client must never
+    /// read "the search did not run" as "no match".
+    #[tokio::test]
+    async fn search_full_text_distinguishes_an_empty_result_from_a_broken_index() {
+        let srv = server();
+        let search = |q: &str| {
+            srv.search_full_text(Parameters(SearchFullTextParams {
+                query: q.into(),
+                limit: 20,
+            }))
+        };
+
+        assert_eq!(search("zymurgy").await.unwrap(), "[]");
+
+        srv.with_conn(|conn| conn.execute_batch("DROP TABLE papers_fts;"))
+            .unwrap();
+        let err = search("zymurgy").await.unwrap_err();
+        assert_eq!(err.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+        assert!(
+            err.message.contains("papers_fts"),
+            "unexpected message: {}",
+            err.message
+        );
     }
 
     /// An already-indexed paper short-circuits without `force`; `force=true`
