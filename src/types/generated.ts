@@ -1267,7 +1267,7 @@ export type RestoreBody = {
   to: string,
 };
 
-export type SyncRole = "hoster" | "reader";
+export type SyncRole = "hoster" | "reader" | "editor";
 
 export type SyncReason = "paused" | "direction" | "project gone" | "no ticket" | "bad ticket" | "p2p offline" | "awaiting first sync" | "no key for any content" | "revoked or awaiting key";
 

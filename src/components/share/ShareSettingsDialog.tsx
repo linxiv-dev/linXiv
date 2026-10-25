@@ -43,7 +43,7 @@ export function ShareSettingsDialog({
   onClose,
 }: {
   share: SharedSummary;
-  role: ShareRoleLabel;
+  role?: ShareRoleLabel;
   onClose: () => void;
 }) {
   const hosted = role === "Hoster";

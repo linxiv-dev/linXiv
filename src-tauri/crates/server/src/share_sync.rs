@@ -329,6 +329,9 @@ fn touch(p: &Path) {
 pub enum SyncRole {
     Hoster,
     Reader,
+    /// Received leg where the member's live role is editor/admin: it pushed its
+    /// SQLite edits into the doc as well as pulling the host's.
+    Editor,
 }
 
 /// `POST /api/share/{id}/sync` `reason` — why a pass skipped or came up short.
@@ -426,6 +429,20 @@ fn synced(role: SyncRole) -> SyncedReceipt {
         reason: None,
         undecryptable: None,
     }
+}
+
+/// This device's own live role on an e2ee share; `None` when keyhive is
+/// unavailable or the query fails — treated as no push rights.
+async fn self_member_role(node: &ShareNode, share_id: &str) -> Option<linxiv_share::Role> {
+    let me = node.self_member_id().ok()?;
+    tokio::time::timeout(
+        crate::route::share::SHARE_NET_TIMEOUT * 2,
+        node.query_role(share_id, me),
+    )
+    .await
+    .ok()?
+    .ok()
+    .flatten()
 }
 
 /// One sync pass for one share, honoring role (hoster/reader, by which doc file
@@ -583,6 +600,20 @@ pub async fn sync_share(
         let prior = load(&applied_dir(&e2ee_received_dir(&dir)), share_id)
             .ok()
             .or_else(|| ShareNode::e2ee_received(&dir, share_id).ok());
+        // This device's live role gates the push: editors/admins union their
+        // SQLite edits into the doc so sync_e2ee's flush uploads them; viewers
+        // keep the host→SQLite-only pull (the host serves viewer writes from a
+        // scratch core and drops them).
+        let editor = matches!(
+            self_member_role(&node, share_id).await,
+            Some(linxiv_share::Role::Edit | linxiv_share::Role::Admin)
+        );
+        if editor {
+            if let Some(fk) = state.with_conn(|c| project_svc::find_by_share_id(c, share_id))? {
+                let sp = state.with_conn(|c| build_shared_project(c, fk))?;
+                node.merge_received_edits(share_id, &sp).await?;
+            }
+        }
         // Presence heartbeat: written before the dial so sync_e2ee's flush
         // carries it. Viewer writes evaporate at the host (scratch core).
         presence_heartbeat(&node, share_id).await;
@@ -653,7 +684,11 @@ pub async fn sync_share(
             pending: pending.then_some(true),
             reason,
             undecryptable: (undecryptable > 0).then_some(undecryptable),
-            ..synced(SyncRole::Reader)
+            ..synced(if editor {
+                SyncRole::Editor
+            } else {
+                SyncRole::Reader
+            })
         });
     }
 
@@ -1130,5 +1165,80 @@ mod tests {
         assert_eq!(doc.papers[0].pdf_blob, Some(ticket));
 
         share.shutdown().await.unwrap();
+    }
+
+    // A member upgraded to editor pushes its SQLite edits back to the host: the
+    // reader leg unions them into the doc, uploads them, and reports
+    // SyncRole::Editor. A read-role member keeps the pull-only behavior.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn e2ee_editor_reader_leg_pushes_local_edits() {
+        let a_dir = TempDir::new().unwrap();
+        let b_dir = TempDir::new().unwrap();
+        let node_a = ShareNode::bind_offline(a_dir.path(), &a_dir.path().join("p2p"))
+            .await
+            .unwrap();
+        let node_b = ShareNode::bind_offline(b_dir.path(), &b_dir.path().join("p2p"))
+            .await
+            .unwrap();
+        let share_a = ShareState::with_node(a_dir.path(), node_a);
+        let share_b = ShareState::with_node(b_dir.path(), node_b);
+        let state_a = mem_state();
+        let state_b = mem_state();
+
+        let sp = e2ee_sample();
+        state_a
+            .with_conn(|c| import_shared_project(c, &sp))
+            .unwrap();
+        let node_a = share_a.node().await.unwrap();
+        slow(node_a.publish_secure(&sp)).await.unwrap();
+
+        let node_b = share_b.node().await.unwrap();
+        let code = node_b.member_code().await.unwrap();
+        let (_member, invite) = node_a
+            .invite_member(E2EE_SID, &code, linxiv_share::Role::Edit)
+            .await
+            .unwrap();
+        assert_eq!(
+            slow(node_b.accept_invite(&invite)).await.unwrap().share_id,
+            E2EE_SID
+        );
+        let mirror = ShareNode::e2ee_received(b_dir.path(), E2EE_SID).unwrap();
+        state_b
+            .with_conn(|c| import_shared_project(c, &mirror))
+            .unwrap();
+
+        // B adds a paper to its linked project, then syncs as an editor.
+        let mut local = sp.clone();
+        local.papers.push(linxiv_share::SharedPaper {
+            source_id: "arxiv:local-edit".into(),
+            version: 1,
+            published: None,
+            title: "Edited".into(),
+            summary: "s".into(),
+            authors: vec![],
+            tags: vec![],
+            pdf_blob: None,
+            author_orcids: vec![],
+        });
+        state_b
+            .with_conn(|c| import_shared_project(c, &local))
+            .unwrap();
+
+        let v = slow(sync_share(&state_b, &share_b, E2EE_SID))
+            .await
+            .unwrap();
+        assert_eq!(v["synced"], json!(true));
+        assert_eq!(v["role"], json!("editor"));
+
+        // The host's live doc carries the pushed paper (the session's end ack is
+        // sent only after the host applied the upload).
+        let ids = slow(node_a.e2ee_paper_ids(E2EE_SID)).await.unwrap();
+        assert!(
+            ids.contains(&"arxiv:local-edit".to_string()),
+            "editor's SQLite edit must reach the host doc, got {ids:?}"
+        );
+
+        share_a.shutdown().await.unwrap();
+        share_b.shutdown().await.unwrap();
     }
 }

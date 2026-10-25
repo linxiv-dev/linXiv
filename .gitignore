@@ -37,6 +37,7 @@ docs/adr/*
 !docs/cli_ref/
 docs/cli_ref/*
 !docs/cli_ref/**
+!docs/api.md
 !docs/architecture.md
 !docs/build.md
 !docs/headless/

@@ -616,6 +616,71 @@ impl RemovalOutcome {
     }
 }
 
+/// Union `local` (a SQLite projection) into `base` (a received doc's state) by
+/// CRDT identity key — papers by source_id, notes/annotations by uuid, tags by
+/// value — with `local` winning on collisions. `base` members absent from
+/// `local` are kept: reconciling `local` alone would delete them, which for a
+/// member pushing its edits means deleting host content it simply never
+/// imported. Host-minted fields the projection can't reproduce (`pdf_blob`,
+/// ORCIDs) survive a blank local value.
+pub fn merge_shared_project(base: &mut SharedProject, local: &SharedProject) {
+    base.name = local.name.clone();
+    base.description = local.description.clone();
+    base.color = local.color;
+    for t in &local.tags {
+        if !base.tags.contains(t) {
+            base.tags.push(t.clone());
+        }
+    }
+    for lp in &local.papers {
+        match base.papers.iter_mut().find(|p| p.source_id == lp.source_id) {
+            Some(bp) => {
+                bp.version = lp.version;
+                bp.published = lp.published.clone();
+                bp.title = lp.title.clone();
+                bp.summary = lp.summary.clone();
+                bp.authors = lp.authors.clone();
+                bp.tags = lp.tags.clone();
+                if !lp.author_orcids.is_empty() {
+                    bp.author_orcids = lp.author_orcids.clone();
+                }
+                if lp.pdf_blob.is_some() {
+                    bp.pdf_blob = lp.pdf_blob.clone();
+                }
+            }
+            None => base.papers.push(lp.clone()),
+        }
+    }
+    for ln in &local.notes {
+        match base.notes.iter_mut().find(|n| n.uuid == ln.uuid) {
+            Some(bn) => {
+                bn.paper_source_id = ln.paper_source_id.clone().or(bn.paper_source_id.clone());
+                bn.title = ln.title.clone();
+                bn.body = ln.body.clone();
+                if ln.created_at.is_some() {
+                    bn.created_at = ln.created_at.clone();
+                }
+                bn.updated_at = ln.updated_at.clone();
+            }
+            None => base.notes.push(ln.clone()),
+        }
+    }
+    for la in &local.annotations {
+        match base.annotations.iter_mut().find(|a| a.uuid == la.uuid) {
+            Some(ba) => {
+                ba.paper_source_id = la.paper_source_id.clone();
+                ba.anchor = la.anchor.clone();
+                ba.comment = la.comment.clone();
+                if la.created_at.is_some() {
+                    ba.created_at = la.created_at.clone();
+                }
+                ba.updated_at = la.updated_at.clone();
+            }
+            None => base.annotations.push(la.clone()),
+        }
+    }
+}
+
 /// Destructive sibling of the additive import: remove what `fresh` lost relative
 /// to `prior`. Project scope unlinks papers and subtracts project tags; library
 /// scope (None) trashes them. Notes/annotations delete by uuid within the scope.
@@ -1381,6 +1446,61 @@ mod tests {
         )
         .unwrap();
         assert!(anns.is_empty());
+    }
+
+    // A reader's push unions its SQLite projection into the doc state: host
+    // items it never imported survive, its own edits win, and host-minted
+    // fields the projection can't reproduce (pdf_blob) are kept.
+    #[test]
+    fn merge_shared_project_unions_and_preserves_host_fields() {
+        let paper = |sid: &str, title: &str, pdf: Option<&str>| SharedPaper {
+            source_id: sid.into(),
+            version: 1,
+            published: None,
+            title: title.into(),
+            summary: String::new(),
+            authors: Vec::new(),
+            tags: Vec::new(),
+            pdf_blob: pdf.map(String::from),
+            author_orcids: Vec::new(),
+        };
+        let mut base = SharedProject {
+            share_id: "s".into(),
+            name: "Host".into(),
+            description: String::new(),
+            color: None,
+            tags: vec!["host-tag".into()],
+            papers: vec![paper("arxiv:1", "Host title", Some("ticket"))],
+            notes: vec![SharedNote {
+                uuid: "n1".into(),
+                paper_source_id: Some("arxiv:1".into()),
+                title: "host note".into(),
+                body: "b".into(),
+                created_at: None,
+                updated_at: None,
+            }],
+            annotations: vec![],
+        };
+        // Local knows arxiv:1 but not the host-only note; it added arxiv:3.
+        let mut local = base.clone();
+        local.name = "Local".into();
+        local.notes.clear();
+        local.papers = vec![
+            paper("arxiv:1", "Local title", None),
+            paper("arxiv:3", "Local new", None),
+        ];
+
+        merge_shared_project(&mut base, &local);
+
+        assert_eq!(base.name, "Local");
+        let ids: Vec<&str> = base.papers.iter().map(|p| p.source_id.as_str()).collect();
+        assert!(ids.contains(&"arxiv:1") && ids.contains(&"arxiv:3"));
+        assert_eq!(base.papers[0].title, "Local title");
+        // host-minted ticket survives the projection's None
+        assert_eq!(base.papers[0].pdf_blob.as_deref(), Some("ticket"));
+        // host-only note kept; host tag kept
+        assert_eq!(base.notes.len(), 1);
+        assert!(base.tags.contains(&"host-tag".to_string()));
     }
 
     // The device actor pins every change `save` writes, changes carry real
