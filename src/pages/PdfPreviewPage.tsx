@@ -4,14 +4,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Document, Page, pdfjs } from "react-pdf";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { fetchArxiv } from "../api/search";
-import { bytesToBase64 } from "../api/client";
-import { libraryFetch } from "../stores/backend";
-import { getPdfProxyUrl } from "../api/papers";
+import { getPdfProxyUrl, uploadPdf } from "../api/papers";
 import { Button } from "../components/ui/button";
 import { Spinner } from "../components/ui/spinner";
 import { LogoMark } from "../components/ui/logo-mark";
 import { pdfDocumentOptions, estPageHeight, PAGE_INSET } from "../lib/pdfOptions";
-import type { SearchResult, UploadPdfBody } from "../types/api";
+import type { SearchResult } from "../types/api";
 import { isArxivId } from "../lib/papers";
 import { MathText } from "../lib/tex";
 import { invalidatePaperMutationQueries } from "../lib/paperMutations";
@@ -79,8 +77,7 @@ export default function PdfPreviewPage() {
       if (pdfDocRef.current) {
         try {
           const bytes = await pdfDocRef.current.getData();
-          const path = `/api/papers/${encodeURIComponent(sourceId)}/pdf`;
-          await libraryFetch(path, { method: "PUT", body: JSON.stringify({ file_b64: bytesToBase64(bytes) } satisfies UploadPdfBody) });
+          await uploadPdf(sourceId, bytes);
         } catch (e) {
           console.error("PDF attach failed (non-fatal):", e);
         }

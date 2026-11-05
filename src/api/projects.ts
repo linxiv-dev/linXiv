@@ -6,7 +6,6 @@ import type {
   OkReceipt,
   PaperMembershipReceipt,
   Project,
-  ProjectAddPaperBody,
   ProjectAddPapersBulkBody,
   ProjectCreateBody,
   ProjectUpdateBody,
@@ -71,17 +70,6 @@ export async function restoreProject(id: number): Promise<OkReceipt> {
 
 /** Core's PaperMembershipReceipt — shared by add and remove. */
 export type { PaperMembershipReceipt } from "../types/api";
-
-export async function addPaperToProject(
-  projectId: number,
-  sourceId: string
-): Promise<PaperMembershipReceipt> {
-  const body: ProjectAddPaperBody = { source_id: sourceId };
-  return libraryFetch(`/api/projects/${projectId}/papers`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
 
 // No server-side count cap; core chunks ids at 900 internally.
 const BULK_ADD_CHUNK = 5_000;
