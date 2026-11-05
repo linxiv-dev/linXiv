@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { getSettings, getStats } from "../api/settings";
-import { dismissFeedEntry, getFeed } from "../api/feed";
+import { dismissFeedEntry, getFeed, undismissFeedEntry } from "../api/feed";
 import { fetchArxiv } from "../api/search";
 import { getPaperPdfUrl } from "../api/papers";
 import { useBackendStore } from "../stores/backend";
@@ -12,10 +12,11 @@ import { Dialog } from "../components/ui/dialog";
 import { PaperList } from "../components/papers/PaperList";
 import { Card, MonoLabel, SectionTitle } from "../components/ui/card";
 import { DismissControls } from "../components/feed/DismissControls";
-import type { FeedEntry, Paper, SearchResult } from "../types/api";
+import type { FeedDismissBody, FeedEntry, Paper, SearchResult } from "../types/api";
 import { MathText } from "../lib/tex";
 import { invalidatePaperMutationQueries } from "../lib/paperMutations";
 import { errText } from "../lib/errText";
+import { FEED_UNDO_EVENT } from "../lib/shortcuts";
 
 interface StatCardProps {
   label: string;
@@ -66,7 +67,7 @@ function FeedRow({
 }: {
   entry: FeedEntry;
   alreadySaved?: boolean;
-  onDismissed: () => void;
+  onDismissed: (dismissal: FeedDismissBody) => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -119,7 +120,7 @@ function FeedRow({
     setDismissError(false);
     try {
       await dismissFeedEntry(arxivId, version, permanent);
-      onDismissed();
+      onDismissed({ arxiv_id: arxivId, version, permanent });
     } catch (err) {
       console.error(err);
       setDismissing(false);
@@ -243,6 +244,23 @@ function FeedSection({ url }: { url: string }) {
   const shown = entries.slice(0, FEED_ENTRY_LIMIT);
   const savedArxivIds = new Set(data?.saved_arxiv_ids ?? []);
 
+  // Ctrl/Cmd-Z (lib/shortcuts.ts) pops the newest dismissal; a failed undo goes back on.
+  const undoStack = useRef<FeedDismissBody[]>([]);
+  useEffect(() => {
+    const onUndo = () => {
+      const last = undoStack.current.pop();
+      if (!last) return;
+      undismissFeedEntry(last)
+        .then(() => queryClient.invalidateQueries({ queryKey: ["home-feed", url] }))
+        .catch((err) => {
+          console.error(err);
+          undoStack.current.push(last);
+        });
+    };
+    window.addEventListener(FEED_UNDO_EVENT, onUndo);
+    return () => window.removeEventListener(FEED_UNDO_EVENT, onUndo);
+  }, [queryClient, url]);
+
   return (
     <section>
       <SectionTitle className="text-base mb-4">
@@ -276,7 +294,10 @@ function FeedSection({ url }: { url: string }) {
                   key={`${entry.link}-${i}`}
                   entry={entry}
                   alreadySaved={entry.arxiv_id != null && savedArxivIds.has(entry.arxiv_id)}
-                  onDismissed={() => queryClient.invalidateQueries({ queryKey: ["home-feed", url] })}
+                  onDismissed={(d) => {
+                    undoStack.current.push(d);
+                    void queryClient.invalidateQueries({ queryKey: ["home-feed", url] });
+                  }}
                 />
               ))}
             </div>

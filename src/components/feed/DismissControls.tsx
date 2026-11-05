@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { Button } from "../ui/button";
 
 interface DismissControlsProps {
   dismissing: boolean;
@@ -34,16 +35,17 @@ export const DismissControls = memo(function DismissControls({
         </button>
       )}
       {showDismiss && (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           aria-label="Dismiss"
           title="Dismiss this version"
           disabled={dismissing}
-          className="text-xs text-muted hover:text-text transition-colors disabled:opacity-50"
           onClick={onDismiss}
         >
           Dismiss
-        </button>
+        </Button>
       )}
     </div>
   );

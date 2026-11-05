@@ -84,3 +84,4 @@ route	GET /api/share/received/{}	cli,mcp	p2p share needs a live node
 route	GET /api/share/{}/settings	cli,mcp	p2p share needs a live node
 cli	paper set-text	route	local-paper text for harvests
 mcp	set_full_text	route	local-paper text for harvests
+route	POST /api/feed/undismiss	cli,mcp	GUI Ctrl-Z undo

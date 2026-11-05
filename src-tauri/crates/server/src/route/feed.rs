@@ -15,6 +15,7 @@ pub(crate) async fn handle(state: &AppState, ctx: &ReqCtx<'_>) -> Option<Result<
     match (ctx.method, ctx.segs) {
         ("GET", ["api", "feed"]) => Some(get_feed(state, ctx).await),
         ("POST", ["api", "feed", "dismiss"]) => Some(dismiss(state, ctx)),
+        ("POST", ["api", "feed", "undismiss"]) => Some(undismiss(state, ctx)),
         ("GET", ["api", "feed", "rules"]) => Some(list_rules(state)),
         ("POST", ["api", "feed", "rules"]) => Some(create_rule(state, ctx)),
         ("DELETE", ["api", "feed", "rules", id]) => Some(delete_rule(state, id)),
@@ -76,6 +77,13 @@ pub struct FeedDismissBody {
 fn dismiss(state: &AppState, ctx: &ReqCtx<'_>) -> Result<Value, ApiError> {
     let b: FeedDismissBody = ctx.parse_body()?;
     state.with_conn(|conn| svc_feed::dismiss(conn, &b.arxiv_id, b.version, b.permanent))?;
+    to_value(&OkReceipt { ok: true })
+}
+
+/// `POST /api/feed/undismiss` — undo a dismiss; takes the same body.
+fn undismiss(state: &AppState, ctx: &ReqCtx<'_>) -> Result<Value, ApiError> {
+    let b: FeedDismissBody = ctx.parse_body()?;
+    state.with_conn(|conn| svc_feed::undismiss(conn, &b.arxiv_id, b.version, b.permanent))?;
     to_value(&OkReceipt { ok: true })
 }
 
