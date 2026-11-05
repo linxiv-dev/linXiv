@@ -53,6 +53,7 @@
     "cytoscape": "^3.34.3",
     "d3-force": "^3.0.0",
     "lucide-react": "^1.52.0",
+    "pdfjs-dist": "6.3.289",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
