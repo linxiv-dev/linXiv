@@ -2,34 +2,51 @@
   "manifest_version": 3,
   "name": "linXiv Web Clipper",
   "version": "0.1.0",
-  "description": "Clip academic papers from the browser into linXiv.",
+  "description": "Save the page you are reading into linXiv, with metadata worked out from the page.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
   "host_permissions": [
-    "https://arxiv.org/*",
-    "https://www.arxiv.org/*"
+    "https://api.crossref.org/*",
+    "https://api.datacite.org/*",
+    "https://export.arxiv.org/*",
+    "https://eutils.ncbi.nlm.nih.gov/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_title": "Clip to linXiv",
-    "default_popup": "popup/popup.html"
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://arxiv.org/*",
-        "https://www.arxiv.org/*"
-      ],
-      "js": [
-        "assets/content.js"
-      ],
-      "run_at": "document_idle"
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
     }
-  ],
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "web-clipper@linxiv.app",
       "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": [
-          "none"
+          "browsingActivity",
+          "websiteContent"
         ]
       }
     }
