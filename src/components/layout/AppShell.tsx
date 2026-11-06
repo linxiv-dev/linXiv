@@ -1,5 +1,5 @@
-import { Suspense, useEffect } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router";
+import { Suspense, useEffect, useLayoutEffect } from "react";
+import { Outlet, useLocation, useMatches, useNavigate } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { UpdateBanner } from "./UpdateBanner";
 import { GlobalFileDrop } from "../import/GlobalFileDrop";
@@ -50,6 +50,13 @@ export default function AppShell() {
       navigate("/", { replace: true });
     }
   }, [pathname, sidebarPages, navigate]);
+
+  // Page-scoped CSS hook on <body> so portaled dialogs and popovers inherit it too.
+  const matches = useMatches();
+  const page = matches[matches.length - 1]?.id;
+  useLayoutEffect(() => {
+    if (page) document.body.dataset.page = page;
+  }, [page]);
 
   // Binds the registry's window-bound shortcuts: the zoom hotkeys (Ctrl/Cmd +/-/0).
   useGlobalShortcuts();
