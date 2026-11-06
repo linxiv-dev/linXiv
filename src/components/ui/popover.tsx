@@ -16,12 +16,9 @@ export function PopoverContent({
       <RadixPopover.Content
         sideOffset={sideOffset}
         collisionPadding={8}
-        className={["lx-rise-corner z-50 overflow-y-auto", className].join(" ")}
+        className={["lx-rise-corner z-50 overflow-y-auto border border-border bg-panel text-text", className].join(" ")}
         style={{
           maxHeight: "var(--radix-popover-content-available-height)",
-          backgroundColor: "var(--color-panel)",
-          border: "1px solid var(--color-border)",
-          color: "var(--color-text)",
           borderRadius: 12,
           boxShadow: "0 16px 48px rgba(0,0,0,0.28)",
           ...style,

@@ -77,12 +77,7 @@ export default function SharePage() {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <div
-          className="max-w-md rounded-lg border p-5 text-center text-sm"
-          style={{
-            borderColor: "var(--color-border)",
-            backgroundColor: "var(--color-panel)",
-            color: "var(--color-muted)",
-          }}
+          className="max-w-md rounded-lg border p-5 text-center text-sm border-border bg-panel text-muted"
         >
           Peer-to-peer sharing runs over the desktop app's network node and isn't
           available in the browser preview.
@@ -150,7 +145,7 @@ export default function SharePage() {
           <h1 className="font-display text-[27px] font-semibold leading-tight tracking-[-0.015em] text-text">
             Shared projects
           </h1>
-          <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-muted)" }}>
+          <p className="mt-1.5 text-[13px] text-muted">
             Libraries you share with collaborators over peer-to-peer tickets ;
             papers, notes and tags travel with the share.
           </p>
@@ -161,18 +156,17 @@ export default function SharePage() {
       </div>
 
       {/* Join bar */}
-      <div className="flex flex-col gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-5 py-4">
+      <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-panel px-5 py-4">
         <div className="flex items-center gap-5">
           <div className="flex shrink-0 items-center gap-2.5">
             <span
-              className="h-2 w-2 animate-pulse rounded-full"
-              style={{ backgroundColor: "var(--color-success)" }}
+              className="h-2 w-2 animate-pulse rounded-full bg-success"
             />
             <div>
               <div className="text-[13.5px] font-semibold text-text">
                 Join a shared project
               </div>
-              <div className="mt-0.5 font-mono text-[11px]" style={{ color: "var(--color-ink-3)" }}>
+              <div className="mt-0.5 font-mono text-[11px] text-ink3">
                 iroh · paste a ticket or invite from another linXiv
               </div>
             </div>
@@ -193,7 +187,7 @@ export default function SharePage() {
           <Button variant="muted" size="sm" onClick={handleCopyMemberCode}>
             {codeCopied ? "Copied" : "Your member code"}
           </Button>
-          <span className="text-[11px]" style={{ color: "var(--color-ink-3)" }}>
+          <span className="text-[11px] text-ink3">
             Send this to a host to be invited to an encrypted share.
           </span>
         </div>
@@ -209,7 +203,7 @@ export default function SharePage() {
         )}
       </div>
       {(joinErr || codeErr) && (
-        <p className="-mt-4 text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="-mt-4 text-xs text-danger">
           {joinErr || codeErr}
         </p>
       )}
@@ -218,12 +212,7 @@ export default function SharePage() {
 
       {(publishedIsError || receivedIsError) && (
         <div
-          className="rounded-lg border p-4 text-sm"
-          style={{
-            borderColor: "var(--color-danger)",
-            color: "var(--color-danger)",
-            backgroundColor: "var(--color-panel)",
-          }}
+          className="rounded-lg border p-4 text-sm border-danger text-danger bg-panel"
         >
           Failed to load shared projects:{" "}
           {[publishedIsError && shareErrText(publishedError), receivedIsError && shareErrText(receivedError)]
@@ -240,8 +229,7 @@ export default function SharePage() {
       )}
       {!loading && cards.length === 0 && !publishedIsError && !receivedIsError && (
         <div
-          className="flex flex-1 items-center justify-center text-sm"
-          style={{ color: "var(--color-muted)" }}
+          className="flex flex-1 items-center justify-center text-sm text-muted"
         >
           Invite collaborators to start sharing papers, tags and annotations.
         </div>

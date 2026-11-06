@@ -69,7 +69,7 @@ export function NoteCard({ note, projects = [], onEdit, onDelete }: NoteCardProp
             openNote();
           }
         }}
-        className="flex flex-col gap-1.5 cursor-pointer rounded -m-1 p-1 transition-colors hover:bg-[var(--color-border)]"
+        className="flex flex-col gap-1.5 cursor-pointer rounded -m-1 p-1 transition-colors hover:bg-border"
       >
         {/* Header: title on its own full-width row so a long project-name badge
             truncates instead of starving the title, then scope badge + date. */}
@@ -120,8 +120,8 @@ export function NoteCard({ note, projects = [], onEdit, onDelete }: NoteCardProp
           onBlur={disarm}
           className={
             confirmDelete
-              ? "text-[var(--color-danger)]"
-              : "hover:text-[var(--color-danger)]"
+              ? "text-danger"
+              : "hover:text-danger"
           }
         >
           {confirmDelete ? "Confirm?" : "Delete"}

@@ -46,10 +46,9 @@ function IntegrationRow({
           {label}
           {installed && !stale && (
             <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              className="text-xs px-2 py-0.5 rounded-full font-medium text-success"
               style={{
                 background: "color-mix(in srgb, var(--color-success) 15%, transparent)",
-                color: "var(--color-success)",
               }}
             >
               installed
@@ -57,10 +56,9 @@ function IntegrationRow({
           )}
           {installed && stale && (
             <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              className="text-xs px-2 py-0.5 rounded-full font-medium text-danger"
               style={{
                 background: "color-mix(in srgb, var(--color-danger) 15%, transparent)",
-                color: "var(--color-danger)",
               }}
             >
               reinstall needed
@@ -68,10 +66,9 @@ function IntegrationRow({
           )}
           {!installed && configError && (
             <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              className="text-xs px-2 py-0.5 rounded-full font-medium text-danger"
               style={{
                 background: "color-mix(in srgb, var(--color-danger) 15%, transparent)",
-                color: "var(--color-danger)",
               }}
             >
               config unreadable
@@ -98,7 +95,7 @@ function IntegrationRow({
             </span>
           )}
           {error && (
-            <span className="block" style={{ color: "var(--color-danger)" }}>
+            <span className="block text-danger">
               {error}
             </span>
           )}
@@ -216,7 +213,7 @@ export function IntegrationsSection() {
 
       <SettingGroupLabel className="mt-8">Command line</SettingGroupLabel>
       {cliError ? (
-        <p className="py-1 text-sm text-muted" style={{ color: "var(--color-danger)" }}>
+        <p className="py-1 text-sm text-danger">
           Failed to check if CLI is installed. {cliErrorMsg?.message}
         </p>
       ) : (
@@ -248,7 +245,7 @@ export function IntegrationsSection() {
           />
         </SettingGroup>
       ) : mcpError ? (
-        <p className="py-1 text-sm text-muted" style={{ color: "var(--color-danger)" }}>
+        <p className="py-1 text-sm text-danger">
           Failed to detect MCP clients. {mcpErrorMsg?.message}
         </p>
       ) : mcpLoading ? (

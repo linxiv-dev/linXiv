@@ -42,14 +42,9 @@ function RolePill({ role }: { role: ShareRoleLabel }) {
   const hosted = role === "Hoster";
   return (
     <span
-      className="shrink-0 rounded-full border px-2 py-1 font-mono text-[10.5px] font-semibold leading-none"
-      style={{
-        color: hosted ? "var(--color-accent)" : "var(--color-muted)",
-        borderColor: hosted ? "var(--color-accent)" : "var(--color-border)",
-        backgroundColor: hosted
-          ? "color-mix(in srgb, var(--color-accent) 10%, transparent)"
-          : "var(--color-surface-2)",
-      }}
+      className={`shrink-0 rounded-full border px-2 py-1 font-mono text-[10.5px] font-semibold leading-none ${
+        hosted ? "border-accent bg-accent/10 text-accent" : "border-border bg-surface2 text-muted"
+      }`}
     >
       {ROLE_DISPLAY[role]}
     </span>
@@ -61,8 +56,7 @@ function RolePill({ role }: { role: ShareRoleLabel }) {
 function SyncBadge({ syncing, synced }: { syncing: boolean; synced: boolean }) {
   return (
     <span
-      className="flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1 font-mono text-[10.5px] font-semibold leading-none"
-      style={{ color: "var(--color-muted)" }}
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface2 px-2 py-1 font-mono text-[10.5px] font-semibold leading-none text-muted"
     >
       {syncing ? (
         <>
@@ -71,10 +65,7 @@ function SyncBadge({ syncing, synced }: { syncing: boolean; synced: boolean }) {
       ) : (
         <>
           <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{
-              backgroundColor: synced ? "var(--color-success)" : "var(--color-ink-3)",
-            }}
+            className={`h-1.5 w-1.5 rounded-full ${synced ? "bg-success" : "bg-ink3"}`}
           />
           {synced ? "Synced" : "Not synced"}
         </>
@@ -87,7 +78,7 @@ function Stat({ value, label }: { value: number; label: string }) {
   return (
     <div>
       <span className="font-display text-[17px] font-semibold text-text">{value}</span>
-      <span className="ml-1.5 text-[11.5px]" style={{ color: "var(--color-ink-3)" }}>
+      <span className="ml-1.5 text-[11.5px] text-ink3">
         {label}
         {value === 1 ? "" : "s"}
       </span>
@@ -245,14 +236,11 @@ export function ShareCard({
   });
   pdfsResetRef.current = pdfs.reset;
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-panel">
       <div className="px-5 pb-3.5 pt-4">
         <div className="flex items-center gap-2.5">
           <span
-            className="h-[11px] w-[11px] shrink-0 rounded-[3px]"
-            style={{
-              backgroundColor: hosted ? "var(--color-accent)" : "var(--color-ink-3)",
-            }}
+            className={`h-[11px] w-[11px] shrink-0 rounded-[3px] ${hosted ? "bg-accent" : "bg-ink3"}`}
           />
           <span className="font-display flex-1 truncate text-[17px] font-semibold text-text">
             {share.name || "(pending first sync)"}
@@ -261,13 +249,12 @@ export function ShareCard({
             <Lock
               size={13}
               aria-label="End-to-end encrypted"
-              style={{ color: "var(--color-muted)" }}
+              className="text-muted"
             />
           )}
           {share.pending && (
             <span
-              className="shrink-0 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1 font-mono text-[10.5px] font-semibold leading-none"
-              style={{ color: "var(--color-muted)" }}
+              className="shrink-0 rounded-full border border-border bg-surface2 px-2 py-1 font-mono text-[10.5px] font-semibold leading-none text-muted"
             >
               Pending
             </span>
@@ -277,21 +264,17 @@ export function ShareCard({
         </div>
         {share.description && (
           <p
-            className="mt-1 truncate pl-[21px] text-xs"
-            style={{ color: "var(--color-muted)" }}
+            className="mt-1 truncate pl-[21px] text-xs text-muted"
           >
             {share.description}
           </p>
         )}
       </div>
-      <div className="mx-5 flex items-center gap-2 border-y border-[var(--color-border)] py-2.5">
+      <div className="mx-5 flex items-center gap-2 border-y border-border py-2.5">
         <span
-          className="h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{
-            backgroundColor: share.paused ? "var(--color-ink-3)" : "var(--color-accent)",
-          }}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${share.paused ? "bg-ink3" : "bg-accent"}`}
         />
-        <span className="truncate text-xs" style={{ color: "var(--color-muted)" }}>
+        <span className="truncate text-xs text-muted">
           {share.paused
             ? "Sync paused"
             : share.pending
@@ -359,43 +342,34 @@ export function ShareCard({
       </div>
       {(sync.isError || sync.data?.synced === false || sync.data?.reason != null) && (
         <p
-          className="px-5 pb-3 text-xs"
-          style={{
+          className={`px-5 pb-3 text-xs ${
             // "still waiting on the host" is a state, not a failure.
-            color: sync.data?.synced && sync.data.pending
-              ? "var(--color-muted)"
-              : "var(--color-danger)",
-          }}
+            sync.data?.synced && sync.data.pending ? "text-muted" : "text-danger"
+          }`}
         >
           {sync.isError ? shareErrText(sync.error) : humanizeReason(sync.data?.reason)}
         </p>
       )}
       {sync.data && syncCounters(sync.data) && (
         <p
-          className="px-5 pb-3 font-mono text-[10.5px]"
-          style={{ color: "var(--color-ink-3)" }}
+          className="px-5 pb-3 font-mono text-[10.5px] text-ink3"
         >
           {syncCounters(sync.data)}
         </p>
       )}
       {importM.isError && (
-        <p className="px-5 pb-3 text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="px-5 pb-3 text-xs text-danger">
           {shareErrText(importM.error)}
         </p>
       )}
       {pdfs.isError && (
-        <p className="px-5 pb-3 text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="px-5 pb-3 text-xs text-danger">
           {shareErrText(pdfs.error)}
         </p>
       )}
       {pdfs.data && (
         <p
-          className="px-5 pb-3 text-xs"
-          style={{
-            color: pdfs.data.failed.length
-              ? "var(--color-danger)"
-              : "var(--color-muted)",
-          }}
+          className={`px-5 pb-3 text-xs ${pdfs.data.failed.length ? "text-danger" : "text-muted"}`}
         >
           {pdfs.data.total === 0
             ? "No PDFs shared in this project"

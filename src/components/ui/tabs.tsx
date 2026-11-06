@@ -9,7 +9,7 @@ export function TabsList({
 }: ComponentPropsWithoutRef<typeof RadixTabs.List>) {
   return (
     <RadixTabs.List
-      className={["flex border-b border-[var(--color-border)]", className]
+      className={["flex border-b border-border", className]
         .filter(Boolean)
         .join(" ")}
       {...rest}
@@ -27,9 +27,9 @@ export function TabsTrigger({
       value={value}
       className={[
         "px-4 py-2 text-sm font-medium -mb-px border-b-2 border-transparent",
-        "text-[var(--color-muted)] transition-colors",
-        "hover:text-[var(--color-text)]",
-        "data-[state=active]:text-[var(--color-text)] data-[state=active]:border-[var(--color-accent)]",
+        "text-muted transition-colors",
+        "hover:text-text",
+        "data-[state=active]:text-text data-[state=active]:border-accent",
         className,
       ]
         .filter(Boolean)

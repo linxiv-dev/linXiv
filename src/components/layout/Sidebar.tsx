@@ -58,7 +58,7 @@ const NAV_ITEMS: NavItem[] = [
 const EXPANDED_W = 160;
 const COLLAPSED_W = 48;
 
-function navItemStyle(isActive: boolean, collapsed: boolean): React.CSSProperties {
+function navItemStyle(collapsed: boolean): React.CSSProperties {
   return {
     display: "flex",
     alignItems: "center",
@@ -70,18 +70,11 @@ function navItemStyle(isActive: boolean, collapsed: boolean): React.CSSPropertie
     fontWeight: 500,
     textDecoration: "none",
     transition: "background-color 0.15s, color 0.15s",
-    backgroundColor: isActive ? "var(--color-accent)" : "transparent",
-    color: isActive ? "white" : "var(--color-muted)",
   };
 }
 
-// Hover tint for inactive items; active ones (current route or open popover) keep white.
-function hoverColor(e: React.MouseEvent<HTMLElement>, color: string) {
-  const el = e.currentTarget;
-  if (!el.getAttribute("aria-current") && el.dataset.state !== "open") {
-    el.style.color = color;
-  }
-}
+// Active = current route or open popover; only inactive items tint on hover.
+const navItemTone = (isActive: boolean) => (isActive ? "bg-accent text-white" : "bg-transparent text-muted hover:text-text");
 
 // "Add Paper" opens the add flow in place; the /doi page stays for deep links.
 function AddPaperNavItem({ label, icon, collapsed }: { label: string; icon: React.ReactNode; collapsed: boolean }) {
@@ -93,9 +86,8 @@ function AddPaperNavItem({ label, icon, collapsed }: { label: string; icon: Reac
         type="button"
         title={collapsed ? label : undefined}
         aria-label={collapsed ? label : undefined}
-        style={{ ...navItemStyle(open || onDoiPage, collapsed), border: "none", cursor: "pointer" }}
-        onMouseEnter={(e) => hoverColor(e, "var(--color-text)")}
-        onMouseLeave={(e) => hoverColor(e, "var(--color-muted)")}
+        className={navItemTone(open || onDoiPage)}
+        style={{ ...navItemStyle(collapsed), border: "none", cursor: "pointer" }}
       >
         {icon}
         {!collapsed && <span style={{ whiteSpace: "nowrap" }}>{label}</span>}
@@ -117,15 +109,7 @@ function RemoteModeBadge({ collapsed }: { collapsed: boolean }) {
     <NavLink
       to="/settings#backends"
       title={`Viewing remote library “${label}”. Click to manage backends`}
-      className="mx-2 mb-2 rounded-md px-2 py-1.5 text-xs flex items-center justify-center gap-1.5"
-      style={{
-        backgroundColor:
-          "color-mix(in srgb, var(--color-accent) 14%, transparent)",
-        border: "1px solid var(--color-accent)",
-        color: "var(--color-accent)",
-        textDecoration: "none",
-        fontWeight: 600,
-      }}
+      className="mx-2 mb-2 rounded-md px-2 py-1.5 text-xs flex items-center justify-center gap-1.5 bg-accent/14 border border-accent text-accent no-underline font-semibold"
     >
       <Globe size={12} className="shrink-0" />
       {!collapsed && <span className="truncate">Remote: {label}</span>}
@@ -161,15 +145,9 @@ function ImportProgress({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div
-      className="mx-2 mb-3 rounded-md px-2 py-2 text-xs flex items-center gap-2"
-      style={{
-        backgroundColor: hasErrors
-          ? "color-mix(in srgb, var(--color-danger) 12%, transparent)"
-          : "color-mix(in srgb, var(--color-accent) 10%, transparent)",
-        border: `1px solid ${hasErrors ? "var(--color-danger)" : "var(--color-accent)"}`,
-        color: hasErrors ? "var(--color-danger)" : "var(--color-accent)",
-        opacity: 0.9,
-      }}
+      className={`mx-2 mb-3 rounded-md border px-2 py-2 text-xs flex items-center gap-2 opacity-90 ${
+        hasErrors ? "border-danger bg-danger/12 text-danger" : "border-accent bg-accent/10 text-accent"
+      }`}
     >
       {!allSettled
         ? <Spinner size={11} />
@@ -220,11 +198,10 @@ export function Sidebar() {
 
   return (
     <aside
-      className="app-sidebar"
+      className="app-sidebar bg-panel"
       style={{
         width: w,
         minWidth: w,
-        backgroundColor: "var(--color-panel)",
         borderRight: "1px solid var(--color-border)",
         transition: "width 200ms ease, min-width 200ms ease",
         display: "flex",
@@ -240,8 +217,7 @@ export function Sidebar() {
       >
         {!sidebarCollapsed && (
           <span
-            className="text-lg font-bold tracking-tight"
-            style={{ color: "var(--color-accent)" }}
+            className="text-lg font-bold tracking-tight text-accent"
           >
             linXiv
           </span>
@@ -250,8 +226,7 @@ export function Sidebar() {
           type="button"
           onClick={toggleSidebar}
           title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          style={{
-            color: "var(--color-muted)",
+          className="text-muted hover:text-text" style={{
             background: "none",
             border: "none",
             cursor: "pointer",
@@ -260,8 +235,6 @@ export function Sidebar() {
             display: "flex",
             alignItems: "center",
           }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text)")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-muted)")}
         >
           {sidebarCollapsed
             ? <PanelLeftOpen size={16} />
@@ -281,9 +254,8 @@ export function Sidebar() {
             to={to}
             end={end}
             title={sidebarCollapsed ? label : undefined}
-            style={({ isActive }) => navItemStyle(isActive, sidebarCollapsed)}
-            onMouseEnter={(e) => hoverColor(e, "var(--color-text)")}
-            onMouseLeave={(e) => hoverColor(e, "var(--color-muted)")}
+            className={({ isActive }) => navItemTone(isActive)}
+            style={navItemStyle(sidebarCollapsed)}
           >
             {icon}
             {!sidebarCollapsed && <span style={{ whiteSpace: "nowrap" }}>{label}</span>}

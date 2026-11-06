@@ -30,8 +30,7 @@ const ROUTE_PAGE_KEY: Record<string, SidebarPageKey> = {
 function PageFallback() {
   return (
     <div role="status" aria-label="Loading"
-      className="flex-1 flex items-center justify-center"
-      style={{ backgroundColor: "var(--color-bg)" }}
+      className="flex-1 flex items-center justify-center bg-bg"
     >
       <LogoMark size={48} className="animate-pulse" />
     </div>
@@ -81,13 +80,11 @@ export default function AppShell() {
 
   return (
     <div
-      className="flex h-full"
-      style={{ backgroundColor: "var(--color-bg)" }}
+      className="flex h-full bg-bg"
     >
       <Sidebar />
       <main
-        className="flex-1 relative overflow-hidden"
-        style={{ backgroundColor: "var(--color-bg)" }}
+        className="flex-1 relative overflow-hidden bg-bg"
       >
         <div
           className="absolute inset-0 flex flex-col"

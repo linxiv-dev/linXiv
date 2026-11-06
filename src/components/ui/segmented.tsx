@@ -97,7 +97,7 @@ export function Segmented<T extends string>({
             className={[
               "px-3 py-1 text-xs font-medium rounded-md border",
               "transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
               "disabled:opacity-50 disabled:cursor-not-allowed",
               active
                 ? "bg-panel text-text border-border shadow-card"

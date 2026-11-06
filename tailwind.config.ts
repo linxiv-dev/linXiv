@@ -22,6 +22,7 @@ export default {
         ink3: "var(--color-ink-3)",
         success: "var(--color-success)",
         danger: "var(--color-danger)",
+        "browser-open": "var(--color-browser-open)",
       },
       spacing: {
         1.75: "0.5rem",

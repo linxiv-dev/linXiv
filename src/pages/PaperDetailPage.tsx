@@ -416,7 +416,7 @@ export default function PaperDetailPage() {
   if (paperError || !paper) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           {errText(paperError, "Paper not found.")}
         </p>
       </div>
@@ -617,8 +617,7 @@ export default function PaperDetailPage() {
                       href={`https://doi.org/${paper.doi}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="transition-colors hover:text-text"
-                      style={{ color: "var(--color-accent)" }}
+                      className="transition-colors hover:text-text text-accent"
                     >
                       DOI: {paper.doi}
                     </a>
@@ -645,7 +644,7 @@ export default function PaperDetailPage() {
                         v === versionsData?.latest_version ? null : v
                       );
                     }}
-                    className="inline-flex items-center rounded-full font-medium border border-[var(--color-border)] bg-[var(--color-panel)] text-[var(--color-text)] px-2 py-0.5 text-xs cursor-pointer"
+                    className="inline-flex items-center rounded-full font-medium border border-border bg-panel text-text px-2 py-0.5 text-xs cursor-pointer"
                     aria-label="Select version"
                   >
                     {versionedList.map((v) => {
@@ -681,10 +680,9 @@ export default function PaperDetailPage() {
               {/* Same DOI, different source — likely duplicates, mergeable into this paper */}
               {doiCandidates && doiCandidates.length > 0 && (
                 <div
-                  className="rounded-md border px-3 py-2 text-sm space-y-1.5"
-                  style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-panel)" }}
+                  className="rounded-md border px-3 py-2 text-sm space-y-1.5 border-border bg-panel"
                 >
-                  <p style={{ color: "var(--color-text)" }}>
+                  <p className="text-text">
                     Same DOI found in {doiCandidates.length} other record
                     {doiCandidates.length > 1 ? "s" : ""}. These are likely to be the same paper.
                   </p>
@@ -693,8 +691,7 @@ export default function PaperDetailPage() {
                       <div key={c.source_fk} className="flex items-center gap-2">
                         <button
                           type="button"
-                          className="text-xs underline underline-offset-2 hover:opacity-80 text-left"
-                          style={{ color: "var(--color-accent)" }}
+                          className="text-xs underline underline-offset-2 hover:opacity-80 text-left text-accent"
                           onClick={() => navigate(`/library/${c.source_fk}`)}
                         >
                           {c.source ?? c.source_id}: <MathText forceInline>{c.title}</MathText>
@@ -702,17 +699,9 @@ export default function PaperDetailPage() {
                         {/* Two-click confirm: arm, then fire. The merge deletes the duplicate record. */}
                         <button
                           type="button"
-                          className="text-xs rounded border px-1.5 py-0.5 hover:opacity-80 shrink-0"
-                          style={{
-                            borderColor:
-                              armedMergeSfk === c.source_fk
-                                ? "var(--color-danger)"
-                                : "var(--color-border)",
-                            color:
-                              armedMergeSfk === c.source_fk
-                                ? "var(--color-danger)"
-                                : "var(--color-text-muted)",
-                          }}
+                          className={`text-xs rounded border px-1.5 py-0.5 hover:opacity-80 shrink-0 ${
+                            armedMergeSfk === c.source_fk ? "border-danger text-danger" : "border-border text-muted"
+                          }`}
                           disabled={mergeMutation.isPending}
                           onClick={() => {
                             if (armedMergeSfk === c.source_fk) {
@@ -732,7 +721,7 @@ export default function PaperDetailPage() {
                     ))}
                   </div>
                   {mergeMutation.isError && (
-                    <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+                    <p className="text-xs text-danger">
                       {(mergeMutation.error as Error).message}
                     </p>
                   )}
@@ -809,8 +798,7 @@ export default function PaperDetailPage() {
 
                 {deleteNoteMutation.isError && (
                   <p
-                    className="text-sm text-center"
-                    style={{ color: "var(--color-danger)" }}
+                    className="text-sm text-center text-danger"
                   >
                     {errText(deleteNoteMutation.error, "Failed to delete the note.")}
                   </p>
@@ -880,8 +868,7 @@ export default function PaperDetailPage() {
                 )}
                 {deleteAnnotationMutation.isError && (
                   <p
-                    className="text-sm text-center"
-                    style={{ color: "var(--color-danger)" }}
+                    className="text-sm text-center text-danger"
                   >
                     Failed to delete the annotation.
                   </p>
@@ -1016,12 +1003,12 @@ function AnnotationCard({
                   Cancel
                 </button>
                 {stale ? (
-                  <span style={{ color: "var(--color-danger)" }}>
+                  <span className="text-danger">
                     Annotation was updated elsewhere. Cancel to reload before saving.
                   </span>
                 ) : (
                   updateMutation.isError && (
-                    <span style={{ color: "var(--color-danger)" }}>
+                    <span className="text-danger">
                       Couldn't save. Try again.
                     </span>
                   )
@@ -1056,7 +1043,7 @@ function AnnotationCard({
             <button
               onClick={onDelete}
               disabled={isPending || updateMutation.isPending}
-              className="ml-auto font-medium text-[var(--color-danger)] hover:underline disabled:opacity-50"
+              className="ml-auto font-medium text-danger hover:underline disabled:opacity-50"
             >
               {isPending ? "Deleting…" : "Delete"}
             </button>
@@ -1157,7 +1144,7 @@ function PdfPane({
       return (
         <div className="flex h-full w-full items-center justify-center bg-panel px-6">
           {remotePdfQ.isError ? (
-            <p className="text-sm text-center" style={{ color: "var(--color-danger)" }}>
+            <p className="text-sm text-center text-danger">
               {errText(remotePdfQ.error, "Failed to fetch the PDF from the remote backend")}
             </p>
           ) : (
@@ -1214,8 +1201,7 @@ function PdfPane({
             href={paper.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm hover:underline self-center"
-            style={{ color: "var(--color-accent)" }}
+            className="text-sm hover:underline self-center text-accent"
           >
             View online ↗
           </a>
@@ -1241,7 +1227,7 @@ function PdfPane({
                   )}
                 </Button>
                 {savePdfMutation.isError && (
-                  <span className="text-xs" style={{ color: "var(--color-danger)" }}>
+                  <span className="text-xs text-danger">
                     {errText(savePdfMutation.error, "Save failed")}
                   </span>
                 )}
@@ -1341,7 +1327,7 @@ function PdfPane({
           href={paper.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center justify-center gap-1.5 font-medium transition-colors px-3.5 py-1.5 text-sm rounded-md bg-[var(--color-panel)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+          className="inline-flex items-center justify-center gap-1.5 font-medium transition-colors px-3.5 py-1.5 text-sm rounded-md bg-panel text-text border border-border hover:border-accent hover:text-accent"
         >
           Open PDF ↗
         </a>
@@ -1372,7 +1358,7 @@ function PdfPane({
         )}
       </Button>
       {linkPdfMutation.isError && (
-        <span className="text-xs" style={{ color: "var(--color-danger)" }}>
+        <span className="text-xs text-danger">
           {errText(linkPdfMutation.error, "Link failed")}
         </span>
       )}

@@ -187,7 +187,7 @@ export function HistoryDialog({
           <LogoMark size={32} className="animate-pulse" />
         </div>
       ) : timelineError ? (
-        <p className="py-6 text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="py-6 text-sm text-danger">
           {errText(timelineError, "Failed to load history")}
         </p>
       ) : changes.length === 0 ? (
@@ -200,18 +200,13 @@ export function HistoryDialog({
         <div className="flex gap-4 min-h-0" style={{ height: "60vh" }}>
           {/* Change list */}
           <div
-            className="flex w-2/5 flex-col gap-1 overflow-y-auto pr-1"
-            style={{ borderRight: "1px solid var(--color-border)" }}
+            className="flex w-2/5 flex-col gap-1 overflow-y-auto pr-1 border-r border-border"
           >
             {actorFilter && (
               <button
                 type="button"
                 onClick={() => setActorFilter(null)}
-                className="self-start rounded-full border px-1.5 text-[10px] leading-4"
-                style={{
-                  color: "var(--color-muted)",
-                  borderColor: "var(--color-border)",
-                }}
+                className="self-start rounded-full border px-1.5 text-[10px] leading-4 text-muted border-border"
               >
                 Showing:{" "}
                 {formatActor(
@@ -248,7 +243,7 @@ export function HistoryDialog({
           {/* Diff panel */}
           <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
             {diffError ? (
-              <p className="py-6 text-sm" style={{ color: "var(--color-danger)" }}>
+              <p className="py-6 text-sm text-danger">
                 {errText(diffError, "Failed to load this change's diff")}
               </p>
             ) : diffLoading || !diff ? (
@@ -287,15 +282,15 @@ export function HistoryDialog({
         title="Restore to this change?"
       >
         <div className="flex flex-col gap-4">
-          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+          <p className="text-sm text-muted">
             This rolls everything in scope back to{" "}
-            <span className="font-mono" style={{ color: "var(--color-accent)" }}>
+            <span className="font-mono text-accent">
               {active?.slice(0, 7)}
             </span>
             . The restore itself is journaled, so it can be undone from history.
           </p>
           {error && (
-            <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+            <p className="text-xs text-danger">
               {error}
             </p>
           )}
@@ -334,9 +329,9 @@ export function HistoryDialog({
         title="Name this person"
       >
         <div className="flex flex-col gap-4">
-          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+          <p className="text-sm text-muted">
             Shown instead of{" "}
-            <span className="font-mono" style={{ color: "var(--color-accent)" }}>
+            <span className="font-mono text-accent">
               {renameActor?.slice(0, 8)}
             </span>{" "}
             on this device only. Leave empty to clear.
@@ -352,7 +347,7 @@ export function HistoryDialog({
             }}
           />
           {error && (
-            <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+            <p className="text-xs text-danger">
               {error}
             </p>
           )}
@@ -400,18 +395,15 @@ function ChangeItem({
     // <button>s — no focusable descendants inside an ARIA button.
     <div
       onClick={onSelect}
-      className="flex cursor-pointer flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors"
-      style={{
-        backgroundColor: selected ? "var(--color-surface-2)" : "transparent",
-        border: `1px solid ${selected ? "var(--color-border)" : "transparent"}`,
-      }}
+      className={`flex cursor-pointer flex-col gap-0.5 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
+        selected ? "border-border bg-surface2" : "border-transparent"
+      }`}
     >
       <span className="flex items-center gap-2 text-xs">
         <button
           type="button"
           aria-label={`Select change ${change.hash.slice(0, 7)}`}
-          className="font-mono"
-          style={{ color: "var(--color-accent)" }}
+          className="font-mono text-accent"
           onClick={(e) => {
             e.stopPropagation();
             onSelect();
@@ -423,7 +415,7 @@ function ChangeItem({
             click toggles filtering the list to this actor. */}
         <button
           type="button"
-          style={{ color: "var(--color-text)" }}
+          className="text-text"
           title={change.actor}
           onClick={(e) => {
             e.stopPropagation();
@@ -438,8 +430,7 @@ function ChangeItem({
             type="button"
             aria-label="Name this person"
             title="Name this person"
-            className="opacity-40 hover:opacity-100"
-            style={{ color: "var(--color-muted)" }}
+            className="opacity-40 hover:opacity-100 text-muted"
             onClick={(e) => {
               e.stopPropagation();
               onRename();
@@ -450,17 +441,13 @@ function ChangeItem({
         )}
         {latest && (
           <span
-            className="rounded-full border px-1.5 text-[10px] leading-4"
-            style={{
-              color: "var(--color-muted)",
-              borderColor: "var(--color-border)",
-            }}
+            className="rounded-full border px-1.5 text-[10px] leading-4 text-muted border-border"
           >
             latest
           </span>
         )}
       </span>
-      <span className="text-[11px]" style={{ color: "var(--color-muted)" }}>
+      <span className="text-[11px] text-muted">
         {formatTime(change.time)}
         {change.message ? ` · ${change.message}` : ""}
       </span>
@@ -478,7 +465,7 @@ function DiffView({
   const summary = diffSummary(diff);
   if (!summary) {
     return (
-      <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+      <p className="text-sm text-muted">
         No visible changes (background bookkeeping).
       </p>
     );
@@ -489,7 +476,7 @@ function DiffView({
     a.paper_sfk != null ? `/library/${a.paper_sfk}` : null;
   return (
     <div className="flex flex-col gap-1.5 text-sm">
-      <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+      <p className="text-xs text-muted">
         {summary}
       </p>
       {diff.meta.map((m) => (
@@ -566,10 +553,10 @@ function DiffView({
   );
 }
 
-const SIGN_COLOR: Record<string, string> = {
-  "+": "var(--color-success)",
-  "−": "var(--color-danger)",
-  "~": "var(--color-accent)",
+const SIGN_TONE: Record<string, string> = {
+  "+": "text-success bg-success/8",
+  "−": "text-danger bg-danger/8",
+  "~": "text-accent bg-accent/8",
 };
 
 function DiffLine({
@@ -581,14 +568,10 @@ function DiffLine({
 }) {
   return (
     <div
-      className="flex items-baseline gap-2 rounded px-2 py-0.5 font-mono text-xs"
-      style={{
-        color: SIGN_COLOR[sign],
-        backgroundColor: `color-mix(in srgb, ${SIGN_COLOR[sign]} 8%, transparent)`,
-      }}
+      className={`flex items-baseline gap-2 rounded px-2 py-0.5 font-mono text-xs ${SIGN_TONE[sign]}`}
     >
       <span className="select-none">{sign}</span>
-      <span className="min-w-0 break-words" style={{ color: "var(--color-text)" }}>
+      <span className="min-w-0 break-words text-text">
         {children}
       </span>
     </div>
@@ -642,8 +625,7 @@ function EntityLink({
     <button
       type="button"
       onClick={() => go(to)}
-      className="text-left hover:underline"
-      style={{ color: "var(--color-accent)" }}
+      className="text-left hover:underline text-accent"
     >
       {children}
     </button>
@@ -665,15 +647,8 @@ const InlineWordDiff = memo(function InlineWordDiff({
       {wordDiff(from, to).map((r, i) => (
         <span
           key={i}
-          style={
-            r.kind === "del"
-              ? {
-                  color: "var(--color-danger)",
-                  textDecoration: "line-through",
-                }
-              : r.kind === "add"
-                ? { color: "var(--color-success)" }
-                : { color: "var(--color-muted)" }
+          className={
+            r.kind === "del" ? "text-danger line-through" : r.kind === "add" ? "text-success" : "text-muted"
           }
         >
           {r.text}

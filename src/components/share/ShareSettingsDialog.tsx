@@ -138,8 +138,7 @@ export function ShareSettingsDialog({
       <div className="flex flex-col gap-4">
         {share.e2ee && (
           <div
-            className="flex items-center gap-2 text-xs"
-            style={{ color: "var(--color-muted)" }}
+            className="flex items-center gap-2 text-xs text-muted"
           >
             <Lock size={13} />
             End-to-end encrypted · syncs every 5 minutes
@@ -167,13 +166,13 @@ export function ShareSettingsDialog({
         </SettingsRow>
         <SettingsRow label="Local project">
           {hosted ? (
-            <span className="truncate text-[13px]" style={{ color: "var(--color-muted)" }}>
+            <span className="truncate text-[13px] text-muted">
               {hosterProject?.name ?? "-"}
             </span>
           ) : share.pending ? (
             // Nothing has arrived to import yet; "Sync now" on the card is the
             // only useful action until the host answers.
-            <span className="truncate text-[13px]" style={{ color: "var(--color-muted)" }}>
+            <span className="truncate text-[13px] text-muted">
               Waiting for the first sync
             </span>
           ) : share.project_fk == null ? (
@@ -188,8 +187,7 @@ export function ShareSettingsDialog({
           ) : (
             <div className="flex min-w-0 items-center gap-2">
               <span
-                className="truncate text-[13px]"
-                style={{ color: "var(--color-muted)" }}
+                className="truncate text-[13px] text-muted"
               >
                 {linkedProject?.name ?? `Project #${share.project_fk}`}
               </span>
@@ -208,12 +206,12 @@ export function ShareSettingsDialog({
           )}
         </SettingsRow>
         {err != null && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             {shareErrText(err)}
           </p>
         )}
         {leaveM.data?.forgotten === false && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             The mirror is gone, but the peer-to-peer node was offline so its
             registration survived — rejoining now would reuse the same document.
             Start the app with networking available and leave again.
@@ -224,8 +222,8 @@ export function ShareSettingsDialog({
             <MembersSection shareId={share.share_id} hosted={hosted} />
           )}
         {share.e2ee && !share.pending && <PresenceSection shareId={share.share_id} />}
-        <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-4">
-          <span className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <div className="flex items-center justify-between border-t border-border pt-4">
+          <span className="text-xs text-muted">
             {hosted
               ? share.e2ee
                 ? "Revokes all members and stops serving the share. Your project stays."

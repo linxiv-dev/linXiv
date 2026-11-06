@@ -8,11 +8,10 @@ export function LogoMark({ size = 26, className = "" }: { size?: number; classNa
   return (
     <span
       aria-hidden="true"
-      className={`block shrink-0 ${className}`}
+      className={`block shrink-0 ${className} bg-accent`}
       style={{
         width: size,
         height: size,
-        backgroundColor: "var(--color-accent)",
         WebkitMaskImage: `url(${markUrl})`,
         maskImage: `url(${markUrl})`,
         WebkitMaskRepeat: "no-repeat",

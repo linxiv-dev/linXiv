@@ -120,7 +120,7 @@ function UpdateMessage({
   if (result.hasUpdate && result.latest) {
     return (
       <span className="flex items-center gap-3 flex-wrap">
-        <span style={{ color: "var(--color-success)" }}>
+        <span className="text-success">
           Version {result.latest} is available.
         </span>
         {isTauri && (
@@ -147,7 +147,7 @@ function UpdateMessage({
           Download
         </Button>
         {installError && (
-          <span style={{ color: "var(--color-danger)" }}>
+          <span className="text-danger">
             {installError}
             {packageKind && " (requires accepting the authentication prompt)"}
           </span>
@@ -172,7 +172,7 @@ function UpdateMessage({
       </span>
     );
   }
-  return <span style={{ color: "var(--color-success)" }}>You're on the latest version.</span>;
+  return <span className="text-success">You're on the latest version.</span>;
 }
 
 export function AboutSection() {
@@ -343,7 +343,7 @@ export function AboutSection() {
               </>
             ) : (
               checkError && (
-                <span style={{ color: "var(--color-danger)" }}>{checkError.message}</span>
+                <span className="text-danger">{checkError.message}</span>
               )
             )}
           </SettingRow>
@@ -355,7 +355,7 @@ export function AboutSection() {
                 <Spinner size={14} /> Checking…
               </span>
             ) : pluginCheckError ? (
-              <span style={{ color: "var(--color-danger)" }}>
+              <span className="text-danger">
                 {errMessage(pluginCheckError)}
               </span>
             ) : pluginCheck ? (

@@ -80,10 +80,9 @@ function NewReadingListDialog({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="rl-name"
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
-            Name <span style={{ color: "var(--color-danger)" }}>*</span>
+            Name <span className="text-danger">*</span>
           </label>
           <Input
             id="rl-name"
@@ -95,7 +94,7 @@ function NewReadingListDialog({
           />
         </div>
         {error && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             {error}
           </p>
         )}
@@ -252,19 +251,14 @@ export default function ReadingListsPage() {
       )}
 
       {actionError && (
-        <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="text-xs text-danger">
           {actionError}
         </p>
       )}
 
       {isError && (
         <div
-          className="rounded-lg border p-4 text-sm"
-          style={{
-            borderColor: "var(--color-danger)",
-            color: "var(--color-danger)",
-            backgroundColor: "var(--color-panel)",
-          }}
+          className="rounded-lg border p-4 text-sm border-danger text-danger bg-panel"
         >
           Failed to load reading lists:{" "}
           {errText(errorMsg, "Unknown error")}
