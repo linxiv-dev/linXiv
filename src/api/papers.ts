@@ -1,4 +1,4 @@
-import { BASE_URL, isTauri } from "./client.ts";
+import { BASE_URL, bytesToBase64, isTauri } from "./client.ts";
 import { libraryFetch } from "../stores/backend.ts";
 import type {
   Paper,
@@ -10,11 +10,13 @@ import type {
   FullTextPending,
   FullTextReceipt,
   MergeReceipt,
+  OkReceipt,
   PaperMergeBody,
   PaperSavedBody,
   SavedSourceIds,
   DeletedPaperReceipt,
   RemovedFromProjects,
+  UploadPdfBody,
 } from "../types/api";
 
 // The in-process app serves PDF bytes over the `linxiv://` custom scheme (the
@@ -115,6 +117,15 @@ export async function deletePaper(sourceId: string): Promise<DeletedPaperReceipt
     `/api/papers/${encodeURIComponent(sourceId)}`,
     { method: "DELETE" }
   );
+}
+
+/** Store PDF bytes as the saved paper's managed PDF. */
+export async function uploadPdf(sourceId: string, bytes: Uint8Array): Promise<OkReceipt> {
+  const body: UploadPdfBody = { file_b64: bytesToBase64(bytes) };
+  return libraryFetch<OkReceipt>(`/api/papers/${encodeURIComponent(sourceId)}/pdf`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
 }
 
 export type { PaperRepairBody };

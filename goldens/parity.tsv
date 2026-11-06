@@ -83,6 +83,7 @@ POST /api/editor/projects	-	-
 POST /api/editor/vault/{}/fs	-	-
 POST /api/feed/dismiss	feed dismiss	dismiss_feed_entry
 POST /api/feed/rules	feed rules add	create_feed_rule
+POST /api/feed/undismiss	-	-
 POST /api/history/library/restore	-	-
 POST /api/history/project/{}/restore	-	-
 POST /api/notes	note create	create_note

@@ -58,6 +58,24 @@ pub fn dismiss(conn: &Connection, source_id: &str, version: i64, permanent: bool
     Ok(())
 }
 
+/// Reverse `dismiss` with the same arguments: reset the 'DOI' or 'VER' mark to 'NOT'.
+pub fn undismiss(conn: &Connection, source_id: &str, version: i64, permanent: bool) -> Result<()> {
+    if permanent {
+        conn.execute(
+            "UPDATE RSS_PAPER_ROOTS SET REMOVAL_TYPE = 'NOT', REMOVED_AT = NULL
+             WHERE SOURCE_ID = ?1",
+            [source_id],
+        )?;
+    } else {
+        conn.execute(
+            "UPDATE RSS_PAPER SET REMOVAL_TYPE = 'NOT', REMOVED_AT = NULL
+             WHERE SOURCE_ID = ?1 AND VERSION = ?2",
+            params![source_id, version],
+        )?;
+    }
+    Ok(())
+}
+
 /// Every SOURCE_ID dismissed permanently (`RSS_PAPER_ROOTS.REMOVAL_TYPE = 'DOI'`).
 pub fn blocked_source_ids(conn: &Connection) -> Result<HashSet<String>> {
     let mut stmt =
@@ -453,6 +471,17 @@ mod tests {
         let dismissed = dismissed_versions(&c).unwrap();
         assert!(dismissed.contains(&("arxiv:2401.00003".to_string(), 1)));
         assert!(!dismissed.contains(&("arxiv:2401.00003".to_string(), 2)));
+    }
+
+    #[test]
+    fn undismiss_reverses_both_dismiss_kinds() {
+        let c = conn();
+        dismiss(&c, "arxiv:2401.00004", 1, false).unwrap();
+        dismiss(&c, "arxiv:2401.00005", 1, true).unwrap();
+        undismiss(&c, "arxiv:2401.00004", 1, false).unwrap();
+        undismiss(&c, "arxiv:2401.00005", 1, true).unwrap();
+        assert!(dismissed_versions(&c).unwrap().is_empty());
+        assert!(blocked_source_ids(&c).unwrap().is_empty());
     }
 
     fn backdate_removed_at(c: &Connection, table: &str, source_id: &str, hours_old: i64) {

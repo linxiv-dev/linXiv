@@ -11,14 +11,15 @@ import {
   getDoiVersionCandidates,
   fetchFullText,
   mergePapers,
+  uploadPdf,
 } from "../api/papers";
 import { getNotes, deleteNote } from "../api/notes";
 import { getSettings } from "../api/settings";
 import { setReading, sharingAvailable } from "../api/share";
 import { getAnnotations, deleteAnnotation, updateAnnotation } from "../api/annotations";
 import { listProjects } from "../api/projects";
-import { apiFetch, bytesToBase64, isTauri } from "../api/client";
-import type { Note, Paper, Annotation, UploadPdfBody } from "../types/api";
+import { apiFetch, isTauri } from "../api/client";
+import type { Note, Paper, Annotation } from "../types/api";
 import { PdfReader } from "../components/pdf/PdfReader";
 import { PagePill } from "../components/pdf/PagePill";
 import { ColorSwatches } from "../components/pdf/ColorSwatches";
@@ -45,7 +46,7 @@ import { formatDate } from "../lib/date";
 import { TagBadge } from "../components/tags/TagBadge";
 import { openPdfInSystem } from "../api/pdfs";
 import { remotePdfPath } from "../api/remote";
-import { libraryFetch, useBackendStore } from "../stores/backend";
+import { useBackendStore } from "../stores/backend";
 import { errText } from "../lib/errText";
 import { pdfCanvasDpr } from "../lib/zoom";
 import { pdfDocumentOptions, estPageHeight, PAGE_INSET } from "../lib/pdfOptions";
@@ -250,8 +251,7 @@ export default function PaperDetailPage() {
     mutationFn: async (sourceId: string) => {
       if (!pdfPreviewDocRef.current) throw new Error("PDF not loaded");
       const bytes = await pdfPreviewDocRef.current.getData();
-      const path = `/api/papers/${encodeURIComponent(sourceId)}/pdf`;
-      await libraryFetch(path, { method: "PUT", body: JSON.stringify({ file_b64: bytesToBase64(bytes) } satisfies UploadPdfBody) });
+      await uploadPdf(sourceId, bytes);
     },
     onSuccess: () => {
       invalidatePaperMutationQueries(queryClient);
@@ -260,9 +260,7 @@ export default function PaperDetailPage() {
 
   const linkPdfMutation = useMutation({
     mutationFn: async ({ sourceId, file }: { sourceId: string; file: File }) => {
-      const path = `/api/papers/${encodeURIComponent(sourceId)}/pdf`;
-      const file_b64 = bytesToBase64(new Uint8Array(await file.arrayBuffer()));
-      await libraryFetch(path, { method: "PUT", body: JSON.stringify({ file_b64 } satisfies UploadPdfBody) });
+      await uploadPdf(sourceId, new Uint8Array(await file.arrayBuffer()));
     },
     onSuccess: () => {
       invalidatePaperMutationQueries(queryClient);
