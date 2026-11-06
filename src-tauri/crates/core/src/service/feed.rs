@@ -288,6 +288,11 @@ pub fn dismiss(conn: &Connection, arxiv_id: &str, version: i64, permanent: bool)
     rss::dismiss(conn, &format!("arxiv:{arxiv_id}"), version, permanent)
 }
 
+/// Undo a `dismiss` made with the same arguments.
+pub fn undismiss(conn: &Connection, arxiv_id: &str, version: i64, permanent: bool) -> Result<()> {
+    rss::undismiss(conn, &format!("arxiv:{arxiv_id}"), version, permanent)
+}
+
 pub fn list_rules(conn: &Connection) -> Result<Vec<FilterRule>> {
     rss::list_rules(conn)
 }

@@ -23,6 +23,14 @@ export async function dismissFeedEntry(
   });
 }
 
+/** Undo a dismissal; `body` is the one the dismiss sent. */
+export async function undismissFeedEntry(body: FeedDismissBody): Promise<void> {
+  await libraryFetch("/api/feed/undismiss", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export async function listFeedRules(): Promise<FeedFilterRule[]> {
   const res = await libraryFetch<FeedRulesResponse>("/api/feed/rules");
   return res.rules;
