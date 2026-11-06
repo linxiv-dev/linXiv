@@ -1,18 +1,9 @@
-import { extractClipPreview } from "./extractors";
-import type { GetClipPreviewMessage } from "./types";
+import { extractPage } from "./extractors/index.ts";
 
-chrome.runtime.onMessage.addListener(
-  (
-    message: GetClipPreviewMessage,
-    _sender,
-    sendResponse
-  ) => {
-    if (message.type !== "LINXIV_GET_CLIP_PREVIEW") {
-      return;
-    }
+declare global {
+  var __linxivExtract: (() => ReturnType<typeof extractPage>) | undefined;
+}
 
-    const preview = extractClipPreview(document, window.location.href);
-
-    sendResponse(preview);
-  }
-);
+// The footer in vite.content.config.ts calls this as the script's last
+// expression, which is what executeScript hands back to the popup.
+globalThis.__linxivExtract = () => extractPage(document, window.location.href);
