@@ -24,8 +24,9 @@
     "build:arch": "bash scripts/build_arch_package.sh",
     "extension:typecheck": "tsc -p browser-extension/tsconfig.json",
     "extension:test": "node --test \"browser-extension/src/**/*.test.ts\"",
-    "extension:build": "vite build --config browser-extension/vite.config.ts",
-    "extension:build:firefox": "LINXIV_BROWSER=firefox vite build --config browser-extension/vite.config.ts"
+    "extension:build": "vite build --config browser-extension/vite.config.ts && vite build --config browser-extension/vite.content.config.ts",
+    "extension:build:firefox": "LINXIV_BROWSER=firefox npm run extension:build",
+    "extension:lint": "npm run extension:build:firefox && npx --yes web-ext@10.8.0 lint --source-dir browser-extension/dist-firefox"
   },
   "dependencies": {
     "@mathjax/src": "^4.1.3",
@@ -73,6 +74,7 @@
     "@types/wicg-file-system-access": "^2023.10.7",
     "@vitejs/plugin-react": "^6.1.2",
     "autoprefixer": "^10.6.2",
+    "linkedom": "0.18.14",
     "postcss": "^8.5.32",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
