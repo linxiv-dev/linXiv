@@ -47,7 +47,8 @@ docs/headless/*
 # Node / Frontend
 node_modules/
 dist/
-dist-firefox/
+# dist-firefox/ is tracked on purpose: the Firefox build is committed so it can be loaded straight from the repo. Ignoring it left only the old build files in git, and the new ones (options page, icons, chunks) were never added.
+# dist-firefox/
 .nvmrc
 
 # Tauri build artifacts
