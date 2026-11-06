@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes } from "react";
+import { cn } from "../../lib/cn";
 
 interface ToggleProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onChange"> {
@@ -25,7 +26,7 @@ export function Toggle({
         onChange?.(!checked);
         onClick?.(event);
       }}
-      className={[
+      className={cn(
         "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full px-0.5",
         "border border-border transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
@@ -34,9 +35,7 @@ export function Toggle({
           ? "bg-accent"
           : "bg-panel",
         className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      )}
       {...props}
     >
       <span

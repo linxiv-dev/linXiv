@@ -1,4 +1,5 @@
 import type { SelectHTMLAttributes } from "react";
+import { cn } from "../../lib/cn";
 
 type SelectSize = "sm" | "md";
 
@@ -20,8 +21,7 @@ interface SelectProps
 
 /** Styled wrapper around a native <select>, matching the Input/Textarea/Badge
  *  primitives. Callers pass <option> children. Use `size` for inline density;
- *  `className` is appended, not merged, so avoid padding/size utilities that
- *  conflict with the variant. */
+ *  `className` is merged, so a conflicting utility overrides the default. */
 export function Select({
   size = "md",
   className = "",
@@ -29,13 +29,13 @@ export function Select({
 }: SelectProps) {
   return (
     <select
-      className={[
+      className={cn(
         "rounded-md border border-border bg-panel",
         "text-text cursor-pointer",
         "disabled:opacity-60 disabled:cursor-not-allowed",
         sizeStyles[size],
         className,
-      ].join(" ")}
+      )}
       {...props}
     />
   );
@@ -86,13 +86,13 @@ export function OptionSelect<T extends string>({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value as T)}
-      className={[
+      className={cn(
         "min-w-[180px] rounded-md border border-border bg-panel",
         "text-text cursor-pointer",
         "disabled:opacity-60 disabled:cursor-not-allowed",
         sizeStyles[size],
         className,
-      ].join(" ")}
+      )}
     >
       {placeholder !== undefined && (
         <option value="" disabled>

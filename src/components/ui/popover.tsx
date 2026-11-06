@@ -1,5 +1,6 @@
 import * as RadixPopover from "@radix-ui/react-popover";
 import type { ComponentPropsWithoutRef } from "react";
+import { cn } from "../../lib/cn";
 
 export const Popover = RadixPopover.Root;
 export const PopoverTrigger = RadixPopover.Trigger;
@@ -16,7 +17,7 @@ export function PopoverContent({
       <RadixPopover.Content
         sideOffset={sideOffset}
         collisionPadding={8}
-        className={["lx-rise-corner z-50 overflow-y-auto border border-border bg-panel text-text", className].join(" ")}
+        className={cn("lx-rise-corner z-50 overflow-y-auto border border-border bg-panel text-text", className)}
         style={{
           maxHeight: "var(--radix-popover-content-available-height)",
           borderRadius: 12,
