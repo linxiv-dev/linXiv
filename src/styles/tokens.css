@@ -28,6 +28,7 @@
   --color-ink-3: #5c5c85;
   --color-success: #4caf88;
   --color-danger: #e05c6c;
+  --color-browser-open: #0a84ff;
 
   /* font */
   --font-display: ui-serif, Georgia, "Times New Roman", serif;
@@ -63,6 +64,7 @@
   --color-ink-3: #767696;
   --color-success: #2f8a68;
   --color-danger: #c0455a;
+  --color-browser-open: #0066cc;
 
   --shadow-card:
     0 1px 2px rgba(0, 0, 0, .06),
@@ -81,4 +83,5 @@
  *   muted  #5a5a7a   6.6:1
  *   ink-3  #767696   4.4:1  (MonoLabel is 10.5px — just under AA's 4.5)
  *   accent #3b6fd4   4.8:1
+ *   browser-open #0066cc  5.6:1
  */

@@ -21,7 +21,7 @@ export const DismissControls = memo(function DismissControls({
   if (!showDismiss && !showNeverShow) return null;
 
   return (
-    <div className={`flex flex-col items-center gap-1 border-l border-border pl-3 ${className}`}>
+    <div className={`flex flex-col items-center justify-center gap-1 self-stretch border-l border-border pl-3 ${className}`}>
       {showNeverShow && (
         <button
           type="button"
@@ -37,7 +37,7 @@ export const DismissControls = memo(function DismissControls({
       {showDismiss && (
         <Button
           type="button"
-          variant="outline"
+          variant="outline-danger"
           size="sm"
           aria-label="Dismiss"
           title="Dismiss this version"
