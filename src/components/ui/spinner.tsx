@@ -1,4 +1,5 @@
 import type { HTMLAttributes } from "react";
+import { cn } from "../../lib/cn";
 
 interface SpinnerProps extends HTMLAttributes<HTMLSpanElement> {
   size?: number;
@@ -9,7 +10,7 @@ export function Spinner({ size = 18, className = "", style, ...props }: SpinnerP
     <span
       role="status"
       aria-label="Loading"
-      className={["inline-block animate-spin rounded-full border-2 border-transparent", className].join(" ")}
+      className={cn("inline-block animate-spin rounded-full border-2 border-transparent", className)}
       style={{
         width: size,
         height: size,

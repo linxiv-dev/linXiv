@@ -625,12 +625,7 @@ export default function PaperDetailPage() {
                 )}
                 {paper.category && (
                   <Badge
-                    style={{
-                      borderColor: "var(--color-accent)",
-                      color: "var(--color-accent)",
-                      backgroundColor:
-                        "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-                    }}
+                    className="border-accent bg-accent/12 text-accent"
                   >
                     {paper.category}
                   </Badge>

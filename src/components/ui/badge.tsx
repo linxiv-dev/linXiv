@@ -1,4 +1,5 @@
 import type { HTMLAttributes } from "react";
+import { cn } from "../../lib/cn";
 
 type BadgeSize = "sm" | "md";
 
@@ -15,12 +16,12 @@ const sizeStyles: Record<BadgeSize, string> = {
 export function Badge({ color, size = "sm", className = "", style, children, ...props }: BadgeProps) {
   return (
     <span
-      className={[
+      className={cn(
         "inline-flex items-center justify-center leading-none rounded-full font-medium",
         "border border-border bg-panel text-text",
         sizeStyles[size],
         className,
-      ].join(" ")}
+      )}
       style={
         color
           ? { borderColor: color, color, backgroundColor: `${color}22`, ...style }

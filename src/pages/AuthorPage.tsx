@@ -676,9 +676,9 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
             deleteMutation.mutate();
           }}
           disabled={deleteMutation.isPending || authorDetail.papers.length > 0}
-          style={
+          className={
             authorDetail.papers.length === 0
-              ? { borderColor: "var(--color-danger)", color: "var(--color-danger)" }
+              ? "border-danger text-danger hover:border-danger hover:text-danger"
               : undefined
           }
         >

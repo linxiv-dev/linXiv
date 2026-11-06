@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { KeyboardEvent } from "react";
+import { cn } from "../../lib/cn";
 
 interface SegmentedOption<T extends string> {
   value: T;
@@ -72,12 +73,10 @@ export function Segmented<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={[
+      className={cn(
         "inline-flex items-center gap-0.5 rounded-lg border border-border bg-surface2 p-0.5",
         className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      )}
     >
       {options.map((option, index) => {
         const active = option.value === value;

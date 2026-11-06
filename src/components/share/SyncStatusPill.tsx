@@ -49,7 +49,7 @@ export function SyncStatusPill({ shares }: { shares: SharedSummary[] }) {
   const latest = latestSyncedAt(shares);
   return (
     <div className="flex items-center gap-2">
-      <Badge className="gap-1.5 font-mono text-[10.5px] font-semibold">
+      <Badge className="gap-1.5 font-mono text-[10.5px] leading-none font-semibold">
         {syncing ? (
           <>
             <Spinner size={11} /> Syncing changes…
@@ -57,15 +57,14 @@ export function SyncStatusPill({ shares }: { shares: SharedSummary[] }) {
         ) : (
           <>
             <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: "var(--color-success)" }}
+              className="h-1.5 w-1.5 rounded-full bg-success"
             />
             All changes synced{latest && ` · Last sync ${relAgo(latest)}`}
           </>
         )}
       </Badge>
       {syncAll.data && syncAll.data.failed > 0 && (
-        <span className="text-xs" style={{ color: "var(--color-danger)" }}>
+        <span className="text-xs text-danger">
           {syncAll.data.failed} share{syncAll.data.failed === 1 ? "" : "s"}{" "}
           failed to sync
         </span>

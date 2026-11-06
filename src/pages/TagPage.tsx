@@ -111,11 +111,7 @@ function TagIndexView() {
                   <Link to={to} className="inline-block" onClick={(e) => e.stopPropagation()}>
                     <Badge
                       size="sm"
-                      style={{
-                        borderColor: "var(--color-accent)",
-                        color: "var(--color-accent)",
-                        backgroundColor: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-                      }}
+                      className="border-accent bg-accent/12 text-accent"
                     >
                       {tag.label}
                     </Badge>
@@ -188,11 +184,7 @@ function TagDetailView({ label }: TagDetailViewProps) {
       <div className="flex items-center gap-3">
         <Badge
           size="md"
-          style={{
-            borderColor: "var(--color-accent)",
-            color: "var(--color-accent)",
-            backgroundColor: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-          }}
+          className="border-accent bg-accent/12 text-accent"
         >
           {displayLabel}
         </Badge>
