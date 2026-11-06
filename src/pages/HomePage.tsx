@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
+import { Globe } from "lucide-react";
 import { getSettings, getStats } from "../api/settings";
-import { dismissFeedEntry, getFeed } from "../api/feed";
+import { dismissFeedEntry, getFeed, undismissFeedEntry } from "../api/feed";
 import { fetchArxiv } from "../api/search";
 import { getPaperPdfUrl } from "../api/papers";
 import { useBackendStore } from "../stores/backend";
@@ -12,10 +13,11 @@ import { Dialog } from "../components/ui/dialog";
 import { PaperList } from "../components/papers/PaperList";
 import { Card, MonoLabel, SectionTitle } from "../components/ui/card";
 import { DismissControls } from "../components/feed/DismissControls";
-import type { FeedEntry, Paper, SearchResult } from "../types/api";
+import type { FeedDismissBody, FeedEntry, Paper, SearchResult } from "../types/api";
 import { MathText } from "../lib/tex";
 import { invalidatePaperMutationQueries } from "../lib/paperMutations";
 import { errText } from "../lib/errText";
+import { FEED_UNDO_EVENT } from "../lib/shortcuts";
 
 interface StatCardProps {
   label: string;
@@ -66,7 +68,7 @@ function FeedRow({
 }: {
   entry: FeedEntry;
   alreadySaved?: boolean;
-  onDismissed: () => void;
+  onDismissed: (dismissal: FeedDismissBody) => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -119,7 +121,7 @@ function FeedRow({
     setDismissError(false);
     try {
       await dismissFeedEntry(arxivId, version, permanent);
-      onDismissed();
+      onDismissed({ arxiv_id: arxivId, version, permanent });
     } catch (err) {
       console.error(err);
       setDismissing(false);
@@ -130,16 +132,9 @@ function FeedRow({
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border py-3 last:border-0">
       <div className="min-w-0">
-        <a
-          href={entry.link || undefined}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`block text-sm font-medium text-text transition-colors${
-            entry.link ? " hover:text-accent" : " cursor-default"
-          }`}
-        >
+        <p className="text-sm font-medium text-text">
           <MathText forceInline>{entry.title || entry.link || "Untitled entry"}</MathText>
-        </a>
+        </p>
         {entry.authors.length > 0 && (
           <p className="mt-0.5 text-xs text-muted truncate">
             {entry.authors.join(", ")}
@@ -154,17 +149,21 @@ function FeedRow({
           <MonoLabel className="mt-1 normal-case">{entry.published}</MonoLabel>
         )}
       </div>
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2.5">
-            {entry.arxiv_id !== null && entry.version !== null && (
-              <button
-                type="button"
-                className="text-xs font-medium text-accent hover:underline"
-                onClick={handlePreview}
+      <div className="flex flex-col items-end gap-1 shrink-0 self-stretch">
+        <div className="flex flex-1 items-center gap-3">
+          <div className="flex flex-col items-center gap-1 self-stretch">
+            {entry.link && (
+              <a
+                href={entry.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Open in browser"
+                title="Open in browser"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted transition hover:border-[var(--color-browser-open)] hover:text-[var(--color-browser-open)]"
               >
-                PDF →
-              </button>
+                <Globe size={14} />
+                ↑
+              </a>
             )}
             {entry.arxiv_id !== null && (
               (() => {
@@ -173,6 +172,7 @@ function FeedRow({
                   <Button
                     variant="outline"
                     size="sm"
+                    className="my-auto"
                     disabled={alreadySaved || (saveState !== "idle" && saveState !== "error")}
                     onClick={() => handleSave(arxivId)}
                   >
@@ -180,6 +180,11 @@ function FeedRow({
                   </Button>
                 );
               })()
+            )}
+            {entry.arxiv_id !== null && entry.version !== null && (
+              <Button type="button" variant="outline" size="sm" onClick={handlePreview}>
+                → PDF
+              </Button>
             )}
           </div>
           {entry.arxiv_id !== null && entry.version !== null && (
@@ -243,6 +248,23 @@ function FeedSection({ url }: { url: string }) {
   const shown = entries.slice(0, FEED_ENTRY_LIMIT);
   const savedArxivIds = new Set(data?.saved_arxiv_ids ?? []);
 
+  // Ctrl/Cmd-Z (lib/shortcuts.ts) pops the newest dismissal; a failed undo goes back on.
+  const undoStack = useRef<FeedDismissBody[]>([]);
+  useEffect(() => {
+    const onUndo = () => {
+      const last = undoStack.current.pop();
+      if (!last) return;
+      undismissFeedEntry(last)
+        .then(() => queryClient.invalidateQueries({ queryKey: ["home-feed", url] }))
+        .catch((err) => {
+          console.error(err);
+          undoStack.current.push(last);
+        });
+    };
+    window.addEventListener(FEED_UNDO_EVENT, onUndo);
+    return () => window.removeEventListener(FEED_UNDO_EVENT, onUndo);
+  }, [queryClient, url]);
+
   return (
     <section>
       <SectionTitle className="text-base mb-4">
@@ -276,7 +298,10 @@ function FeedSection({ url }: { url: string }) {
                   key={`${entry.link}-${i}`}
                   entry={entry}
                   alreadySaved={entry.arxiv_id != null && savedArxivIds.has(entry.arxiv_id)}
-                  onDismissed={() => queryClient.invalidateQueries({ queryKey: ["home-feed", url] })}
+                  onDismissed={(d) => {
+                    undoStack.current.push(d);
+                    void queryClient.invalidateQueries({ queryKey: ["home-feed", url] });
+                  }}
                 />
               ))}
             </div>

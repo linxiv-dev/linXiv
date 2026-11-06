@@ -43,6 +43,9 @@ export function isTypingTarget(t: EventTarget | null): boolean {
   );
 }
 
+/** Window event the feed-undo shortcut dispatches; the home feed listens. */
+export const FEED_UNDO_EVENT = "linxiv:feed-undo";
+
 function openPdfFind() {
   window.dispatchEvent(new Event(PDF_FIND_EVENT));
 }
@@ -98,6 +101,17 @@ export const SHORTCUTS: Shortcut[] = [
     scope: "global",
     match: (e) => !e.ctrlKey && !e.metaKey && !e.altKey && e.key === "/",
     run: openPdfFind,
+    skipWhenTyping: true,
+  },
+  {
+    id: "feed-undo",
+    keys: ["Ctrl/Cmd", "Z"],
+    description: "Undo the last home feed dismissal",
+    scope: "global",
+    match: (e) =>
+      (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "z",
+    run: () => window.dispatchEvent(new Event(FEED_UNDO_EVENT)),
+    // Inputs and editors keep their native undo.
     skipWhenTyping: true,
   },
   {

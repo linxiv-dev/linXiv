@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { Button } from "../ui/button";
 
 interface DismissControlsProps {
   dismissing: boolean;
@@ -20,7 +21,7 @@ export const DismissControls = memo(function DismissControls({
   if (!showDismiss && !showNeverShow) return null;
 
   return (
-    <div className={`flex flex-col items-center gap-1 border-l border-border pl-3 ${className}`}>
+    <div className={`flex flex-col items-center justify-center gap-1 self-stretch border-l border-border pl-3 ${className}`}>
       {showNeverShow && (
         <button
           type="button"
@@ -34,16 +35,17 @@ export const DismissControls = memo(function DismissControls({
         </button>
       )}
       {showDismiss && (
-        <button
+        <Button
           type="button"
+          variant="outline-danger"
+          size="sm"
           aria-label="Dismiss"
           title="Dismiss this version"
           disabled={dismissing}
-          className="text-xs text-muted hover:text-text transition-colors disabled:opacity-50"
           onClick={onDismiss}
         >
           Dismiss
-        </button>
+        </Button>
       )}
     </div>
   );

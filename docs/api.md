@@ -58,6 +58,7 @@ Source: [`route/feed.rs`](../src-tauri/crates/server/src/route/feed.rs)
 |---|---|---|---|---|
 | GET | `/api/feed` |  |  |  |
 | POST | `/api/feed/dismiss` | `FeedDismissBody` | `OkReceipt` | hide an entry. `permanent: true` blocks the whole paper; otherwise dismisses just this `version` (the default). |
+| POST | `/api/feed/undismiss` | `FeedDismissBody` | `OkReceipt` | undo a dismiss; takes the same body. |
 | GET | `/api/feed/rules` |  | `FeedRulesResponse` | list auto-filter rules. |
 | POST | `/api/feed/rules` | `FeedRuleCreateBody` | `CreatedFeedRule` | create an auto-filter rule. |
 | DELETE | `/api/feed/rules/{id}` |  | `OkReceipt` | remove an auto-filter rule. 404 if absent. |

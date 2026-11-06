@@ -97,6 +97,15 @@ test("pdf-find matches Ctrl/Cmd+F only", () => {
   assert.equal(match(keyEvent({ key: "f" })), false);
 });
 
+test("feed-undo matches Ctrl/Cmd+Z, not redo, and skips while typing", () => {
+  const s = SHORTCUTS.find((s) => s.id === "feed-undo")!;
+  assert.equal(s.skipWhenTyping, true);
+  assert.equal(s.match!(keyEvent({ ctrlKey: true, key: "z" })), true);
+  assert.equal(s.match!(keyEvent({ metaKey: true, key: "Z" })), true);
+  assert.equal(s.match!(keyEvent({ ctrlKey: true, shiftKey: true, key: "Z" })), false);
+  assert.equal(s.match!(keyEvent({ key: "z" })), false);
+});
+
 test("pdf-find-slash matches a bare slash and skips while typing", () => {
   const s = SHORTCUTS.find((s) => s.id === "pdf-find-slash")!;
   assert.equal(s.skipWhenTyping, true);
