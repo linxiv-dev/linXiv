@@ -901,7 +901,7 @@ export function PdfReader({ file, sourceId, version, projectId, errorUrl }: PdfR
               <button
                 disabled={deleteMut.isPending || updateMut.isPending}
                 onClick={() => deleteMut.mutate(popup.id)}
-                className="text-xs font-medium text-[var(--color-danger)] hover:underline disabled:opacity-50"
+                className="text-xs font-medium text-danger hover:underline disabled:opacity-50"
               >
                 {deleteMut.isPending ? "Deleting…" : "Delete"}
               </button>
@@ -915,7 +915,7 @@ export function PdfReader({ file, sourceId, version, projectId, errorUrl }: PdfR
             </div>
           </div>
           {popupStale && (
-            <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+            <p className="text-xs text-danger">
               Annotation was updated elsewhere. Reopen it before saving.
             </p>
           )}
@@ -924,8 +924,7 @@ export function PdfReader({ file, sourceId, version, projectId, errorUrl }: PdfR
 
       {(createMut.isError || updateMut.isError || deleteMut.isError || selError) && (
         <div
-          className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 rounded-md bg-panel border border-border shadow-card px-3 py-1.5 text-xs"
-          style={{ color: "var(--color-danger)" }}
+          className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 rounded-md bg-panel border border-border shadow-card px-3 py-1.5 text-xs text-danger"
         >
           {selError
             ? "Couldn't capture that selection. Try selecting the text again."

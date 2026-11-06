@@ -25,20 +25,19 @@ export function ProjectCard({ project, onClick, onContextMenu }: ProjectCardProp
           onClick();
         }
       }}
-      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] p-5 cursor-pointer transition-all hover:border-[var(--color-accent)] hover:shadow-sm flex flex-col gap-3"
+      className="rounded-lg border border-border bg-panel p-5 cursor-pointer transition-all hover:border-accent hover:shadow-sm flex flex-col gap-3"
     >
       <div className="flex items-center gap-2">
         <ColorSwatch color={project.color_hex} size={12} />
-        <span className="font-semibold text-sm truncate" style={{ color: "var(--color-text)" }}>
+        <span className="font-semibold text-sm truncate text-text">
           {project.name}
         </span>
       </div>
 
       {project.description && (
         <p
-          className="text-sm leading-snug"
+          className="text-sm leading-snug text-muted"
           style={{
-            color: "var(--color-muted)",
             display: "-webkit-box",
             WebkitLineClamp: 2,
             WebkitBoxOrient: "vertical",

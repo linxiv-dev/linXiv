@@ -66,7 +66,7 @@ export const PaperCard = memo(function PaperCard({
             type="checkbox"
             checked={isSelected}
             onChange={(e) => onSelect(paper.source_id, clickMods(e.nativeEvent as MouseEvent))}
-            className="mt-1 accent-[var(--color-accent)] cursor-pointer"
+            className="mt-1 accent-accent cursor-pointer"
             aria-label={`Select ${paper.title}`}
           />
         </label>
@@ -85,13 +85,12 @@ export const PaperCard = memo(function PaperCard({
         <span className="flex items-center gap-2.5 mb-2">
           {paper.category && (
             <span
-              className="font-mono font-medium shrink-0"
+              className="font-mono font-medium shrink-0 text-accent"
               style={{
                 fontSize: "10.5px",
                 padding: "2px 7px",
                 borderRadius: 5,
                 background: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-                color: "var(--color-accent)",
               }}
             >
               {paper.category}
@@ -114,13 +113,12 @@ export const PaperCard = memo(function PaperCard({
           <span className="flex-1" />
           {paper.has_pdf && (
             <span
-              className="font-mono font-medium shrink-0 inline-flex items-center"
+              className="font-mono font-medium shrink-0 inline-flex items-center text-success"
               style={{
                 fontSize: "10.5px",
                 padding: "2px 8px",
                 borderRadius: 20,
                 border: "1px solid var(--color-success)",
-                color: "var(--color-success)",
                 background: "color-mix(in srgb, var(--color-success) 15%, transparent)",
               }}
             >
@@ -157,16 +155,16 @@ export const PaperCard = memo(function PaperCard({
             {displayTags.map((tag) => (
               <span
                 key={tag}
-                className="font-mono text-ink3"
-                style={{ fontSize: "10.5px", padding: "2px 8px", border: "1px solid var(--color-border)", borderRadius: 20 }}
+                className="font-mono text-ink3 border border-border"
+                style={{ fontSize: "10.5px", padding: "2px 8px", borderRadius: 20 }}
               >
                 {tag}
               </span>
             ))}
             {hiddenTagCount > 0 && (
               <span
-                className="font-mono text-ink3"
-                style={{ fontSize: "10.5px", padding: "2px 8px", border: "1px solid var(--color-border)", borderRadius: 20 }}
+                className="font-mono text-ink3 border border-border"
+                style={{ fontSize: "10.5px", padding: "2px 8px", borderRadius: 20 }}
               >
                 +{hiddenTagCount}
               </span>

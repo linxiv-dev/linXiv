@@ -27,12 +27,12 @@ export function Toggle({
       }}
       className={[
         "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full px-0.5",
-        "border border-[var(--color-border)] transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]",
+        "border border-border transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
         "disabled:opacity-50 disabled:cursor-not-allowed",
         checked
-          ? "bg-[var(--color-accent)]"
-          : "bg-[var(--color-panel)]",
+          ? "bg-accent"
+          : "bg-panel",
         className,
       ]
         .filter(Boolean)
@@ -41,7 +41,7 @@ export function Toggle({
     >
       <span
         className={[
-          "inline-block h-3.5 w-3.5 rounded-full bg-[var(--color-bg)] transition-transform",
+          "inline-block h-3.5 w-3.5 rounded-full bg-bg transition-transform",
           checked ? "translate-x-4" : "translate-x-0",
         ].join(" ")}
       />

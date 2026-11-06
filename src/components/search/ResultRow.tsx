@@ -44,7 +44,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
 
   return (
     <div
-      className="border-b border-[var(--color-border)] last:border-b-0"
+      className="border-b border-border last:border-b-0"
       onContextMenu={(e) =>
         showContextMenu(e, [
           {
@@ -70,7 +70,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
       }
     >
       <div
-        className="flex items-start gap-3 px-4 py-3 hover:bg-[var(--color-panel)] transition-colors cursor-pointer"
+        className="flex items-start gap-3 px-4 py-3 hover:bg-panel transition-colors cursor-pointer"
         onClick={() => setExpanded((v) => !v)}
       >
         {/* Save action / saved indicator — stop propagation so clicking it doesn't expand */}
@@ -80,8 +80,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
         >
           {saved ? (
             <span
-              className="w-4 h-4 flex items-center justify-center text-sm font-bold select-none"
-              style={{ color: "var(--color-success)" }}
+              className="w-4 h-4 flex items-center justify-center text-sm font-bold select-none text-success"
               title="In library"
               aria-label="In library"
               role="img"
@@ -94,12 +93,9 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
             <button
               type="button"
               onClick={handleSave}
-              className="w-4 h-4 flex items-center justify-center rounded border text-xs font-bold leading-none cursor-pointer transition-opacity hover:opacity-80"
-              style={
-                saveError
-                  ? { borderColor: "var(--color-danger)", color: "var(--color-danger)" }
-                  : { borderColor: "var(--color-border)", color: "var(--color-muted)" }
-              }
+              className={`w-4 h-4 flex items-center justify-center rounded border text-xs font-bold leading-none cursor-pointer transition-opacity hover:opacity-80 ${
+                saveError ? "border-danger text-danger" : "border-border text-muted"
+              }`}
               title={saveError ? `Save failed: ${saveError}. Click to retry` : "Save to library"}
               aria-label={saveError ? `Save failed: ${saveError}. Retry save.` : "Save to library"}
             >
@@ -110,12 +106,12 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
 
         <div className="flex-1 min-w-0">
           {/* Title */}
-          <p className="font-medium text-[var(--color-text)] leading-snug">
+          <p className="font-medium text-text leading-snug">
             <MathText forceInline>{result.title}</MathText>
           </p>
 
           {/* Authors */}
-          <p className="text-xs text-[var(--color-muted)] mt-0.5 truncate">
+          <p className="text-xs text-muted mt-0.5 truncate">
             {displayAuthors.join(", ")}
             {moreAuthors > 0 && (
               <span> +{moreAuthors} more</span>
@@ -125,7 +121,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
           {/* Meta row */}
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             {published && (
-              <span className="text-xs text-[var(--color-muted)]">{published}</span>
+              <span className="text-xs text-muted">{published}</span>
             )}
             {result.primary_category && (
               <Badge>{result.primary_category}</Badge>
@@ -134,7 +130,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
 
           {/* Save failure — shown in place, never silently reverted */}
           {saveError && !saved && (
-            <p className="text-xs mt-1" style={{ color: "var(--color-danger)" }}>
+            <p className="text-xs mt-1 text-danger">
               Save failed: {saveError}
             </p>
           )}
@@ -142,7 +138,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
 
         {/* Expand chevron */}
         <span
-          className="text-[var(--color-muted)] text-sm shrink-0 mt-0.5 transition-transform"
+          className="text-muted text-sm shrink-0 mt-0.5 transition-transform"
           style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
           aria-hidden
         >
@@ -152,17 +148,17 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
 
       {/* Expanded detail panel */}
       {expanded && (
-        <div className="px-4 pb-4 ml-7 border-l-2 border-[var(--color-border)]">
+        <div className="px-4 pb-4 ml-7 border-l-2 border-border">
           {/* Full authors */}
           {result.authors.length > 3 && (
-            <p className="text-xs text-[var(--color-muted)] mb-2">
-              <span className="font-medium text-[var(--color-text)]">Authors: </span>
+            <p className="text-xs text-muted mb-2">
+              <span className="font-medium text-text">Authors: </span>
               {result.authors.join(", ")}
             </p>
           )}
 
           {/* Abstract */}
-          <div className="text-sm text-[var(--color-muted)] leading-relaxed whitespace-pre-line">
+          <div className="text-sm text-muted leading-relaxed whitespace-pre-line">
             <MathText forceInline>{result.summary}</MathText>
           </div>
 
@@ -170,7 +166,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
             isArxivId(result.source_id) ? (
               <button
                 type="button"
-                className="inline-block mt-2 text-xs text-[var(--color-accent)] hover:underline"
+                className="inline-block mt-2 text-xs text-accent hover:underline"
                 onClick={(e) => {
                   e.stopPropagation();
                   onViewPdf(result, saved);
@@ -183,7 +179,7 @@ export function ResultRow({ result, saved, onSave, onViewPdf }: ResultRowProps) 
                 href={result.paper_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block mt-2 text-xs text-[var(--color-accent)] hover:underline"
+                className="inline-block mt-2 text-xs text-accent hover:underline"
                 onClick={(e) => e.stopPropagation()}
               >
                 Open →

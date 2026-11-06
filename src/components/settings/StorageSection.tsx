@@ -219,7 +219,7 @@ export function StorageSection() {
             }}
             onMouseDown={(e) => e.preventDefault()}
             onBlur={restoreGuard.disarm}
-            className={restoreGuard.confirm ? "text-[var(--color-danger)]" : undefined}
+            className={restoreGuard.confirm ? "text-danger" : undefined}
           >
             {restoring ? "Restoring…" : restoreGuard.confirm ? "Replace library?" : "Restore…"}
           </Button>
@@ -271,7 +271,7 @@ export function StorageSection() {
           ) : savedPdfs.length === 0 ? (
             <p className="text-xs text-muted">No PDFs saved locally.</p>
           ) : (
-            <ul className="flex flex-col divide-y" style={{ borderColor: "var(--color-border)" }}>
+            <ul className="flex flex-col divide-y border-border">
               {savedPdfs.map((pdf) => (
                 <SavedPdfRow
                   key={pdf.source_id}
@@ -337,7 +337,7 @@ function SavedPdfRow({
           onMouseDown={(e) => e.preventDefault()}
           onBlur={disarm}
           className={
-            confirm ? "text-[var(--color-danger)]" : "hover:text-[var(--color-danger)]"
+            confirm ? "text-danger" : "hover:text-danger"
           }
         >
           {deleting ? "Deleting…" : confirm ? "Confirm?" : "Delete"}

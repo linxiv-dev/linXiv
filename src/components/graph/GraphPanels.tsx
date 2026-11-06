@@ -301,8 +301,7 @@ function Panel({
   const count = badge?.length ?? 0;
   return (
     <div
-      className="rounded-md border border-border shadow-sm"
-      style={{ backgroundColor: "var(--color-panel)" }}
+      className="rounded-md border border-border shadow-sm bg-panel"
     >
       <button
         type="button"
@@ -537,8 +536,7 @@ function Swatches({ projects }: { projects: { name: string; color: string }[] })
   if (projects.length === 0) {
     return (
       <span
-        className="w-[34px] shrink-0 text-center text-xs"
-        style={{ color: "var(--color-danger)" }}
+        className="w-[34px] shrink-0 text-center text-xs text-danger"
         title="Matches no project"
       >
         ✗
@@ -659,7 +657,7 @@ function FilterRow({
       <span className="min-w-0 flex-1 truncate text-text">{label}</span>
       <button
         type="button"
-        className="shrink-0 px-1 text-muted hover:text-[var(--color-danger)]"
+        className="shrink-0 px-1 text-muted hover:text-danger"
         title="Remove"
         aria-label={`Remove ${label}`}
         onClick={onRemove}

@@ -180,12 +180,11 @@ function DropOverlay() {
       style={{ backgroundColor: "rgba(0,0,0,0.45)" }}
     >
       <div
-        className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed text-sm"
-        style={{ borderColor: "var(--color-accent)", color: "var(--color-text)" }}
+        className="flex h-full w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed text-sm border-accent text-text"
       >
-        <Upload size={28} style={{ color: "var(--color-accent)" }} />
+        <Upload size={28} className="text-accent" />
         <p className="font-medium">Drop to add to library</p>
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs text-muted">
           .pdf · .bib · .lxproj
         </p>
       </div>

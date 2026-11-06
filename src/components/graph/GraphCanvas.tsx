@@ -694,8 +694,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(function Gra
         <div
           ref={tooltipRef}
           role="tooltip"
-          className="absolute z-20 pointer-events-none max-w-[340px] rounded-md border border-border px-3 py-2 shadow-lg"
-          style={{ left: tooltip.left, top: tooltip.top, backgroundColor: "var(--color-panel)" }}
+          className="absolute z-20 pointer-events-none max-w-[340px] rounded-md border border-border px-3 py-2 shadow-lg bg-panel"
+          style={{ left: tooltip.left, top: tooltip.top }}
         >
           <div className="text-sm font-semibold text-text">
             <MathText forceInline>{tooltip.title}</MathText>

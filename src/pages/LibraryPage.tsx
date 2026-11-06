@@ -359,7 +359,7 @@ export default function LibraryPage() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           {errText(error, "Failed to load papers")}
         </p>
       </div>
@@ -378,7 +378,7 @@ export default function LibraryPage() {
             <p className="text-muted" style={{ fontSize: 13, marginTop: 7 }}>
               {paperCountLabel}
               {ftsEnabled && ftsError && (
-                <span style={{ color: "var(--color-danger)" }} className="ml-2 text-xs">
+                <span className="ml-2 text-xs text-danger">
                   search error
                 </span>
               )}
@@ -402,7 +402,7 @@ export default function LibraryPage() {
           </Button>
         </div>
         {deleteError && (
-          <p className="text-sm mt-2" style={{ color: "var(--color-danger)" }}>
+          <p className="text-sm mt-2 text-danger">
             {deleteError}
           </p>
         )}
@@ -416,8 +416,8 @@ export default function LibraryPage() {
               className={[
                 "px-3 py-1 rounded-full text-xs font-medium transition-colors border",
                 filterMode === mode
-                  ? "border-[var(--color-accent)] text-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]"
-                  : "border-border text-muted hover:border-[var(--color-muted)]",
+                  ? "border-accent text-accent bg-accent/12"
+                  : "border-border text-muted hover:border-muted",
               ].join(" ")}
             >
               {label}
@@ -576,7 +576,7 @@ export default function LibraryPage() {
       >
         <div className="space-y-3">
           {projectPickerError && (
-            <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+            <p className="text-sm text-danger">
               {projectPickerError}
             </p>
           )}
@@ -622,7 +622,7 @@ export default function LibraryPage() {
                   key={project.id}
                   onClick={() => handleAddToProject(project.id)}
                   disabled={addToProjectMutation.isPending}
-                  className="w-full text-left px-3 py-2 rounded-md border border-border hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] text-text text-sm transition-colors disabled:opacity-50"
+                  className="w-full text-left px-3 py-2 rounded-md border border-border hover:border-accent hover:text-accent text-text text-sm transition-colors disabled:opacity-50"
                 >
                   {project.name}
                   {project.description && (

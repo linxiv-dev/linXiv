@@ -53,17 +53,14 @@ export const TagInput = forwardRef<TagInputHandle, TagInputProps>(function TagIn
 
   return (
     <div
-      className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-md border border-[var(--color-border)] cursor-text min-h-[38px]"
-      style={{ backgroundColor: "var(--color-bg)" }}
+      className="flex flex-wrap items-center gap-1.5 px-2 py-1.5 rounded-md border border-border cursor-text min-h-[38px] bg-bg"
       onClick={() => inputRef.current?.focus()}
     >
       {value.map((tag, idx) => (
         <span
           key={tag}
-          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium select-none"
+          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium select-none bg-panel text-text"
           style={{
-            backgroundColor: "var(--color-panel)",
-            color: "var(--color-text)",
             border: "1px solid var(--color-border)",
           }}
         >
@@ -91,8 +88,7 @@ export const TagInput = forwardRef<TagInputHandle, TagInputProps>(function TagIn
         onKeyDown={handleKeyDown}
         onBlur={() => commit(draft)}
         placeholder={value.length === 0 ? placeholder : ""}
-        className="flex-1 min-w-[80px] bg-transparent outline-none text-sm"
-        style={{ color: "var(--color-text)" }}
+        className="flex-1 min-w-[80px] bg-transparent outline-none text-sm text-text"
         size={1}
         autoCapitalize="none"
         autoCorrect="off"

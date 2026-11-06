@@ -116,7 +116,7 @@ export function AddPaperForm({
 
   return (
     <>
-      <p className="text-sm mb-4" style={{ color: "var(--color-muted)" }}>
+      <p className="text-sm mb-4 text-muted">
         Paste an arXiv link or ID, a DOI or doi.org link, or a direct PDF link.
       </p>
 
@@ -143,14 +143,14 @@ export function AddPaperForm({
 
       {/* Resolve error */}
       {resolveError && (
-        <p className="text-sm mt-2 mb-4" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm mt-2 mb-4 text-danger">
           {resolveError.message}
         </p>
       )}
 
       {/* Loading state */}
       {pending && !compact && (
-        <div role="status" aria-label="Loading" className="flex items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
+        <div role="status" aria-label="Loading" className="flex items-center justify-center gap-3 py-16 text-muted">
           <LogoMark size={32} className="animate-pulse" />
         </div>
       )}
@@ -158,7 +158,7 @@ export function AddPaperForm({
       {/* Direct-save confirmation (arXiv id / PDF URL paths) */}
       {!pending && savedTitle !== null && (
         <div className="flex items-center gap-3 mt-4">
-          <p className="text-sm font-medium" style={{ color: "var(--color-success)" }}>
+          <p className="text-sm font-medium text-success">
             Saved to library ✓ {savedTitle && `"${savedTitle}"`}
           </p>
           <Button type="button" variant="ghost" size="sm" onClick={handleClear}>
@@ -170,19 +170,18 @@ export function AddPaperForm({
       {/* Result card */}
       {!pending && metadata && (
         <div
-          className="rounded-lg border border-[var(--color-border)] p-5 mt-4"
-          style={{ background: "var(--color-panel)" }}
+          className="rounded-lg border border-border p-5 mt-4 bg-panel"
         >
           {/* Title */}
           {metadata.title && (
-            <h2 className="font-semibold text-[var(--color-text)] leading-snug mb-2">
+            <h2 className="font-semibold text-text leading-snug mb-2">
               {metadata.title}
             </h2>
           )}
 
           {/* Authors */}
           {metadata.authors.length > 0 && (
-            <p className="text-sm text-[var(--color-muted)] mb-3">
+            <p className="text-sm text-muted mb-3">
               {metadata.authors.join(", ")}
             </p>
           )}
@@ -190,7 +189,7 @@ export function AddPaperForm({
           {/* Abstract (the wire field is `summary`) */}
           {metadata.summary && (
             <p
-              className="text-sm text-[var(--color-muted)] leading-relaxed mb-4"
+              className="text-sm text-muted leading-relaxed mb-4"
               style={{
                 display: "-webkit-box",
                 WebkitLineClamp: 3,
@@ -203,22 +202,22 @@ export function AddPaperForm({
           )}
 
           {/* Meta row */}
-          <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--color-muted)] mb-4 border-t border-[var(--color-border)] pt-3">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted mb-4 border-t border-border pt-3">
             {metadata.source && (
               <span>
-                <span className="text-[var(--color-text)]">Source:</span>{" "}
+                <span className="text-text">Source:</span>{" "}
                 {metadata.source}
               </span>
             )}
             {metadata.doi && (
               <span>
-                <span className="text-[var(--color-text)]">DOI:</span>{" "}
+                <span className="text-text">DOI:</span>{" "}
                 {metadata.doi}
               </span>
             )}
             {metadata.published && (
               <span>
-                <span className="text-[var(--color-text)]">Published:</span>{" "}
+                <span className="text-text">Published:</span>{" "}
                 {metadata.published.slice(0, 10)}
               </span>
             )}
@@ -228,12 +227,11 @@ export function AddPaperForm({
           <div className="flex items-center gap-2 flex-wrap">
             {saveSuccess ? (
               <p
-                className="text-sm font-medium"
-                style={{ color: "var(--color-success)" }}
+                className="text-sm font-medium text-success"
               >
                 Saved to library ✓
                 {saveMutation.data?.pdf_saved === false && (
-                  <span className="font-normal" style={{ color: "var(--color-muted)" }}>
+                  <span className="font-normal text-muted">
                     {" "}(PDF not retrieved: the publisher may require access)
                   </span>
                 )}
@@ -264,8 +262,7 @@ export function AddPaperForm({
           {/* Save error */}
           {saveError && (
             <p
-              className="text-sm mt-2"
-              style={{ color: "var(--color-danger)" }}
+              className="text-sm mt-2 text-danger"
             >
               {saveError.message}
             </p>

@@ -79,14 +79,13 @@ export function QueryBuilder({
         <div className="flex-1" />
         {preview ? (
           <span
-            className="min-w-0 truncate font-mono text-xs opacity-60 max-w-[40%]"
-            style={{ color: "var(--color-text)" }}
+            className="min-w-0 truncate font-mono text-xs opacity-60 max-w-[40%] text-text"
             title={preview}
           >
             {preview}
           </span>
         ) : (
-          <span className="text-xs italic text-[var(--color-muted)]">(empty)</span>
+          <span className="text-xs italic text-muted">(empty)</span>
         )}
         <Button
           type="button"

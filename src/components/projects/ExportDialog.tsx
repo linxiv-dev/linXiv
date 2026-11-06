@@ -61,17 +61,17 @@ export function ExportDialog({
       <div className="flex flex-col gap-4">
         {exportMethods.lxproj && (
           <div className="flex flex-col gap-3">
-            <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: "var(--color-text)" }}>
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none text-text">
               <input
                 type="checkbox"
                 checked={includePdfs}
                 onChange={(e) => setIncludePdfs(e.target.checked)}
-                className="accent-[var(--color-accent)]"
+                className="accent-accent"
               />
               Include PDFs in .lxproj archive
             </label>
             {(exportMethods.bibtex || exportMethods.obsidian || exportMethods.zotero) && (
-              <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+              <p className="text-xs text-muted">
                 BibTeX, Obsidian and Zotero exports include paper metadata only.
               </p>
             )}
@@ -79,13 +79,13 @@ export function ExportDialog({
         )}
 
         {!anyEnabled && (
-          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+          <p className="text-sm text-muted">
             No export formats are enabled. Enable them in Settings → Export Methods.
           </p>
         )}
 
         {error && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>{error}</p>
+          <p className="text-xs text-danger">{error}</p>
         )}
 
         <div className="flex gap-2 justify-end pt-1 flex-wrap">

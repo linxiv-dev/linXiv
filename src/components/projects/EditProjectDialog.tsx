@@ -98,10 +98,9 @@ export function EditProjectDialog({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="edit-proj-name"
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
-            Name <span style={{ color: "var(--color-danger)" }}>*</span>
+            Name <span className="text-danger">*</span>
           </label>
           <Input
             id="edit-proj-name"
@@ -115,8 +114,7 @@ export function EditProjectDialog({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="edit-proj-desc"
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
             Description
           </label>
@@ -129,8 +127,7 @@ export function EditProjectDialog({
 
         <div className="flex flex-col gap-1.5">
           <span
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
             Color
           </span>
@@ -150,19 +147,18 @@ export function EditProjectDialog({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="edit-proj-tags"
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
             Tags
           </label>
           <TagInput ref={tagInputRef} id="edit-proj-tags" value={tags} onChange={setTags} />
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+          <p className="text-xs text-muted">
             Press Enter to add a tag. Backspace removes the last tag.
           </p>
         </div>
 
         {error && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             {error}
           </p>
         )}

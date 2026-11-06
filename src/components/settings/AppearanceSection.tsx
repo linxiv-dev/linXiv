@@ -96,7 +96,7 @@ function HexColorInput({
         <button
           type="button"
           aria-label={ariaLabel ?? "Choose color"}
-          className="rounded-full border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+          className="rounded-full border border-border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           style={{
             width: 20,
             height: 20,
@@ -124,7 +124,7 @@ function HexColorInput({
         spellCheck={false}
         aria-invalid={isInvalid}
         aria-describedby={isInvalid ? errorId : undefined}
-        className={isInvalid ? "border-[var(--color-danger)]" : ""}
+        className={isInvalid ? "border-danger" : ""}
       />
       {isInvalid && (
         <span id={errorId} className="sr-only">
@@ -200,9 +200,8 @@ function ColorRow({
         value={alpha}
         disabled={!canTuneAlpha}
         onChange={(e) => handleAlphaChange(Number(e.target.value))}
-        className="flex-1"
+        className="flex-1 accent-accent"
         style={{
-          accentColor: "var(--color-accent)",
           opacity: canTuneAlpha ? 1 : 0.35,
           cursor: canTuneAlpha ? "pointer" : "not-allowed",
         }}
@@ -358,7 +357,7 @@ function SavePaletteInline({
         Cancel
       </button>
       {error && (
-        <span className="text-xs text-[var(--color-danger)] w-full mt-0.5">{error}</span>
+        <span className="text-xs text-danger w-full mt-0.5">{error}</span>
       )}
     </div>
   );
@@ -466,7 +465,7 @@ export function AppearanceSection() {
                 type="button"
                 aria-label={`Delete palette ${palette.name}`}
                 onClick={() => deleteCustomPalette(palette.name)}
-                className="rounded-r-full px-2 py-1.5 border text-sm border-border bg-panel text-muted hover:text-[var(--color-danger)] hover:border-[var(--color-danger)] transition-colors cursor-pointer"
+                className="rounded-r-full px-2 py-1.5 border text-sm border-border bg-panel text-muted hover:text-danger hover:border-danger transition-colors cursor-pointer"
               >
                 ×
               </button>

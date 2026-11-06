@@ -33,8 +33,7 @@ function StatCard({ label, value, hint, to }: StatCardProps) {
   const content = (
     <div className="flex flex-col gap-1 text-left">
       <span
-        className="font-display text-[30px] leading-none"
-        style={{ color: "var(--color-accent)" }}
+        className="font-display text-[30px] leading-none text-accent"
       >
         {value ?? "-"}
       </span>
@@ -47,7 +46,7 @@ function StatCard({ label, value, hint, to }: StatCardProps) {
     return (
       <button
         type="button"
-        className="group block w-full rounded-[var(--card-radius)] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+        className="group block w-full rounded-[var(--card-radius)] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         onClick={() => navigate(to)}
       >
         <Card className="h-full cursor-pointer transition-colors group-hover:border-accent">
@@ -159,7 +158,7 @@ function FeedRow({
                 rel="noopener noreferrer"
                 aria-label="Open in browser"
                 title="Open in browser"
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted transition hover:border-[var(--color-browser-open)] hover:text-[var(--color-browser-open)]"
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-muted transition hover:border-browser-open hover:text-browser-open"
               >
                 <Globe size={14} />
                 ↑
@@ -196,12 +195,12 @@ function FeedRow({
           )}
         </div>
         {saveState === "error" && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             Save failed
           </p>
         )}
         {dismissError && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             Dismiss failed
           </p>
         )}
@@ -278,7 +277,7 @@ function FeedSection({ url }: { url: string }) {
         </Card>
       ) : error ? (
         <Card variant="inset" className="text-center">
-          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+          <p className="text-sm text-danger">
             {errText(error, "Failed to load feed")}
           </p>
           <p className="mt-1 text-xs text-muted">
@@ -352,7 +351,7 @@ export default function HomePage() {
         </div>
       ) : error ? (
         <div className="flex items-center justify-center h-full">
-          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+          <p className="text-sm text-danger">
             {errText(error, "Failed to load stats")}
           </p>
         </div>
@@ -441,10 +440,9 @@ export default function HomePage() {
                           </div>
                           <div className="h-1.5 rounded-full bg-surface2 overflow-hidden">
                             <div
-                              className="h-full rounded-full"
+                              className="h-full rounded-full bg-accent"
                               style={{
                                 width: `${(count / maxTagCount) * 100}%`,
-                                backgroundColor: "var(--color-accent)",
                               }}
                             />
                           </div>

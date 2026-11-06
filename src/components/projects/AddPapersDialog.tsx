@@ -105,9 +105,9 @@ export function AddPapersDialog({
         />
 
         <div
-          className="overflow-y-auto rounded-md border border-[var(--color-border)]"
+          className="overflow-y-auto rounded-md border border-border bg-bg"
           onWheel={shiftWheelScrollsVertically}
-          style={{ maxHeight: 280, backgroundColor: "var(--color-bg)" }}
+          style={{ maxHeight: 280 }}
           onKeyDown={submitOnCtrlEnter(handleSubmit)}
         >
           {isLoading ? (
@@ -116,8 +116,7 @@ export function AddPapersDialog({
             </div>
           ) : filtered.length === 0 ? (
             <p
-              className="p-4 text-sm text-center"
-              style={{ color: "var(--color-muted)" }}
+              className="p-4 text-sm text-center text-muted"
             >
               {candidates.length === 0
                 ? "All library papers are already in this project"
@@ -129,25 +128,22 @@ export function AddPapersDialog({
                 key={paper.source_id}
                 onClick={(e) => handleRowClick(paper.source_id, e)}
                 onMouseDown={noShiftTextSelect}
-                className="flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-[var(--color-panel)]"
-                style={{ borderBottom: "1px solid var(--color-border)" }}
+                className="flex items-start gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-panel border-b border-border"
               >
                 <input
                   type="checkbox"
                   checked={selectedIds.has(paper.source_id)}
                   readOnly
-                  className="mt-0.5 accent-[var(--color-accent)] shrink-0"
+                  className="mt-0.5 accent-accent shrink-0"
                 />
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <span
-                    className="text-sm font-medium leading-snug line-clamp-2"
-                    style={{ color: "var(--color-text)" }}
+                    className="text-sm font-medium leading-snug line-clamp-2 text-text"
                   >
                     <MathText forceInline>{paper.title}</MathText>
                   </span>
                   <span
-                    className="text-xs truncate"
-                    style={{ color: "var(--color-muted)" }}
+                    className="text-xs truncate text-muted"
                     title={paper.source_id}
                   >
                     {paper.authors.join(", ") || paper.source_id}
@@ -159,13 +155,13 @@ export function AddPapersDialog({
         </div>
 
         {error && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             {error}
           </p>
         )}
 
         <div className="flex items-center justify-between pt-1">
-          <span className="text-xs" style={{ color: "var(--color-muted)" }}>
+          <span className="text-xs text-muted">
             {selectedIds.size > 0 ? `${selectedIds.size} selected` : ""}
           </span>
           <div className="flex gap-2">

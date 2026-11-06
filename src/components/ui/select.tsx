@@ -30,8 +30,8 @@ export function Select({
   return (
     <select
       className={[
-        "rounded-md border border-[var(--color-border)] bg-[var(--color-panel)]",
-        "text-[var(--color-text)] cursor-pointer",
+        "rounded-md border border-border bg-panel",
+        "text-text cursor-pointer",
         "disabled:opacity-60 disabled:cursor-not-allowed",
         sizeStyles[size],
         className,
@@ -87,8 +87,8 @@ export function OptionSelect<T extends string>({
       disabled={disabled}
       onChange={(event) => onChange(event.target.value as T)}
       className={[
-        "min-w-[180px] rounded-md border border-[var(--color-border)] bg-[var(--color-panel)]",
-        "text-[var(--color-text)] cursor-pointer",
+        "min-w-[180px] rounded-md border border-border bg-panel",
+        "text-text cursor-pointer",
         "disabled:opacity-60 disabled:cursor-not-allowed",
         sizeStyles[size],
         className,
