@@ -4,10 +4,10 @@ import { createRoot } from "react-dom/client";
 import { originPattern } from "./backends/http.ts";
 import { createBackend } from "./backends/index.ts";
 import type { SaveResult, Settings } from "./backends/types.ts";
-import { extractFromTab, toPreview } from "./extractors/index.ts";
-import { fillBlanks, identifyPage, lookupFields } from "./extractors/lookup.ts";
+import { extractFromTab } from "./extractors/index.ts";
+import { collectPreviews, fillBlanks, identifyPage, lookupFields } from "./extractors/lookup.ts";
 import { displayName } from "./extractors/normalize.ts";
-import { CHECK_NEEDS_YOU, savePdfTab, type PageOpener } from "./pdfTab.ts";
+import { CHECK_NEEDS_YOU, pdfTabState, savePdfTab, type PageOpener, type PdfTabState } from "./pdfTab.ts";
 import { loadSettings } from "./settings.ts";
 import type { ClipCandidate, ClipPreview, PageExtraction } from "./types";
 
@@ -38,7 +38,14 @@ async function readTab(tab: chrome.tabs.Tab): Promise<PageExtraction> {
     });
 
     if (injected?.result) {
-      return injected.result as PageExtraction;
+      const extraction = injected.result as PageExtraction;
+
+      // Chrome's PDF viewer: the document holds nothing but the viewer, so read the tab.
+      if (extraction.contentType === "application/pdf") {
+        return { ...extractFromTab(url, tab.title), contentType: extraction.contentType };
+      }
+
+      return extraction;
     }
 
     // Firefox reports a throw inside the script here instead of rejecting.
@@ -47,16 +54,15 @@ async function readTab(tab: chrome.tabs.Tab): Promise<PageExtraction> {
       readError = scriptError.message ?? String(scriptError);
     }
   } catch (cause) {
-    // Firefox won't inject into its PDF viewer or about: pages. The tab URL
-    // and title still give something to save.
-    readError = cause instanceof Error ? cause.message : String(cause);
+    // The browser refused the script: Firefox's PDF viewer, about: and store pages,
+    // and each browser words it its own way. The tab URL and title still give
+    // something to save, so this isn't shown as an error.
+    console.warn("linXiv: could not read the page:", cause);
+    return { ...extractFromTab(url, tab.title), blocked: true };
   }
 
   console.warn("linXiv: could not read the page:", readError);
-
-  // Expected on the PDF viewer and about: pages, where the tab itself is the source.
-  const expected = /missing host permission/i.test(readError);
-  return { ...extractFromTab(url, tab.title), readError: expected ? undefined : readError, blocked: expected };
+  return { ...extractFromTab(url, tab.title), readError };
 }
 
 async function enrich(preview: ClipPreview): Promise<ClipPreview> {
@@ -77,14 +83,10 @@ function missingFields(preview: ClipPreview): string[] {
 
 function describeResult(result: SaveResult): string {
   const saved = result.ids.length === 1 ? result.ids[0] : `${result.ids.length} items`;
-  return result.note ? `${saved}: ${result.note}` : `Saved ${saved}. Attach the PDF in linXiv.`;
+  return `Saved ${saved}. Attach the PDF in linXiv.`;
 }
 
-function describePdf(outcome: { id?: string; title?: string; note?: string }): string {
-  if (outcome.note) {
-    return `${outcome.title ?? outcome.id ?? "The PDF"}: ${outcome.note}`;
-  }
-
+function describePdf(outcome: { id?: string; title?: string }): string {
   return `Saved ${outcome.title ?? "the PDF"} with its PDF${outcome.id ? ` as ${outcome.id}` : ""}.`;
 }
 
@@ -115,6 +117,7 @@ function Popup() {
   const [candidates, setCandidates] = useState<ClipCandidate[]>([]);
   const [readError, setReadError] = useState<string>();
   const [pdfTabUrl, setPdfTabUrl] = useState<string>();
+  const [pdfState, setPdfState] = useState<PdfTabState>("page");
   const [needsAccess, setNeedsAccess] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set([PAGE_ID]));
   const [tabId, setTabId] = useState<number>();
@@ -139,8 +142,11 @@ function Popup() {
         const extraction = await readTab(tab);
         setReadError(extraction.readError);
 
-        // A full-page PDF: the backend reads the metadata from the file, so no lookup.
-        if (extraction.blocked && tab.url && /^https?:/.test(tab.url)) {
+        // A full-page PDF, or maybe one: the backend reads the metadata from the file, so no lookup.
+        const state = pdfTabState(tab.url ?? "", extraction);
+        setPdfState(state);
+
+        if (state !== "page" && tab.url) {
           setPdfTabUrl(tab.url);
           setPreview(extraction.preview);
           return;
@@ -177,17 +183,10 @@ function Popup() {
     setError("");
     setResult("");
 
-    const picked = candidates.filter((candidate) => selected.has(candidate.id));
-    const items = await Promise.all(
-      picked.map((candidate) =>
-        enrich(
-          toPreview(candidate.fields, {}, candidate.fields.url ?? preview.canonicalUrl, candidate.label)
-        )
-      )
-    );
-    const previews = selected.has(PAGE_ID) ? [preview, ...items] : items;
-
     try {
+      // Inside the try: a failed lookup must still re-enable the button.
+      const previews = await collectPreviews(preview, candidates, selected, PAGE_ID, enrich);
+
       if (settings.kind !== "desktop") {
         const allowed = await chrome.permissions.contains({ origins: [originPattern(settings.baseUrl)] });
         if (!allowed) {
@@ -294,7 +293,7 @@ function Popup() {
       </header>
 
       <section>
-        <p className="type">{pdfTabUrl ? "PDF" : TYPE_LABELS[preview.type]}</p>
+        {pdfState !== "maybe-pdf" && <p className="type">{pdfState === "pdf" ? "PDF" : TYPE_LABELS[preview.type]}</p>}
         <h1 className="title">{preview.title}</h1>
 
         {preview.authors.length > 0 && <p className="authors">{preview.authors.map(displayName).join(", ")}</p>}
@@ -316,7 +315,9 @@ function Popup() {
 
         {preview.abstract && <p className="abstract">{preview.abstract}</p>}
         {missing.length > 0 && <p className="muted">Not found: {missing.join(", ")}</p>}
-        {pdfTabUrl ? (
+        {pdfState === "maybe-pdf" ? (
+          <p className="muted">linXiv checks whether this is a PDF when you save.</p>
+        ) : pdfState === "pdf" ? (
           <p className="muted">
             {settings?.kind === "desktop"
               ? "The desktop app downloads this PDF and reads its metadata. Links that need your login won't work, and arXiv PDFs save metadata only."

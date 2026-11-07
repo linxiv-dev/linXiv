@@ -1,5 +1,6 @@
 import type { ClipCandidate, ClipFields, ClipPreview, ItemType } from "../types";
 import { parseDoi } from "./identifiers.ts";
+import { toPreview } from "./index.ts";
 import { clean, normalizeDate, stripTags } from "./normalize.ts";
 
 type Fetcher = typeof fetch;
@@ -22,8 +23,14 @@ const CROSSREF_TYPES: Record<string, ItemType> = {
   "dataset": "dataset",
 };
 
-async function getJson(url: string, fetcher: Fetcher): Promise<Json | null> {
-  const response = await fetcher(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+/** Each request's own timeout, cut short when the caller's budget runs out. */
+function timeoutSignal(budget?: AbortSignal): AbortSignal {
+  const own = AbortSignal.timeout(TIMEOUT_MS);
+  return budget ? AbortSignal.any([own, budget]) : own;
+}
+
+async function getJson(url: string, fetcher: Fetcher, budget?: AbortSignal): Promise<Json | null> {
+  const response = await fetcher(url, { signal: timeoutSignal(budget) });
   return response.ok ? ((await response.json()) as Json) : null;
 }
 
@@ -147,18 +154,19 @@ const EUTILS = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi";
 /** Asks the registry for the identifier. A failed lookup just adds nothing. */
 export async function lookupFields(
   ids: Pick<ClipFields, "doi" | "arxivId" | "pmid" | "pmcid">,
-  fetcher: Fetcher = fetch
+  fetcher: Fetcher = fetch,
+  budget?: AbortSignal
 ): Promise<{ fields: ClipFields; source: string } | null> {
   const attempts: [string, () => Promise<ClipFields | null>][] = [];
 
   if (ids.doi) {
     const doi = encodeURIComponent(ids.doi);
     attempts.push(["crossref", async () => {
-      const body = await getJson(`https://api.crossref.org/works/${doi}`, fetcher);
+      const body = await getJson(`https://api.crossref.org/works/${doi}`, fetcher, budget);
       return body && parseCrossref(body);
     }]);
     attempts.push(["datacite", async () => {
-      const body = await getJson(`https://api.datacite.org/dois/${doi}`, fetcher);
+      const body = await getJson(`https://api.datacite.org/dois/${doi}`, fetcher, budget);
       return body && parseDataCite(body);
     }]);
   }
@@ -167,7 +175,7 @@ export async function lookupFields(
     attempts.push(["arxiv-api", async () => {
       const response = await fetcher(
         `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(ids.arxivId as string)}`,
-        { signal: AbortSignal.timeout(TIMEOUT_MS) }
+        { signal: timeoutSignal(budget) }
       );
       return response.ok ? parseArxivAtom(await response.text()) : null;
     }]);
@@ -176,7 +184,7 @@ export async function lookupFields(
   if (ids.pmid) {
     const pmid = ids.pmid;
     attempts.push(["pubmed", async () => {
-      const body = await getJson(`${EUTILS}?db=pubmed&retmode=json&id=${encodeURIComponent(pmid)}`, fetcher);
+      const body = await getJson(`${EUTILS}?db=pubmed&retmode=json&id=${encodeURIComponent(pmid)}`, fetcher, budget);
       return body && parseEsummary(body, pmid);
     }]);
   }
@@ -184,12 +192,16 @@ export async function lookupFields(
   if (ids.pmcid) {
     const numeric = ids.pmcid.replace(/^PMC/i, "");
     attempts.push(["pubmed-central", async () => {
-      const body = await getJson(`${EUTILS}?db=pmc&retmode=json&id=${encodeURIComponent(numeric)}`, fetcher);
+      const body = await getJson(`${EUTILS}?db=pmc&retmode=json&id=${encodeURIComponent(numeric)}`, fetcher, budget);
       return body && parseEsummary(body, numeric);
     }]);
   }
 
   for (const [source, attempt] of attempts) {
+    if (budget?.aborted) {
+      break;
+    }
+
     try {
       const fields = await attempt();
       if (fields?.title) {
@@ -209,6 +221,8 @@ function titleKey(title: string): string {
 
 const MAX_IDENTITY_CHECKS = 3;
 const MIN_TITLE_LENGTH = 12;
+/** All identity checks share this, so the popup never waits longer on them. */
+const IDENTIFY_BUDGET_MS = 10_000;
 
 /**
  * A DOI in a page's text might be a citation, or the page's own. If the registry
@@ -218,7 +232,8 @@ const MIN_TITLE_LENGTH = 12;
 export async function identifyPage(
   preview: ClipPreview,
   candidates: ClipCandidate[],
-  fetcher: Fetcher = fetch
+  fetcher: Fetcher = fetch,
+  budgetMs: number = IDENTIFY_BUDGET_MS
 ): Promise<ClipPreview | null> {
   const isDoiOnly = candidates.every((candidate) => candidate.id.startsWith("doi-"));
 
@@ -227,9 +242,15 @@ export async function identifyPage(
   }
 
   const pageTitle = titleKey(preview.title);
+  const budget = AbortSignal.timeout(budgetMs);
+  // At once, not one after another: each can take two registries and their timeouts.
+  const lookups = await Promise.all(
+    candidates.map((candidate) => lookupFields({ doi: candidate.fields.doi }, fetcher, budget))
+  );
 
-  for (const candidate of candidates) {
-    const found = await lookupFields({ doi: candidate.fields.doi }, fetcher);
+  // In page order, as if checked one by one.
+  for (const [i, candidate] of candidates.entries()) {
+    const found = lookups[i];
     const key = found?.fields.title ? titleKey(found.fields.title) : "";
 
     if (found && key.length >= MIN_TITLE_LENGTH && pageTitle.includes(key)) {
@@ -292,4 +313,25 @@ export function fillBlanks(preview: ClipPreview, fields: ClipFields, source: str
   }
 
   return next;
+}
+
+/**
+ * What a save sends: the page, if ticked, then each ticked item from the page,
+ * looked up the same way.
+ */
+export async function collectPreviews(
+  page: ClipPreview,
+  candidates: ClipCandidate[],
+  selected: ReadonlySet<string>,
+  pageId: string,
+  enrich: (preview: ClipPreview) => Promise<ClipPreview>
+): Promise<ClipPreview[]> {
+  const picked = candidates.filter((candidate) => selected.has(candidate.id));
+  const items = await Promise.all(
+    picked.map((candidate) =>
+      enrich(toPreview(candidate.fields, {}, candidate.fields.url ?? page.canonicalUrl, candidate.label))
+    )
+  );
+
+  return selected.has(pageId) ? [page, ...items] : items;
 }

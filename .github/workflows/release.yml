@@ -297,12 +297,42 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # Browser extension zips for the release page. The raw-binaries-extension
+  # artifact is picked up by upload-raw-binaries with the app binaries.
+  # Unsigned: the Firefox zip loads as a temporary add-on, or in browsers that
+  # allow unsigned add-ons, until AMO signing is set up.
+  build-extension:
+    needs: validate-tag
+    name: Build browser extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run extension:build
+      - run: npm run extension:build:firefox
+      - name: Zip the Chrome and Firefox builds
+        run: |
+          mkdir -p raw-binaries
+          npx web-ext build --source-dir browser-extension/dist-firefox \
+            --artifacts-dir raw-binaries \
+            --filename "linxiv-web-clipper-firefox-$GITHUB_REF_NAME.zip"
+          (cd browser-extension/dist && zip -r "$GITHUB_WORKSPACE/raw-binaries/linxiv-web-clipper-chrome-$GITHUB_REF_NAME.zip" .)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: raw-binaries-extension
+          path: raw-binaries/
+          if-no-files-found: error
+          retention-days: 1
+
   # Runs only once every build job has finished, which is what puts the raw
   # binaries at the BOTTOM of the release asset list rather than interleaved.
   # Keep this job last: anything uploaded after it lands below it too.
   upload-raw-binaries:
     name: Upload raw binaries
-    needs: [build, build-arch]
+    needs: [build, build-arch, build-extension]
     # fail-fast is off above so one broken platform still ships the others'
     # installers. Run on a partial matrix for the same reason: withholding
     # every binary because one runner died would be worse than the old

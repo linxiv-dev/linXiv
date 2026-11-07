@@ -19,8 +19,6 @@ export interface SaveResult {
   /** "sent" means handed off with no way to know the outcome. */
   status: "sent" | "saved";
   ids: string[];
-  /** Replaces the default message when the backend says more about the outcome. */
-  note?: string;
 }
 
 /** The PDF open in a tab. `bytes` is absent for a backend that takes the URL. */
@@ -34,8 +32,6 @@ export interface SavedPdf {
   status: "sent" | "saved";
   id?: string;
   title?: string;
-  /** Replaces the default message when the backend says more about the outcome. */
-  note?: string;
 }
 
 export interface Backend {

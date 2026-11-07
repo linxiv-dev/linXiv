@@ -317,6 +317,10 @@ body {
   color: var(--text-muted);
 }
 
+.settings-page .settings-field small.warning {
+  color: var(--bad);
+}
+
 .settings-page .token-help {
   margin-top: 16px;
   border-top: 1px solid var(--line);

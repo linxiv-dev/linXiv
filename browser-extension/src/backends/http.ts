@@ -12,6 +12,21 @@ export function originPattern(rawUrl: string): string {
   return `${url.protocol}//${url.hostname}/*`;
 }
 
+/** True when the token would cross the network in plain text: http to anything but this computer. */
+export function sendsTokenInClear(baseUrl: string): boolean {
+  let url: URL;
+
+  try {
+    url = new URL(baseUrl.trim());
+  } catch {
+    return false;
+  }
+
+  const host = url.hostname;
+  const loopback = host === "localhost" || host === "[::1]" || /^127(\.\d{1,3}){3}$/.test(host);
+  return url.protocol === "http:" && !loopback;
+}
+
 export async function request(
   fetcher: Fetcher,
   url: string,
