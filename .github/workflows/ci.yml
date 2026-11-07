@@ -110,3 +110,25 @@ jobs:
       # vite build, which catches module resolution --noEmit passes over.
       - run: npm run build
       - run: npm test
+
+  extension:
+    name: Browser extension (tsc + test + build + lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          # node --test strips TypeScript types by default from Node 22.18.
+          node-version: "22"
+      - run: npm ci
+      - run: npm run extension:typecheck
+      - run: npm run extension:test
+      - run: npm run extension:build
+      # Builds dist-firefox, then web-ext lint fails the job on errors only.
+      - run: npm run extension:lint
+      # Lets reviewers load a PR's add-on without building it.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linxiv-web-clipper-firefox
+          path: browser-extension/dist-firefox
+          if-no-files-found: error
