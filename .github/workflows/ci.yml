@@ -126,3 +126,9 @@ jobs:
       - run: npm run extension:build
       # Builds dist-firefox, then web-ext lint fails the job on errors only.
       - run: npm run extension:lint
+      # Lets reviewers load a PR's add-on without building it.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linxiv-web-clipper-firefox
+          path: browser-extension/dist-firefox
+          if-no-files-found: error

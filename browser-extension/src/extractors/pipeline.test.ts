@@ -5,7 +5,7 @@ import { parseHTML } from "linkedom";
 
 import { buildBibtex } from "../bibtex.ts";
 import { extractFromTab, extractPage } from "./index.ts";
-import { fillBlanks, identifyPage, lookupFields, parseArxivAtom, parseCrossref, parseEsummary } from "./lookup.ts";
+import { collectPreviews, fillBlanks, identifyPage, lookupFields, parseArxivAtom, parseCrossref, parseEsummary } from "./lookup.ts";
 import { displayName, normalizeDate } from "./normalize.ts";
 import { doiFromUrl, findDois, parseIsbn } from "./identifiers.ts";
 
@@ -431,6 +431,69 @@ test("a list of references or COinS items never identifies the page", async () =
   const span = (n: number) => `<span class="Z3988" title="rft.atitle=Same+long+title+here&amp;rft_id=info:doi/10.5555/c.${n}"></span>`;
   const wiki = extractPage(page("<title>Same long title here</title>", span(1) + span(2)), URL_);
   assert.equal(await identifyPage(wiki.preview, wiki.candidates, crossrefTitled("Same long title here")), null);
+});
+
+/**
+ * Waits until the request is aborted, as fetch does with a server that never answers.
+ * The timer stands in for the open socket: Node's AbortSignal.timeout doesn't keep
+ * the process alive on its own, so without it the test runner exits mid-test.
+ */
+const hangs = (async (_url: string, init: RequestInit = {}) =>
+  new Promise((_, reject) => {
+    const socket = setTimeout(() => reject(new Error("never aborted")), 5000);
+    init.signal?.addEventListener("abort", () => {
+      clearTimeout(socket);
+      reject(init.signal?.reason);
+    });
+  })) as unknown as typeof fetch;
+
+test("identity checks share one time budget", async () => {
+  const { preview, candidates } = extractPage(page("<title>Same long title here</title>", "<p>doi:10.5555/a.1</p><p>doi:10.5555/a.2</p>"), URL_);
+  assert.equal(candidates.length, 2);
+
+  const started = Date.now();
+  assert.equal(await identifyPage(preview, candidates, hangs, 50), null);
+  assert.ok(Date.now() - started < 1000, "gave up when the budget ran out");
+});
+
+test("identity checks run together, and the first match in page order wins", async () => {
+  const { preview, candidates } = extractPage(page("<title>Same long title here</title>", "<p>doi:10.5555/a.1</p><p>doi:10.5555/a.2</p>"), URL_);
+  const finished: string[] = [];
+  const fetcher = (async (url: string) => {
+    const doi = decodeURIComponent(url.split("/works/")[1] ?? "");
+    // The first DOI answers last.
+    await new Promise((resolve) => setTimeout(resolve, doi.endsWith(".1") ? 40 : 0));
+    finished.push(doi);
+    return new Response(JSON.stringify({ message: { title: ["Same long title here"], DOI: doi } }));
+  }) as unknown as typeof fetch;
+
+  const identified = await identifyPage(preview, candidates, fetcher);
+  assert.equal(identified?.doi, "10.5555/a.1");
+  // One after another, the second couldn't finish first.
+  assert.deepEqual(finished, ["10.5555/a.2", "10.5555/a.1"]);
+});
+
+test("a save collects the ticked page and items, in order", async () => {
+  const { preview, candidates } = extractPage(page("<title>Reading list page</title>", "<p>doi:10.5555/a.1</p><p>doi:10.5555/a.2</p>"), URL_);
+  const [first, second] = candidates;
+  const enrich = async (item: typeof preview) => ({ ...item, journal: "Looked up" });
+
+  const all = await collectPreviews(preview, candidates, new Set(["page", first.id, second.id]), "page", enrich);
+  assert.deepEqual(all.map((item) => item.doi), [preview.doi, first.fields.doi, second.fields.doi]);
+  assert.equal(all[0], preview, "the page itself isn't looked up again");
+  assert.equal(all[1].journal, "Looked up");
+
+  const itemsOnly = await collectPreviews(preview, candidates, new Set([second.id]), "page", enrich);
+  assert.deepEqual(itemsOnly.map((item) => item.doi), [second.fields.doi]);
+});
+
+test("a failed lookup rejects the save, so the popup can show it", async () => {
+  const { preview, candidates } = extractPage(page("<title>Reading list page</title>", "<p>doi:10.5555/a.1</p>"), URL_);
+  const broken = async () => {
+    throw new Error("lookup broke");
+  };
+
+  await assert.rejects(collectPreviews(preview, candidates, new Set(["page", candidates[0].id]), "page", broken), /lookup broke/);
 });
 
 test("author display and abstract labels", () => {

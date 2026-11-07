@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { createBackend, DEFAULT_SETTINGS, DEFAULT_URLS } from "./backends/index.ts";
-import { originPattern } from "./backends/http.ts";
+import { originPattern, sendsTokenInClear } from "./backends/http.ts";
 import type { BackendKind, ProbeResult, Settings } from "./backends/types.ts";
 import { loadSettings, saveSettings } from "./settings.ts";
 
@@ -94,6 +94,11 @@ function Options() {
               placeholder={DEFAULT_URLS[settings.kind]}
               onChange={(event) => update({ baseUrl: event.target.value })}
             />
+            {sendsTokenInClear(settings.baseUrl) && (
+              <small className="warning">
+                This address uses http, so the token is sent unencrypted. Use https outside a trusted network.
+              </small>
+            )}
           </label>
 
           <label className="settings-field">

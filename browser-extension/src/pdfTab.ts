@@ -3,7 +3,7 @@ import { BackendError, type Backend } from "./backends/types.ts";
 import { isSignedUrl } from "./extractors/normalize.ts";
 
 export type PdfTabOutcome =
-  | { kind: "saved"; id?: string; title?: string; note?: string }
+  | { kind: "saved"; id?: string; title?: string }
   | { kind: "sent" }
   /** Not a PDF after all: save it like any other page. */
   | { kind: "not-pdf" }
@@ -52,7 +52,7 @@ async function readAfterCheck(url: string, fetcher: typeof fetch, opener: PageOp
     const response = await fetcher(url, { credentials: "include" }).catch(() => null);
 
     if (response?.ok) {
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      const bytes = await readPdfBody(response);
 
       if (isPdf(bytes)) {
         await close();
@@ -66,6 +66,43 @@ async function readAfterCheck(url: string, fetcher: typeof fetch, opener: PageOp
 
 function hasPdfPath(rawUrl: string): boolean {
   return new URL(rawUrl).pathname.toLowerCase().endsWith(".pdf");
+}
+
+const TOO_BIG = "That PDF is over the 100 MB limit.";
+
+/** Refuses a file the server says is too big before downloading it. */
+async function readPdfBody(response: Response): Promise<Uint8Array<ArrayBuffer>> {
+  const length = Number(response.headers.get("content-length"));
+
+  if (length > MAX_PDF_BYTES) {
+    throw new BackendError(TOO_BIG);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * "pdf": the tab shows a PDF. "maybe-pdf": the browser wouldn't let the addon read
+ * the tab, which is how a PDF viewer looks, but also a JSON viewer or a store page.
+ * Saving checks the file itself either way.
+ */
+export type PdfTabState = "pdf" | "maybe-pdf" | "page";
+
+export function pdfTabState(rawUrl: string, tab: { contentType?: string; blocked?: boolean }): PdfTabState {
+  if (!/^https?:/.test(rawUrl)) {
+    return "page";
+  }
+
+  // Chrome lets the script into the document that hosts its PDF viewer.
+  if (tab.contentType === "application/pdf") {
+    return "pdf";
+  }
+
+  if (tab.blocked) {
+    return hasPdfPath(rawUrl) ? "pdf" : "maybe-pdf";
+  }
+
+  return "page";
 }
 
 /**
@@ -111,7 +148,7 @@ export async function savePdfTab(
     );
   }
 
-  let bytes = new Uint8Array(await response.arrayBuffer());
+  let bytes = await readPdfBody(response);
 
   if (!isPdf(bytes) && SECURITY_CHECK.test(pageTitle(bytes) ?? "")) {
     const passed = opener ? await readAfterCheck(url, fetcher, opener) : null;
@@ -141,9 +178,9 @@ export async function savePdfTab(
   }
 
   if (bytes.length > MAX_PDF_BYTES) {
-    throw new BackendError("That PDF is over the 100 MB limit.");
+    throw new BackendError(TOO_BIG);
   }
 
   const saved = await backend.savePdf({ url, filename, bytes });
-  return { kind: "saved", id: saved.id, title: saved.title, ...(saved.note ? { note: saved.note } : {}) };
+  return { kind: "saved", id: saved.id, title: saved.title };
 }

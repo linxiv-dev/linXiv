@@ -6,8 +6,8 @@ import type { ClipFields } from "../types";
 import { textToBase64 } from "./bytes.ts";
 import { deepLinkFor, desktopBackend } from "./desktop.ts";
 import { headlessBackend } from "./headless.ts";
-import { baseOf, originPattern, type Fetcher } from "./http.ts";
-import { savePdfTab } from "../pdfTab.ts";
+import { baseOf, originPattern, sendsTokenInClear, type Fetcher } from "./http.ts";
+import { pdfTabState, savePdfTab } from "../pdfTab.ts";
 import { BackendError } from "./types.ts";
 
 const clip = (fields: ClipFields, url = "https://x.example/a") => toPreview(fields, {}, url, undefined);
@@ -236,4 +236,53 @@ test("addresses", () => {
   assert.equal(baseOf(" http://h:8000// "), "http://h:8000");
   assert.equal(originPattern("http://127.0.0.1:8100/x"), "http://127.0.0.1/*");
   assert.equal(originPattern("https://a.example/"), "https://a.example/*");
+});
+
+test("token sent in clear: http to another machine only", () => {
+  assert.equal(sendsTokenInClear("http://192.168.1.20:8100"), true);
+  assert.equal(sendsTokenInClear("http://nas.local:8100/"), true);
+  assert.equal(sendsTokenInClear("http://127.0.0.1:8100"), false);
+  assert.equal(sendsTokenInClear("http://127.4.5.6"), false);
+  assert.equal(sendsTokenInClear(" http://localhost:8100 "), false);
+  assert.equal(sendsTokenInClear("http://[::1]:8100"), false);
+  assert.equal(sendsTokenInClear("https://192.168.1.20"), false);
+  assert.equal(sendsTokenInClear("not a url"), false);
+  assert.equal(sendsTokenInClear(""), false);
+});
+
+test("PDF tab state: Chrome's viewer, Firefox's viewer, and pages that only look blocked", () => {
+  assert.equal(pdfTabState("https://x.example/paper", { contentType: "application/pdf" }), "pdf");
+  assert.equal(pdfTabState("https://x.example/a.PDF", { blocked: true }), "pdf");
+  assert.equal(pdfTabState("https://arxiv.org/pdf/1706.03762", { blocked: true }), "maybe-pdf");
+  assert.equal(pdfTabState("https://addons.mozilla.org/en-US/firefox/", { blocked: true }), "maybe-pdf");
+  assert.equal(pdfTabState("about:addons", { blocked: true }), "page");
+  assert.equal(pdfTabState("chrome://extensions/", { blocked: true }), "page");
+  assert.equal(pdfTabState("https://x.example/a.pdf", { contentType: "text/html" }), "page");
+  assert.equal(pdfTabState("https://x.example/article", {}), "page");
+});
+
+test("PDF tab: a file the server says is too big is refused before download", async () => {
+  const backend = headlessBackend("http://h", "t", server({}).fetcher);
+  let read = false;
+  const huge = (async () => {
+    const response = new Response(PDF_BYTES, { headers: { "content-length": String(200 * 1024 * 1024) } });
+    response.arrayBuffer = async () => {
+      read = true;
+      throw new Error("downloaded the body");
+    };
+    return response;
+  }) as unknown as typeof fetch;
+
+  await assert.rejects(savePdfTab(backend, "https://x.example/a.pdf", huge), /over the 100 MB limit/);
+  assert.equal(read, false);
+
+  // No length header: the file is read, then measured.
+  const { calls, fetcher } = server({ "POST /api/papers/import/pdf": () => json({ source_id: "s" }) });
+  const unsized = (async () => new Response(PDF_BYTES)) as unknown as typeof fetch;
+  assert.deepEqual(await savePdfTab(headlessBackend("http://h", "t", fetcher), "https://x.example/a.pdf", unsized), {
+    kind: "saved",
+    id: "s",
+    title: undefined,
+  });
+  assert.equal(calls.length, 1);
 });

@@ -6,4 +6,7 @@ declare global {
 
 // The footer in vite.content.config.ts calls this as the script's last
 // expression, which is what executeScript hands back to the popup.
-globalThis.__linxivExtract = () => extractPage(document, window.location.href);
+globalThis.__linxivExtract = () => ({
+  ...extractPage(document, window.location.href),
+  contentType: document.contentType,
+});
