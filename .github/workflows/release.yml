@@ -316,7 +316,7 @@ jobs:
       - name: Zip the Chrome and Firefox builds
         run: |
           mkdir -p raw-binaries
-          npx web-ext build --source-dir browser-extension/dist-firefox \
+          npx --yes web-ext@10.8.0 build --source-dir browser-extension/dist-firefox \
             --artifacts-dir raw-binaries \
             --filename "linxiv-web-clipper-firefox-$GITHUB_REF_NAME.zip"
           (cd browser-extension/dist && zip -r "$GITHUB_WORKSPACE/raw-binaries/linxiv-web-clipper-chrome-$GITHUB_REF_NAME.zip" .)
