@@ -110,7 +110,7 @@ function FeedFilterRulesSection() {
           </Button>
         </div>
         {error !== "" && (
-          <p className="mt-2 text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="mt-2 text-xs text-danger">
             {error}
           </p>
         )}

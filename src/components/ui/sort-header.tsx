@@ -15,13 +15,13 @@ export function SortHeader({ label, active, dir, onSort, align = "left" }: SortH
     <th
       scope="col"
       aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
-      className="py-2 font-medium select-none"
-      style={{ textAlign: align, color: "var(--color-muted)" }}
+      className="py-2 font-medium select-none text-muted"
+      style={{ textAlign: align }}
     >
       <button
         type="button"
         onClick={onSort}
-        className="inline-flex items-center gap-1 hover:text-[var(--color-text)] transition-colors"
+        className="inline-flex items-center gap-1 hover:text-text transition-colors"
         style={{ flexDirection: align === "right" ? "row-reverse" : "row" }}
       >
         {label}

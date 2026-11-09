@@ -1,4 +1,5 @@
 import { type ButtonHTMLAttributes, forwardRef } from "react";
+import { cn } from "../../lib/cn";
 
 type Variant = "primary" | "muted" | "danger" | "ghost" | "outline" | "outline-danger";
 type Size = "sm" | "md" | "lg";
@@ -10,17 +11,17 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<Variant, string> = {
   primary:
-    "bg-[var(--color-accent)] text-[var(--color-bg)] hover:opacity-90 active:opacity-80",
+    "bg-accent text-bg hover:opacity-90 active:opacity-80",
   muted:
-    "bg-[var(--color-panel)] text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
+    "bg-panel text-text border border-border hover:border-accent hover:text-accent",
   danger:
-    "bg-[var(--color-danger)] text-white hover:opacity-90 active:opacity-80",
+    "bg-danger text-white hover:opacity-90 active:opacity-80",
   ghost:
-    "bg-transparent text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-panel)]",
+    "bg-transparent text-muted hover:text-text hover:bg-panel",
   outline:
-    "bg-transparent text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]",
+    "bg-transparent text-text border border-border hover:border-accent hover:text-accent",
   "outline-danger":
-    "bg-transparent text-[var(--color-text)] border border-[var(--color-border)] hover:border-[var(--color-danger)] hover:text-[var(--color-danger)]",
+    "bg-transparent text-text border border-border hover:border-danger hover:text-danger",
 };
 
 const sizeStyles: Record<Size, string> = {
@@ -37,13 +38,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
-        className={[
+        className={cn(
           "inline-flex items-center justify-center gap-1.5 font-medium transition-colors",
           "disabled:opacity-50 disabled:pointer-events-none",
           variantStyles[variant],
           sizeStyles[size],
           className,
-        ].join(" ")}
+        )}
         {...props}
       />
     );

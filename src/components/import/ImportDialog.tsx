@@ -59,26 +59,25 @@ function LxprojPreview({
   const p = entry.preview;
   return (
     <div
-      className="ml-5 mt-1 mb-1 rounded border border-border p-2 text-xs flex flex-col gap-1"
-      style={{ backgroundColor: "var(--color-bg)" }}
+      className="ml-5 mt-1 mb-1 rounded border border-border p-2 text-xs flex flex-col gap-1 bg-bg"
     >
-      <p className="font-medium" style={{ color: "var(--color-text)" }}>{p.project_name}</p>
-      {p.description && <p style={{ color: "var(--color-muted)" }}>{p.description}</p>}
-      <p style={{ color: "var(--color-muted)" }}>
+      <p className="font-medium text-text">{p.project_name}</p>
+      {p.description && <p className="text-muted">{p.description}</p>}
+      <p className="text-muted">
         {p.paper_count} paper{p.paper_count !== 1 ? "s" : ""} · {p.note_count} note{p.note_count !== 1 ? "s" : ""}
         {p.has_pdfs ? " · includes PDFs" : ""}
       </p>
       <div className="flex items-center gap-3 mt-0.5">
-        <span style={{ color: "var(--color-muted)" }}>On conflict:</span>
+        <span className="text-muted">On conflict:</span>
         {(["merge", "overwrite"] as const).map((v) => (
-          <label key={v} className="flex items-center gap-1 cursor-pointer capitalize" style={{ color: "var(--color-text)" }}>
+          <label key={v} className="flex items-center gap-1 cursor-pointer capitalize text-text">
             <input
               type="radio"
               name={`conflict-${entry.uid}`}
               value={v}
               checked={entry.onConflict === v}
               onChange={() => onChange({ onConflict: v })}
-              className="accent-[var(--color-accent)]"
+              className="accent-accent"
             />
             {v}
           </label>
@@ -257,7 +256,7 @@ export function ImportDialog({ open, onClose, projectId, onDone, initialFiles }:
             <Upload size={13} className="mr-1.5" />
             Add files…
           </Button>
-          <p className="text-xs mt-1" style={{ color: "var(--color-muted)" }}>
+          <p className="text-xs mt-1 text-muted">
             Accepts .pdf · .bib (BibTeX) · .lxproj. Multi-file uploads supported
             {projectId ? " · files linked to this project" : ""}
           </p>
@@ -265,7 +264,7 @@ export function ImportDialog({ open, onClose, projectId, onDone, initialFiles }:
 
         {/* Unsupported file warning */}
         {rejectedFilenames.length > 0 && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             Unsupported format, skipped: {rejectedFilenames.join(", ")}
           </p>
         )}
@@ -273,23 +272,22 @@ export function ImportDialog({ open, onClose, projectId, onDone, initialFiles }:
         {/* Queue */}
         {queue.length > 0 && (
           <div
-            className="rounded-md border border-border overflow-y-auto"
-            style={{ maxHeight: 300, backgroundColor: "var(--color-bg)" }}
+            className="rounded-md border border-border overflow-y-auto bg-bg"
+            style={{ maxHeight: 300 }}
           >
             {queue.map((entry) => (
               <div key={entry.uid} className="border-b border-border last:border-0">
                 <div className="flex items-center gap-2 px-3 py-2 text-sm">
-                  <span className="w-3.5 shrink-0 inline-block text-center font-mono" style={{ color: "var(--color-muted)" }}>○</span>
-                  <span className="flex-1 truncate" style={{ color: "var(--color-text)" }}>
+                  <span className="w-3.5 shrink-0 inline-block text-center font-mono text-muted">○</span>
+                  <span className="flex-1 truncate text-text">
                     {entry.file.name}
                   </span>
-                  <span className="text-xs shrink-0" style={{ color: "var(--color-muted)" }}>
+                  <span className="text-xs shrink-0 text-muted">
                     {entry.kind === "pdf" ? "PDF" : entry.kind === "bibtex" ? "BibTeX" : ".lxproj"}
                   </span>
                   <button
                     type="button"
-                    className="text-sm shrink-0 leading-none"
-                    style={{ color: "var(--color-muted)" }}
+                    className="text-sm shrink-0 leading-none text-muted"
                     onClick={() => setQueue((prev) => prev.filter((e) => e.uid !== entry.uid))}
                   >
                     ×
@@ -307,7 +305,7 @@ export function ImportDialog({ open, onClose, projectId, onDone, initialFiles }:
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-1">
-          <span className="text-xs" style={{ color: "var(--color-muted)" }}>
+          <span className="text-xs text-muted">
             {queued > 0 ? `${queued} file${queued !== 1 ? "s" : ""} queued` : ""}
           </span>
           <div className="flex gap-2">

@@ -1,4 +1,5 @@
 import markUrl from "../../assets/linxiv-mark.svg";
+import { cn } from "../../lib/cn";
 
 /**
  * The logo mark, tinted to the current accent. The source art is a single
@@ -8,11 +9,10 @@ export function LogoMark({ size = 26, className = "" }: { size?: number; classNa
   return (
     <span
       aria-hidden="true"
-      className={`block shrink-0 ${className}`}
+      className={cn("block shrink-0 bg-accent", className)}
       style={{
         width: size,
         height: size,
-        backgroundColor: "var(--color-accent)",
         WebkitMaskImage: `url(${markUrl})`,
         maskImage: `url(${markUrl})`,
         WebkitMaskRepeat: "no-repeat",

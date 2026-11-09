@@ -47,7 +47,7 @@ export default function NotePage() {
   if (error || !data) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           This note could not be found.
         </p>
         <Button
@@ -91,7 +91,7 @@ export default function NotePage() {
         </h1>
         <div className="flex items-center gap-2 text-xs">
           <Badge color={scopeProject?.color_hex ?? undefined}>{scopeLabel}</Badge>
-          <span style={{ color: "var(--color-muted)" }}>
+          <span className="text-muted">
             {formatDate(stamp)}
             {isEdited && " · edited"}
           </span>
@@ -105,7 +105,7 @@ export default function NotePage() {
           className="text-text text-[15px] leading-relaxed"
         />
       ) : (
-        <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+        <p className="text-sm text-muted">
           This note has no content.
         </p>
       )}

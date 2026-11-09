@@ -151,7 +151,7 @@ export function ShareProjectDialog({ open, onClose }: { open: boolean; onClose: 
   return (
     <Dialog open={open} onClose={handleClose} title="Share a project">
       <div className="flex flex-col gap-4">
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs text-muted">
           {mode === "e2ee"
             ? "Publish an encrypted copy of the project. There is no ticket. You may generate an invite string for each member from the share's settings using their member code."
             : "Generate a ticket, then paste it in linXiv on another computer to send a read-only copy of the project."}
@@ -211,12 +211,12 @@ export function ShareProjectDialog({ open, onClose }: { open: boolean; onClose: 
           </Button>
         </div>
         {error && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             {error}
           </p>
         )}
         {secured && (
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+          <p className="text-xs text-muted">
             Published encrypted. Open the share's settings to invite members —
             each device sends you its member code first.
           </p>
@@ -225,8 +225,7 @@ export function ShareProjectDialog({ open, onClose }: { open: boolean; onClose: 
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span
-                className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em]"
-                style={{ color: "var(--color-ink-3)" }}
+                className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink3"
               >
                 Invite ticket
               </span>

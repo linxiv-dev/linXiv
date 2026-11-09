@@ -38,8 +38,7 @@ export function PaperRow({ paper, checked, onSelect, projectId, project, selecta
         const mods = clickMods(e);
         if (selectable && (mods.ctrl || mods.shift)) onSelect(mods);
       }}
-      className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-[var(--color-panel)]"
-      style={{ borderBottom: "1px solid var(--color-border)" }}
+      className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-panel border-b border-border"
     >
       {selectable && (
         <label
@@ -50,7 +49,7 @@ export function PaperRow({ paper, checked, onSelect, projectId, project, selecta
             type="checkbox"
             checked={checked}
             onChange={(e) => onSelect(clickMods(e.nativeEvent as MouseEvent))}
-            className="mt-1 accent-[var(--color-accent)] cursor-pointer"
+            className="mt-1 accent-accent cursor-pointer"
           />
         </label>
       )}
@@ -62,17 +61,16 @@ export function PaperRow({ paper, checked, onSelect, projectId, project, selecta
         }}
       >
         <p
-          className="text-sm font-medium leading-snug line-clamp-2"
-          style={{ color: "var(--color-text)" }}
+          className="text-sm font-medium leading-snug line-clamp-2 text-text"
         >
           <MathText forceInline>{paper.title}</MathText>
         </p>
         {authors && (
-          <p className="text-xs mt-0.5 truncate" style={{ color: "var(--color-muted)" }}>
+          <p className="text-xs mt-0.5 truncate text-muted">
             {authors}
           </p>
         )}
-        <p className="text-xs mt-0.5 truncate" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs mt-0.5 truncate text-muted">
           {paper.source_id}
         </p>
       </div>

@@ -36,8 +36,7 @@ function PullFromPdf({
       // Keep the PDF selection alive through the click (mousedown would clear it).
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onPull(selection)}
-      className="ml-auto rounded p-0.5 transition-colors hover:bg-[var(--color-border)] disabled:opacity-30"
-      style={{ color: "var(--color-muted)" }}
+      className="ml-auto rounded p-0.5 transition-colors hover:bg-border disabled:opacity-30 text-muted"
       title={selection ? "Insert text selected in the PDF" : "Select text in the PDF first"}
       aria-label="Insert text selected in the PDF"
     >
@@ -145,8 +144,8 @@ export function PaperMetadataEditor({
         {/* Scrollable fields */}
         <div className="flex flex-col gap-4 overflow-y-auto max-h-[60vh] pr-1">
           <div className="flex flex-col gap-1.5">
-            <label className="flex items-center gap-1 text-xs font-medium" style={{ color: "var(--color-muted)" }}>
-              Title <span style={{ color: "var(--color-danger)" }}>*</span>
+            <label className="flex items-center gap-1 text-xs font-medium text-muted">
+              Title <span className="text-danger">*</span>
               <PullFromPdf selection={pdfSelection} onPull={pull(setTitle)} />
             </label>
             <Textarea
@@ -160,8 +159,8 @@ export function PaperMetadataEditor({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="flex items-center gap-1 text-xs font-medium" style={{ color: "var(--color-muted)" }}>
-              Authors <span style={{ color: "var(--color-danger)" }}>*</span>{" "}
+            <label className="flex items-center gap-1 text-xs font-medium text-muted">
+              Authors <span className="text-danger">*</span>{" "}
               <span className="font-normal">(semicolon-separated)</span>
               <PullFromPdf selection={pdfSelection} onPull={pull(setAuthors, "; ")} />
             </label>
@@ -175,8 +174,8 @@ export function PaperMetadataEditor({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium" style={{ color: "var(--color-muted)" }}>
-                Published <span style={{ color: "var(--color-danger)" }}>*</span>
+              <label className="text-xs font-medium text-muted">
+                Published <span className="text-danger">*</span>
               </label>
               <Input
                 type="date"
@@ -186,7 +185,7 @@ export function PaperMetadataEditor({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center gap-1 text-xs font-medium" style={{ color: "var(--color-muted)" }}>
+              <label className="flex items-center gap-1 text-xs font-medium text-muted">
                 Category
                 <PullFromPdf selection={pdfSelection} onPull={pull(setCategory)} />
               </label>
@@ -200,7 +199,7 @@ export function PaperMetadataEditor({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center gap-1 text-xs font-medium" style={{ color: "var(--color-muted)" }}>
+              <label className="flex items-center gap-1 text-xs font-medium text-muted">
                 DOI
                 <PullFromPdf selection={pdfSelection} onPull={pull(setDoi)} />
               </label>
@@ -211,7 +210,7 @@ export function PaperMetadataEditor({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="flex items-center gap-1 text-xs font-medium" style={{ color: "var(--color-muted)" }}>
+              <label className="flex items-center gap-1 text-xs font-medium text-muted">
                 URL
                 <PullFromPdf selection={pdfSelection} onPull={pull(setUrl)} />
               </label>
@@ -224,7 +223,7 @@ export function PaperMetadataEditor({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="flex items-center gap-1 text-xs font-medium" style={{ color: "var(--color-muted)" }}>
+            <label className="flex items-center gap-1 text-xs font-medium text-muted">
               Abstract
               <PullFromPdf selection={pdfSelection} onPull={pull(setSummary)} />
             </label>
@@ -237,7 +236,7 @@ export function PaperMetadataEditor({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="flex items-center gap-1 text-xs font-medium" style={{ color: "var(--color-muted)" }}>
+            <label className="flex items-center gap-1 text-xs font-medium text-muted">
               Tags <span className="font-normal">(comma-separated)</span>
               <PullFromPdf selection={pdfSelection} onPull={pull(setTags, ", ")} />
             </label>
@@ -250,11 +249,10 @@ export function PaperMetadataEditor({
         </div>
 
         {/* Fixed footer */}
-        <div className="flex items-center justify-between gap-4 pt-4 mt-1 border-t border-[var(--color-border)]">
+        <div className="flex items-center justify-between gap-4 pt-4 mt-1 border-t border-border">
           <div
             aria-live="polite"
-            className="text-xs min-w-0 truncate"
-            style={{ color: "var(--color-danger)" }}
+            className="text-xs min-w-0 truncate text-danger"
           >
             {error}
           </div>

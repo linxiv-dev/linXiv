@@ -303,7 +303,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
 
   if (!restored) {
     return (
-      <div role="status" aria-label="Loading" className="flex flex-col h-full items-center justify-center text-[var(--color-muted)]">
+      <div role="status" aria-label="Loading" className="flex flex-col h-full items-center justify-center text-muted">
         <LogoMark size={48} className="animate-pulse" />
       </div>
     );
@@ -315,8 +315,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
     <div className="flex flex-col h-full">
       {/* ── Fixed header + controls ─────────────────────────────────────────── */}
       <div
-        className="shrink-0 px-6 pt-6 pb-4 border-b border-[var(--color-border)]"
-        style={{ background: "var(--color-bg)" }}
+        className="shrink-0 px-6 pt-6 pb-4 border-b border-border bg-bg"
       >
         <h1 className="font-display text-[27px] font-semibold leading-tight tracking-[-0.015em] text-text mb-4">
           Search Papers
@@ -350,7 +349,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
           {/* Main search text input */}
           <input
             type="text"
-            className="flex-1 h-[34px] rounded-md px-3 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50"
+            className="flex-1 h-[34px] rounded-md px-3 text-sm bg-bg text-text border border-border focus:outline-none focus:border-accent disabled:opacity-50"
             placeholder={
               source === "arxiv"
                 ? "Search arXiv…"
@@ -369,7 +368,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
             <button
               type="button"
               onClick={() => setAdvancedOpen((v) => !v)}
-              className="shrink-0 h-[34px] px-3 text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] text-[var(--color-text)] hover:opacity-80 transition-opacity"
+              className="shrink-0 h-[34px] px-3 text-sm rounded-md border border-border bg-panel text-text hover:opacity-80 transition-opacity"
             >
               Advanced {advancedOpen ? "▴" : "▾"}
             </button>
@@ -379,8 +378,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
         {/* Advanced panel — arXiv only */}
         {source === "arxiv" && advancedOpen && (
           <div
-            className="mb-3 p-3 rounded-md border border-[var(--color-border)]"
-            style={{ background: "var(--color-panel)" }}
+            className="mb-3 p-3 rounded-md border border-border bg-panel"
           >
             <QueryBuilder
               clauses={advClauses}
@@ -395,10 +393,10 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
         <div className="flex items-center gap-3 flex-wrap">
           {/* Max results */}
           {source !== "local" && (
-            <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
+            <div className="flex items-center gap-1.5 text-sm text-muted">
               <span>Max</span>
               <select
-                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-[30px] rounded-md px-2 text-sm bg-bg text-text border border-border focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
                 value={maxResults}
                 onChange={(e) => setMaxResults(Number(e.target.value))}
                 disabled={isLoading}
@@ -413,10 +411,10 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
 
           {/* Sort — per source */}
           {source === "arxiv" && (
-            <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
+            <div className="flex items-center gap-1.5 text-sm text-muted">
               <span>Sort</span>
               <select
-                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-[30px] rounded-md px-2 text-sm bg-bg text-text border border-border focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
                 value={sortPrefs.arxivSort}
                 onChange={(e) => handleSortChange("arxivSort", e.target.value)}
                 disabled={isLoading}
@@ -431,10 +429,10 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
           )}
 
           {source === "openalex" && (
-            <div className="flex items-center gap-1.5 text-sm text-[var(--color-muted)]">
+            <div className="flex items-center gap-1.5 text-sm text-muted">
               <span>Sort</span>
               <select
-                className="h-[30px] rounded-md px-2 text-sm bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-[30px] rounded-md px-2 text-sm bg-bg text-text border border-border focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
                 value={sortPrefs.openAlexSort}
                 onChange={(e) => handleSortChange("openAlexSort", e.target.value)}
                 disabled={isLoading}
@@ -451,15 +449,14 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
           <div className="flex-1" />
 
           {/* +/Search/− button group */}
-          <div className="flex rounded-md overflow-hidden shrink-0 border border-[var(--color-border)]">
+          <div className="flex rounded-md overflow-hidden shrink-0 border border-border">
             <button
               type="button"
               onClick={handleAppend}
               disabled={isLoading || results === null || !hasQuery}
               title="Append to current results"
               aria-label="Append to current results"
-              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
-              style={{ background: "var(--color-success)", color: "var(--color-bg)" }}
+              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none bg-success text-bg"
             >
               {isAppending ? <Spinner size={11} /> : "+"}
             </button>
@@ -467,8 +464,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
               type="button"
               onClick={handleSearch}
               disabled={isLoading || !hasQuery}
-              className="flex items-center justify-center gap-1 px-4 py-1 text-xs font-semibold tracking-wide transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none border-x border-black/20"
-              style={{ background: "var(--color-accent)", color: "var(--color-bg)" }}
+              className="flex items-center justify-center gap-1 px-4 py-1 text-xs font-semibold tracking-wide transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none border-x border-black/20 bg-accent text-bg"
             >
               {isReplacing && <Spinner size={11} />}
               {isReplacing ? "Searching…" : "Search"}
@@ -479,8 +475,8 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
               disabled={isLoading || results === null}
               title="Clear results"
               aria-label="Clear results"
-              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none"
-              style={{ background: "var(--color-danger)", color: "white" }}
+              className="flex items-center justify-center w-7 py-1 text-xs font-bold transition-opacity hover:opacity-80 active:opacity-70 disabled:opacity-30 disabled:pointer-events-none bg-danger"
+              style={{ color: "white" }}
             >
               −
             </button>
@@ -491,20 +487,20 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
       {/* ── Scrollable results area ──────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
         {error && (
-          <p className="px-6 py-4 text-sm" style={{ color: "var(--color-danger)" }}>
+          <p className="px-6 py-4 text-sm text-danger">
             {error}
           </p>
         )}
 
         {isReplacing && (
-          <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
+          <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-muted">
             <LogoMark size={48} className="animate-pulse" />
             <span className="text-sm">Searching…</span>
           </div>
         )}
 
         {!isReplacing && results !== null && results.length === 0 && (
-          <p className="px-6 py-8 text-sm text-[var(--color-muted)] text-center">
+          <p className="px-6 py-8 text-sm text-muted text-center">
             No results found.
           </p>
         )}
@@ -512,16 +508,16 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
         {!isReplacing && displayedResults && displayedResults.length > 0 && (
           <div>
             {/* Results header: count + view sort */}
-            <div className="flex items-center gap-3 px-6 py-2 border-b border-[var(--color-border)]">
-              <span className="text-xs text-[var(--color-muted)]">
+            <div className="flex items-center gap-3 px-6 py-2 border-b border-border">
+              <span className="text-xs text-muted">
                 {results!.length} result{results!.length !== 1 ? "s" : ""}
-                {isAppending && <span className="ml-2 text-[var(--color-accent)]">appending…</span>}
+                {isAppending && <span className="ml-2 text-accent">appending…</span>}
               </span>
               <div className="flex-1" />
-              <div className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
+              <div className="flex items-center gap-1.5 text-xs text-muted">
                 <span>Sort</span>
                 <select
-                  className="h-[26px] rounded px-1.5 text-xs bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] focus:outline-none focus:border-[var(--color-accent)]"
+                  className="h-[26px] rounded px-1.5 text-xs bg-bg text-text border border-border focus:outline-none focus:border-accent"
                   value={viewSort}
                   onChange={(e) => setViewSort(e.target.value as ViewSort)}
                   aria-label="Sort results"
@@ -542,7 +538,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
               />
             ))}
             {isAppending && (
-              <div className="flex items-center gap-2 px-6 py-3 text-xs border-t border-[var(--color-border)]" style={{ color: "var(--color-muted)" }}>
+              <div className="flex items-center gap-2 px-6 py-3 text-xs border-t border-border text-muted">
                 <Spinner size={12} />
                 <span>Fetching more…</span>
               </div>
@@ -551,7 +547,7 @@ const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettin
         )}
 
         {!isReplacing && results === null && !error && (
-          <p className="px-6 py-8 text-sm text-[var(--color-muted)] text-center">
+          <p className="px-6 py-8 text-sm text-muted text-center">
             Enter search terms above and press Search.
           </p>
         )}

@@ -115,8 +115,7 @@ export default function PdfPreviewPage() {
   return (
     <div className="flex flex-col h-full">
       <div
-        className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-border"
-        style={{ background: "var(--color-bg)" }}
+        className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-border bg-bg"
       >
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
           ← Back
@@ -132,10 +131,9 @@ export default function PdfPreviewPage() {
         {isArxivId(result.source_id) && (
           saved ? (
             <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              className="text-xs px-2 py-0.5 rounded-full font-medium text-success"
               style={{
                 background: "color-mix(in srgb, var(--color-success) 15%, transparent)",
-                color: "var(--color-success)",
               }}
             >
               In library

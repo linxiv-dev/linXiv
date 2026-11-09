@@ -186,7 +186,7 @@ export function NoteEditor({
         <span>{scopeLabel}</span>
       </div>
       {error && (
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           {error}
         </p>
       )}

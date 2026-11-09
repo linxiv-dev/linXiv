@@ -159,17 +159,16 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
     m.role !== "admin" &&
     (selfRole === "admin" || m.role !== "co-admin");
   return (
-    <div className="flex flex-col gap-3 border-t border-[var(--color-border)] pt-4">
+    <div className="flex flex-col gap-3 border-t border-border pt-4">
       <span
-        className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em]"
-        style={{ color: "var(--color-ink-3)" }}
+        className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink3"
       >
         Members
       </span>
       {membersQ.isLoading && <Spinner size={16} />}
       {hosted && members.some((m) => m.member_id !== selfId && !m.revoked) && (
         <div className="flex items-center gap-2">
-          <span className="flex-1 text-[11px]" style={{ color: "var(--color-ink-3)" }}>
+          <span className="flex-1 text-[11px] text-ink3">
             {rekeyM.isSuccess
               ? `Re-keyed for ${rekeyM.data.members} member${rekeyM.data.members === 1 ? "" : "s"}. They should sync again.`
               : "If a member syncs but stays empty, re-key: their invite came after this content was encrypted."}
@@ -185,7 +184,7 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
         </div>
       )}
       {rekeyM.isError && (
-        <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="text-xs text-danger">
           {shareErrText(rekeyM.error)}
         </p>
       )}
@@ -193,8 +192,7 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
         <div key={m.member_id || m.invited_at} className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <span
-              className="flex-1 truncate text-[13px]"
-              style={{ color: m.revoked ? "var(--color-ink-3)" : "var(--color-text)" }}
+              className={`flex-1 truncate text-[13px] ${m.revoked ? "text-ink3" : "text-text"}`}
             >
               {m.member_id === selfId
                 ? "This device"
@@ -211,8 +209,7 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
               />
             ) : (
               <span
-                className="shrink-0 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5 font-mono text-[10px] font-semibold"
-                style={{ color: "var(--color-muted)" }}
+                className="shrink-0 rounded-full border border-border bg-surface2 px-2 py-0.5 font-mono text-[10px] font-semibold text-muted"
               >
                 {m.revoked ? "revoked" : m.verified ? m.role : `${m.role} (unverified)`}
               </span>
@@ -280,7 +277,7 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
             // Outstanding-invite line: a member who never picks theirs up leaves
             // no other trace on this end, and the string is otherwise shown once.
             <div className="flex items-center gap-2">
-              <span className="text-[11px]" style={{ color: "var(--color-ink-3)" }}>
+              <span className="text-[11px] text-ink3">
                 Invited {relAgo(m.invited_at)}
                 {m.revoked
                   ? " · revoked"
@@ -333,19 +330,19 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
         </div>
       ))}
       {revoking != null && (
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs text-muted">
           Stops receiving future updates. Content already synced stays on their
           device.
         </p>
       )}
       {removing != null && (
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs text-muted">
           Revokes them and forgets the invite entirely, so re-inviting the same
           device starts clean. They should also leave the share on their end.
         </p>
       )}
       {transferring != null && (
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs text-muted">
           Hands THE ADMIN role to this co-admin. This device becomes a
           co-admin{hosted ? "; hosting stays here" : "; hosting is unaffected"}.
         </p>
@@ -392,7 +389,7 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
         roleM.isError ||
         transferM.isError ||
         membersQ.isError) && (
-        <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="text-xs text-danger">
           {shareErrText(
             inviteM.error ??
               revokeM.error ??
@@ -407,8 +404,7 @@ export function MembersSection({ shareId, hosted }: { shareId: string; hosted: b
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span
-              className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em]"
-              style={{ color: "var(--color-ink-3)" }}
+              className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink3"
             >
               Invite string — send it to them
             </span>
