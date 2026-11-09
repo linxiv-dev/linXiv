@@ -718,6 +718,9 @@ export function PdfReader({ file, sourceId, version, projectId, errorUrl }: PdfR
         <Document
           file={file}
           options={pdfDocumentOptions}
+          // Off: suspense mode fires onLoadSuccess before our reset effect
+          // (zeroing numPages) and ignores the loading/error props.
+          suspense={false}
           onLoadSuccess={onDocumentLoad}
           loading={
             <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-white/60 text-sm">
