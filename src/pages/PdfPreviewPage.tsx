@@ -168,6 +168,7 @@ export default function PdfPreviewPage() {
           <Document
             file={pdfSrc}
             options={pdfDocumentOptions}
+            suspense={false}
             onLoadSuccess={(pdf) => { setNumPages(pdf.numPages); pdfDocRef.current = pdf; }}
             loading={
               <div role="status" className="flex flex-col items-center justify-center gap-3 py-16 text-white/60 text-sm">
