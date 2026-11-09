@@ -53,32 +53,26 @@ export function Dialog({
         <RadixDialog.Content
           onInteractOutside={modal ? undefined : (e) => e.preventDefault()}
           onOpenAutoFocus={onOpenAutoFocus}
-          className={`lx-rise fixed top-1/2 z-50 flex max-h-[calc(100vh-3rem)] w-[calc(100%-2rem)] ${maxW} -translate-y-1/2 flex-col overflow-hidden ${
+          className={`lx-rise fixed top-1/2 z-50 flex max-h-[calc(100vh-3rem)] w-[calc(100%-2rem)] ${maxW} -translate-y-1/2 flex-col overflow-hidden border border-border bg-panel text-text ${
             modal ? "left-1/2 -translate-x-1/2" : "right-4"
           }`}
           style={{
-            backgroundColor: "var(--color-panel)",
-            border: "1px solid var(--color-border)",
-            color: "var(--color-text)",
             borderRadius: "16px",
             boxShadow: "0 24px 70px rgba(0,0,0,0.30)",
           }}
         >
           <div
-            className="flex items-center justify-between px-5.5 py-4.5"
-            style={{ borderBottom: "1px solid var(--color-border)" }}
+            className="flex items-center justify-between border-b border-border px-5.5 py-4.5"
           >
             <RadixDialog.Title
-              className="text-base font-semibold"
-              style={{ color: "var(--color-text)" }}
+              className="text-base font-semibold text-text"
             >
               {title}
             </RadixDialog.Title>
             <RadixDialog.Close asChild>
               <button
                 onClick={onClose}
-                className="rounded p-1 transition-colors hover:bg-[var(--color-border)]"
-                style={{ color: "var(--color-muted)" }}
+                className="rounded p-1 transition-colors hover:bg-border text-muted"
                 aria-label="Close"
               >
                 <X size={16} />

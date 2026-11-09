@@ -322,8 +322,7 @@ export default function GraphPage() {
           {error && view && (
             <span
               role="status"
-              className="text-sm max-w-[32ch] truncate"
-              style={{ color: "var(--color-danger)" }}
+              className="text-sm max-w-[32ch] truncate text-danger"
               title={String((error as Error).message ?? error)}
             >
               Refresh failed: {String((error as Error).message ?? error)}
@@ -344,8 +343,7 @@ export default function GraphPage() {
             {dirty && !isFetching && (
               <span
                 aria-hidden
-                className="inline-block w-1.5 h-1.5 rounded-full align-middle"
-                style={{ backgroundColor: "var(--color-accent)" }}
+                className="inline-block w-1.5 h-1.5 rounded-full align-middle bg-accent"
               />
             )}
           </Button>
@@ -363,7 +361,7 @@ export default function GraphPage() {
         </div>
       </div>
 
-      <div className="flex-1 relative overflow-hidden" style={{ backgroundColor: "var(--color-bg)" }}>
+      <div className="flex-1 relative overflow-hidden bg-bg">
         {ready && !empty && (
           <>
             <Suspense fallback={<span role="status" aria-label="Loading"><LogoMark size={48} className="animate-pulse" /></span>}>
@@ -416,8 +414,7 @@ export default function GraphPage() {
 
         {(!ready || empty) && (
           <div
-            className="absolute inset-0 overflow-y-auto flex items-center justify-center"
-            style={{ backgroundColor: "var(--color-bg)" }}
+            className="absolute inset-0 overflow-y-auto flex items-center justify-center bg-bg"
           >
             {isPending || !visited ? (
               <span role="status" aria-label="Loading"><LogoMark size={48} className="animate-pulse" /></span>
@@ -462,7 +459,7 @@ export default function GraphPage() {
       >
         <div className="space-y-3">
           {projectPickerError && (
-            <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+            <p className="text-sm text-danger">
               {projectPickerError}
             </p>
           )}
@@ -513,7 +510,7 @@ export default function GraphPage() {
                     })
                   }
                   disabled={addToProjectMutation.isPending}
-                  className="w-full text-left px-3 py-2 rounded-md border border-border hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] text-text text-sm transition-colors disabled:opacity-50"
+                  className="w-full text-left px-3 py-2 rounded-md border border-border hover:border-accent hover:text-accent text-text text-sm transition-colors disabled:opacity-50"
                 >
                   {project.name}
                   {project.description && (
@@ -581,11 +578,10 @@ function NoMatchNotice({
     <div
       role="status"
       aria-live="polite"
-      className="absolute top-1/2 z-10 w-[min(340px,60%)] rounded-md border border-border p-4 text-center shadow-lg"
+      className="absolute top-1/2 z-10 w-[min(340px,60%)] rounded-md border border-border p-4 text-center shadow-lg bg-panel"
       style={{
         left: `calc((100% - ${gutter}px) / 2)`,
         transform: "translate(-50%, -50%)",
-        backgroundColor: "var(--color-panel)",
       }}
     >
       <div className="text-sm font-semibold text-text">

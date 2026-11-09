@@ -1,11 +1,12 @@
 import { type InputHTMLAttributes, type TextareaHTMLAttributes, forwardRef } from "react";
+import { cn } from "../../lib/cn";
 
 const inputBase = [
   "w-full rounded-md px-3 py-1.5 text-sm transition-colors",
-  "bg-[var(--color-bg)] text-[var(--color-text)]",
-  "border border-[var(--color-border)]",
-  "placeholder:text-[var(--color-muted)]",
-  "focus:outline-none focus:border-[var(--color-accent)]",
+  "bg-bg text-text",
+  "border border-border",
+  "placeholder:text-muted",
+  "focus:outline-none focus:border-accent",
   "disabled:opacity-50 disabled:cursor-not-allowed",
 ].join(" ");
 
@@ -16,7 +17,7 @@ export const Input = forwardRef<
   return (
     <input
       ref={ref}
-      className={[inputBase, className].join(" ")}
+      className={cn(inputBase, className)}
       {...props}
     />
   );
@@ -29,7 +30,7 @@ export const Textarea = forwardRef<
   return (
     <textarea
       ref={ref}
-      className={[inputBase, "resize-y min-h-[80px]", className].join(" ")}
+      className={cn(inputBase, "resize-y min-h-[80px]", className)}
       {...props}
     />
   );

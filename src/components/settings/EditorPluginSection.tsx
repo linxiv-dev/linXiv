@@ -24,7 +24,7 @@ import { SettingGroup, SettingGroupLabel, SettingRow } from "./SettingRow";
 export function PluginCheckMessage({ check }: { check: UpdateCheck }) {
   if (check.noCompatibleRelease) {
     return (
-      <span style={{ color: "var(--color-danger)" }}>
+      <span className="text-danger">
         No editor release matches this version of linXiv; check the recent
         releases for more information.
       </span>
@@ -32,13 +32,13 @@ export function PluginCheckMessage({ check }: { check: UpdateCheck }) {
   }
   if (check.updateAvailable && check.latestVersion) {
     return (
-      <span style={{ color: "var(--color-success)" }}>
+      <span className="text-success">
         Version {check.latestVersion} is available
         {check.downloadBytes != null ? ` (${fmtMB(check.downloadBytes)} download)` : ""}.
       </span>
     );
   }
-  return <span style={{ color: "var(--color-success)" }}>The editor is up to date.</span>;
+  return <span className="text-success">The editor is up to date.</span>;
 }
 
 export function EditorPluginSection() {
@@ -171,7 +171,7 @@ export function EditorPluginSection() {
         {(check || error || installing) && (
           <SettingRow label="Status">
             {error ? (
-              <span style={{ color: "var(--color-danger)" }}>{error}</span>
+              <span className="text-danger">{error}</span>
             ) : installing ? (
               <span className="text-muted">
                 {progress?.phase === "promote"

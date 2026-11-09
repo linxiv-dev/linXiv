@@ -2,6 +2,9 @@
 @import "tailwindcss";
 @config "../../tailwind.config.ts";
 
+/* Page-scoped overrides: <body data-page> holds the route id from App.tsx, e.g.
+   [data-page="home"] { --color-accent: #0a84ff; } (add `main` to skip the sidebar). */
+
 /* Inter (variable, self-hosted for offline use) — SIL OFL 1.1, see public/fonts/Inter-OFL.txt */
 @font-face {
   font-family: "Inter";

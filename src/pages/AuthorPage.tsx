@@ -36,7 +36,7 @@ export default function AuthorPage() {
   if (!Number.isInteger(authorId) || authorId <= 0) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           Invalid author ID.
         </p>
       </div>
@@ -94,7 +94,7 @@ function AuthorIndexView() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           Failed to load authors.
         </p>
       </div>
@@ -107,7 +107,7 @@ function AuthorIndexView() {
         <h1 className="font-display text-[27px] font-semibold leading-tight tracking-[-0.015em] text-text">
           Authors
         </h1>
-        <p className="text-sm mt-1" style={{ color: "var(--color-muted)" }}>
+        <p className="text-sm mt-1 text-muted">
           {authors.length} author{authors.length !== 1 ? "s" : ""}
           {hideSingleAuthors ? " with multiple papers" : " in your library"}
         </p>
@@ -121,8 +121,7 @@ function AuthorIndexView() {
       />
 
       <label
-        className="flex items-center gap-2 text-sm cursor-pointer select-none w-fit"
-        style={{ color: "var(--color-muted)" }}
+        className="flex items-center gap-2 text-sm cursor-pointer select-none w-fit text-muted"
       >
         <input
           type="checkbox"
@@ -133,8 +132,7 @@ function AuthorIndexView() {
       </label>
 
       <label
-        className="flex items-center gap-2 text-sm w-fit"
-        style={{ color: "var(--color-muted)" }}
+        className="flex items-center gap-2 text-sm w-fit text-muted"
       >
         Sort names by
         <select
@@ -144,8 +142,7 @@ function AuthorIndexView() {
             // Make the choice take effect even if currently sorted by papers.
             setSort((s) => (s.key === "name" ? s : { key: "name", dir: "asc" }));
           }}
-          className="rounded-md border px-2 py-1 bg-transparent"
-          style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+          className="rounded-md border px-2 py-1 bg-transparent border-border text-text"
         >
           <option value="full_name">Full name</option>
           <option value="first_name">First name</option>
@@ -154,7 +151,7 @@ function AuthorIndexView() {
       </label>
 
       {filtered.length === 0 ? (
-        <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+        <p className="text-sm text-muted">
           {search
             ? "No authors match your filter."
             : hideSingleAuthors
@@ -164,7 +161,7 @@ function AuthorIndexView() {
       ) : (
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b" style={{ borderColor: "var(--color-border)" }}>
+            <tr className="border-b border-border">
               <SortHeader
                 label="Author"
                 active={sort.key === "name"}
@@ -187,15 +184,14 @@ function AuthorIndexView() {
               <tr
                 key={author.author_id}
                 onClick={() => navigate(to)}
-                className="border-b cursor-pointer hover:bg-[var(--color-panel)] transition-colors"
-                style={{ borderColor: "var(--color-border)" }}
+                className="border-b cursor-pointer hover:bg-panel transition-colors border-border"
               >
-                <td className="py-2.5 font-medium" style={{ color: "var(--color-text)" }}>
+                <td className="py-2.5 font-medium text-text">
                   <Link to={to} className="block" onClick={(e) => e.stopPropagation()}>
                     {author.full_name ?? "(unnamed)"}
                   </Link>
                 </td>
-                <td className="py-2.5 text-right tabular-nums" style={{ color: "var(--color-muted)" }}>
+                <td className="py-2.5 text-right tabular-nums text-muted">
                   {author.paper_count ?? 0}
                 </td>
               </tr>
@@ -326,7 +322,7 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
   if (error || !author) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           Author not found.
         </p>
       </div>
@@ -374,7 +370,7 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
       {/* Author fields */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold" style={{ color: "var(--color-text)" }}>
+          <h1 className="text-xl font-semibold text-text">
             {authorDetail.full_name ?? "(unnamed)"}
           </h1>
           {!editing && (
@@ -420,12 +416,12 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
               />
             </LabeledField>
 
-            <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+            <p className="text-xs text-muted">
               Blank fields are ignored; clearing a value is not supported.
             </p>
 
             {updateMutation.error && (
-              <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+              <p className="text-sm text-danger">
                 {(updateMutation.error as Error).message}
               </p>
             )}
@@ -459,21 +455,20 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
 
       {/* Linked papers */}
       <section className="space-y-3">
-        <h2 className="text-base font-semibold" style={{ color: "var(--color-text)" }}>
+        <h2 className="text-base font-semibold text-text">
           Papers ({authorDetail.papers.length})
         </h2>
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs text-muted">
           Editing this author's name does not update the author list stored with each paper.
         </p>
         {authorDetail.papers.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+          <p className="text-sm text-muted">
             No papers linked to this author.
           </p>
         ) : (
           <div
-            className="flex flex-col divide-y rounded-md overflow-hidden"
+            className="flex flex-col divide-y rounded-md overflow-hidden border-border"
             style={{
-              borderColor: "var(--color-border)",
               border: "1px solid var(--color-border)",
             }}
           >
@@ -483,18 +478,16 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
               return (
                 <div
                   key={paper.paper_id}
-                  className="flex items-start gap-3 px-4 py-3"
-                  style={{ backgroundColor: "var(--color-panel)" }}
+                  className="flex items-start gap-3 px-4 py-3 bg-panel"
                 >
                   <button
                     type="button"
-                    className="text-sm flex-1 text-left hover:opacity-80 transition-opacity"
-                    style={{ color: "var(--color-text)" }}
+                    className="text-sm flex-1 text-left hover:opacity-80 transition-opacity text-text"
                     onClick={() => navigate(`/library/${paper.source_fk}`)}
                   >
                     <MathText forceInline>{paper.title ?? paper.source_id}</MathText>
                   </button>
-                  <span className="text-xs shrink-0 mt-0.5" style={{ color: "var(--color-muted)" }}>
+                  <span className="text-xs shrink-0 mt-0.5 text-muted">
                     v{paper.version}
                   </span>
                   {/* Light-touch fixes for one misfiled paper: move it to a
@@ -537,27 +530,26 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
           </div>
         )}
         {(unlinkMutation.error || reassignMutation.error) && (
-          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+          <p className="text-sm text-danger">
             {((unlinkMutation.error ?? reassignMutation.error) as Error).message}
           </p>
         )}
       </section>
 
       {/* Merge duplicates */}
-      <section className="space-y-3 pt-4" style={{ borderTop: "1px solid var(--color-border)" }}>
-        <h2 className="text-base font-semibold" style={{ color: "var(--color-text)" }}>
+      <section className="space-y-3 pt-4 border-t border-border">
+        <h2 className="text-base font-semibold text-text">
           Merge duplicates
         </h2>
-        <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+        <p className="text-xs text-muted">
           Pick other records for the same person. Their papers move to this author and the
           duplicate records are deleted. This cannot be undone.
         </p>
         {orcidCandidates.length > 0 && (
           <div
-            className="rounded-md border px-3 py-2 space-y-2 text-sm"
-            style={{ borderColor: "var(--color-border)", backgroundColor: "var(--color-panel)" }}
+            className="rounded-md border px-3 py-2 space-y-2 text-sm border-border bg-panel"
           >
-            <p style={{ color: "var(--color-text)" }}>
+            <p className="text-text">
               Same ORCID as{" "}
               {orcidCandidates.map((a) => a.full_name ?? "(unnamed)").join(", ")}, likely the
               same person.
@@ -586,10 +578,9 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
             (or reassign a single paper from the list above). */}
         {nameCandidates.length > 0 && (
           <div
-            className="rounded-md border px-3 py-2 space-y-1 text-sm"
-            style={{ borderColor: "var(--color-border)" }}
+            className="rounded-md border px-3 py-2 space-y-1 text-sm border-border"
           >
-            <p style={{ color: "var(--color-muted)" }}>
+            <p className="text-muted">
               Same name, separate record{nameCandidates.length > 1 ? "s" : ""}, might be the
               same person, but a shared name alone is weak evidence.
             </p>
@@ -598,13 +589,12 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
                 <li key={c.author_id}>
                   <Link
                     to={`/authors/${c.author_id}`}
-                    className="underline underline-offset-2 hover:opacity-80"
-                    style={{ color: "var(--color-accent)" }}
+                    className="underline underline-offset-2 hover:opacity-80 text-accent"
                   >
                     {c.full_name ?? "(unnamed)"}
                   </Link>
                   {c.orcid && (
-                    <span className="text-xs ml-2" style={{ color: "var(--color-muted)" }}>
+                    <span className="text-xs ml-2 text-muted">
                       ORCID {c.orcid}
                     </span>
                   )}
@@ -629,8 +619,7 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
           onChange={(e) =>
             setMergeIds(Array.from(e.target.selectedOptions, (o) => Number(o.value)))
           }
-          className="w-full rounded-md border px-2 py-1 bg-transparent text-sm"
-          style={{ borderColor: "var(--color-border)", color: "var(--color-text)" }}
+          className="w-full rounded-md border px-2 py-1 bg-transparent text-sm border-border text-text"
         >
           {mergeOptions.map((a) => (
             <option key={a.author_id} value={a.author_id}>
@@ -639,12 +628,12 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
           ))}
         </select>
         {!mergeFilterActive && mergeCandidates.length > mergeOptions.length && (
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+          <p className="text-xs text-muted">
             Showing {mergeOptions.length} of {mergeCandidates.length} authors.
           </p>
         )}
         {mergeMutation.error && (
-          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+          <p className="text-sm text-danger">
             {(mergeMutation.error as Error).message}
           </p>
         )}
@@ -670,12 +659,12 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
       </section>
 
       {/* Delete */}
-      <section className="space-y-2 pt-4" style={{ borderTop: "1px solid var(--color-border)" }}>
-        <h2 className="text-sm font-medium" style={{ color: "var(--color-danger)" }}>
+      <section className="space-y-2 pt-4 border-t border-border">
+        <h2 className="text-sm font-medium text-danger">
           Danger zone
         </h2>
         {deleteError && (
-          <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+          <p className="text-sm text-danger">
             {deleteError}
           </p>
         )}
@@ -687,16 +676,16 @@ function AuthorDetailView({ authorId }: AuthorDetailViewProps) {
             deleteMutation.mutate();
           }}
           disabled={deleteMutation.isPending || authorDetail.papers.length > 0}
-          style={
+          className={
             authorDetail.papers.length === 0
-              ? { borderColor: "var(--color-danger)", color: "var(--color-danger)" }
+              ? "border-danger text-danger hover:border-danger hover:text-danger"
               : undefined
           }
         >
           {deleteMutation.isPending ? "Deleting…" : "Delete author"}
         </Button>
         {authorDetail.papers.length > 0 && (
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+          <p className="text-xs text-muted">
             Cannot delete: Author is linked to {authorDetail.papers.length} paper
             {authorDetail.papers.length !== 1 ? "s" : ""}.
           </p>
@@ -719,7 +708,7 @@ function LabeledField({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs font-medium" style={{ color: "var(--color-muted)" }}>
+      <label className="text-xs font-medium text-muted">
         {label}
       </label>
       {children}
@@ -745,11 +734,9 @@ function ArmedActionButton({
   return (
     <button
       type="button"
-      className="text-xs rounded border px-1.5 py-0.5 hover:opacity-80 shrink-0 mt-0.5"
-      style={{
-        borderColor: armed ? "var(--color-danger)" : "var(--color-border)",
-        color: armed ? "var(--color-danger)" : "var(--color-muted)",
-      }}
+      className={`text-xs rounded border px-1.5 py-0.5 hover:opacity-80 shrink-0 mt-0.5 ${
+        armed ? "border-danger text-danger" : "border-border text-muted"
+      }`}
       disabled={disabled}
       onClick={onClick}
     >
@@ -761,10 +748,10 @@ function ArmedActionButton({
 function FieldDisplay({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="flex gap-2 text-sm">
-      <dt className="w-24 shrink-0 font-medium" style={{ color: "var(--color-muted)" }}>
+      <dt className="w-24 shrink-0 font-medium text-muted">
         {label}
       </dt>
-      <dd style={{ color: value ? "var(--color-text)" : "var(--color-muted)" }}>
+      <dd className={value ? "text-text" : "text-muted"}>
         {value ?? "-"}
       </dd>
     </div>

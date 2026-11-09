@@ -1,5 +1,6 @@
 import type { ComponentPropsWithoutRef } from "react";
 import * as RadixTabs from "@radix-ui/react-tabs";
+import { cn } from "../../lib/cn";
 
 export const Tabs = RadixTabs.Root;
 
@@ -9,9 +10,7 @@ export function TabsList({
 }: ComponentPropsWithoutRef<typeof RadixTabs.List>) {
   return (
     <RadixTabs.List
-      className={["flex border-b border-[var(--color-border)]", className]
-        .filter(Boolean)
-        .join(" ")}
+      className={cn("flex border-b border-border", className)}
       {...rest}
     />
   );
@@ -25,15 +24,13 @@ export function TabsTrigger({
   return (
     <RadixTabs.Trigger
       value={value}
-      className={[
+      className={cn(
         "px-4 py-2 text-sm font-medium -mb-px border-b-2 border-transparent",
-        "text-[var(--color-muted)] transition-colors",
-        "hover:text-[var(--color-text)]",
-        "data-[state=active]:text-[var(--color-text)] data-[state=active]:border-[var(--color-accent)]",
+        "text-muted transition-colors",
+        "hover:text-text",
+        "data-[state=active]:text-text data-[state=active]:border-accent",
         className,
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      )}
       {...rest}
     />
   );

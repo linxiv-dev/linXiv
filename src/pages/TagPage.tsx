@@ -56,7 +56,7 @@ function TagIndexView() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           Failed to load tags.
         </p>
       </div>
@@ -70,19 +70,19 @@ function TagIndexView() {
     <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
       <div>
         <h1 className="font-display text-[27px] font-semibold leading-tight tracking-[-0.015em] text-text">Tags</h1>
-        <p className="text-sm mt-1" style={{ color: "var(--color-muted)" }}>
+        <p className="text-sm mt-1 text-muted">
           {tags.length} tag{tags.length !== 1 ? "s" : ""} across your library
         </p>
       </div>
 
       {tags.length === 0 ? (
-        <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+        <p className="text-sm text-muted">
           No tags yet. Add tags to papers to see them here.
         </p>
       ) : (
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b" style={{ borderColor: "var(--color-border)" }}>
+            <tr className="border-b border-border">
               <SortHeader
                 label="Tag"
                 active={sort.key === "label"}
@@ -105,24 +105,19 @@ function TagIndexView() {
               <tr
                 key={tag.label}
                 onClick={() => navigate(to)}
-                className="border-b cursor-pointer hover:bg-[var(--color-panel)] transition-colors"
-                style={{ borderColor: "var(--color-border)" }}
+                className="border-b cursor-pointer hover:bg-panel transition-colors border-border"
               >
                 <td className="py-2.5">
                   <Link to={to} className="inline-block" onClick={(e) => e.stopPropagation()}>
                     <Badge
                       size="sm"
-                      style={{
-                        borderColor: "var(--color-accent)",
-                        color: "var(--color-accent)",
-                        backgroundColor: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-                      }}
+                      className="border-accent bg-accent/12 text-accent"
                     >
                       {tag.label}
                     </Badge>
                   </Link>
                 </td>
-                <td className="py-2.5 text-right tabular-nums" style={{ color: "var(--color-muted)" }}>
+                <td className="py-2.5 text-right tabular-nums text-muted">
                   {tag.paper_count}
                 </td>
               </tr>
@@ -162,7 +157,7 @@ function TagDetailView({ label }: TagDetailViewProps) {
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           Failed to load tag details.
         </p>
       </div>
@@ -189,15 +184,11 @@ function TagDetailView({ label }: TagDetailViewProps) {
       <div className="flex items-center gap-3">
         <Badge
           size="md"
-          style={{
-            borderColor: "var(--color-accent)",
-            color: "var(--color-accent)",
-            backgroundColor: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
-          }}
+          className="border-accent bg-accent/12 text-accent"
         >
           {displayLabel}
         </Badge>
-        <span className="text-sm" style={{ color: "var(--color-muted)" }}>
+        <span className="text-sm text-muted">
           {papers.length} paper{papers.length !== 1 ? "s" : ""}
           {projects.length > 0 &&
             `, ${projects.length} project${projects.length !== 1 ? "s" : ""}`}
@@ -209,7 +200,7 @@ function TagDetailView({ label }: TagDetailViewProps) {
           Papers{papers.length > 0 ? ` (${papers.length})` : ""}
         </h2>
         {papers.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+          <p className="text-sm text-muted">
             No papers with this tag.
           </p>
         ) : (

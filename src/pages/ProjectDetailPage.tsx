@@ -325,12 +325,11 @@ export default function ProjectDetailPage() {
       <div className="p-8">
         <Link
           to="/projects"
-          className="inline-flex items-center gap-1.5 text-sm mb-4 transition-colors"
-          style={{ color: "var(--color-muted)" }}
+          className="inline-flex items-center gap-1.5 text-sm mb-4 transition-colors text-muted"
         >
           <ArrowLeft size={14} /> Projects
         </Link>
-        <p className="text-sm" style={{ color: "var(--color-danger)" }}>
+        <p className="text-sm text-danger">
           {errText(projectFetchError, "Project not found")}
         </p>
       </div>
@@ -354,19 +353,13 @@ export default function ProjectDetailPage() {
           <div className="flex items-center gap-3 min-w-0">
             <ColorSwatch color={project.color_hex} size={16} />
             <h1
-              className="text-2xl font-semibold leading-tight truncate"
-              style={{ color: "var(--color-text)" }}
+              className="text-2xl font-semibold leading-tight truncate text-text"
             >
               {project.name}
             </h1>
             {readOnly && (
               <span
-                className="shrink-0 rounded-full border px-2 py-1 font-mono text-[10.5px] font-semibold leading-none"
-                style={{
-                  color: "var(--color-muted)",
-                  borderColor: "var(--color-border)",
-                  backgroundColor: "var(--color-surface-2)",
-                }}
+                className="shrink-0 rounded-full border px-2 py-1 font-mono text-[10.5px] font-semibold leading-none text-muted border-border bg-surface2"
               >
                 Viewer · read only
               </span>
@@ -415,14 +408,13 @@ export default function ProjectDetailPage() {
               {moreOpen && (
                 <div
                   role="menu"
-                  className="absolute right-0 top-full mt-1 z-50 rounded-md border border-border shadow-lg py-1 min-w-28"
-                  style={{ background: "var(--color-panel)" }}
+                  className="absolute right-0 top-full mt-1 z-50 rounded-md border border-border shadow-lg py-1 min-w-28 bg-panel"
                 >
                   {project.status === "active" && (
                     <button
                       type="button"
                       role="menuitem"
-                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-border text-muted hover:text-text disabled:opacity-40"
                       onClick={() => { setMoreOpen(false); handleArchive(); }}
                       disabled={statusBusy}
                     >
@@ -433,7 +425,7 @@ export default function ProjectDetailPage() {
                     <button
                       type="button"
                       role="menuitem"
-                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] disabled:opacity-40"
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-border text-muted hover:text-text disabled:opacity-40"
                       onClick={() => { setMoreOpen(false); handleRestore(); }}
                       disabled={statusBusy}
                     >
@@ -443,8 +435,7 @@ export default function ProjectDetailPage() {
                   <button
                     type="button"
                     role="menuitem"
-                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--color-border)] disabled:opacity-40"
-                    style={{ color: "var(--color-danger)" }}
+                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-border disabled:opacity-40 text-danger"
                     onClick={handleDelete}
                     disabled={statusBusy}
                   >
@@ -458,13 +449,13 @@ export default function ProjectDetailPage() {
         </div>
 
         {project.description && (
-          <p className="text-sm" style={{ color: "var(--color-muted)" }}>
+          <p className="text-sm text-muted">
             {project.description}
           </p>
         )}
 
         {statusError && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             {statusError}
           </p>
         )}
@@ -484,8 +475,7 @@ export default function ProjectDetailPage() {
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2
-            className="text-base font-semibold"
-            style={{ color: "var(--color-text)" }}
+            className="text-base font-semibold text-text"
           >
             Papers in this project
           </h2>
@@ -504,7 +494,7 @@ export default function ProjectDetailPage() {
         {!readOnly && (
           <SelectionBar count={selectedIds.size} onClear={clear}>
             {removeError && (
-              <span className="px-2.5 text-xs" style={{ color: "var(--color-danger)" }}>
+              <span className="px-2.5 text-xs text-danger">
                 {removeError}
               </span>
             )}
@@ -516,8 +506,7 @@ export default function ProjectDetailPage() {
 
         {/* Papers list */}
         <div
-          className="rounded-lg border border-[var(--color-border)] overflow-hidden"
-          style={{ backgroundColor: "var(--color-bg)" }}
+          className="rounded-lg border border-border overflow-hidden bg-bg"
         >
           {papersLoading ? (
             <div role="status" aria-label="Loading" className="flex items-center justify-center p-8">

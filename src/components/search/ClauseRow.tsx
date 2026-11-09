@@ -24,9 +24,9 @@ const FIELDS: { value: Clause["field"]; label: string }[] = [
 
 const selectBase = [
   "h-[30px] rounded-md px-2 text-sm transition-colors cursor-pointer",
-  "bg-[var(--color-bg)] text-[var(--color-text)]",
-  "border border-[var(--color-border)]",
-  "focus:outline-none focus:border-[var(--color-accent)]",
+  "bg-bg text-text",
+  "border border-border",
+  "focus:outline-none focus:border-accent",
 ].join(" ");
 
 export function ClauseRow({
@@ -119,7 +119,7 @@ export function ClauseRow({
         />
         {showDropdown && (
           <ul
-            className="absolute z-50 left-0 right-0 mt-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-panel)] shadow-lg py-0.5 text-sm max-h-48 overflow-y-auto"
+            className="absolute z-50 left-0 right-0 mt-0.5 rounded-md border border-border bg-panel shadow-lg py-0.5 text-sm max-h-48 overflow-y-auto"
             role="listbox"
           >
             {suggestions.map((term) => (
@@ -127,7 +127,7 @@ export function ClauseRow({
                 key={term}
                 role="option"
                 aria-selected={false}
-                className="px-3 py-1.5 cursor-pointer hover:bg-[var(--color-accent)] hover:text-white truncate"
+                className="px-3 py-1.5 cursor-pointer hover:bg-accent hover:text-white truncate"
                 onMouseDown={(e) => { e.preventDefault(); handleSuggestionClick(term); }}
               >
                 {term}

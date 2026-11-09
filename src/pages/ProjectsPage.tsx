@@ -75,10 +75,9 @@ function NewProjectDialog({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="proj-name"
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
-            Name <span style={{ color: "var(--color-danger)" }}>*</span>
+            Name <span className="text-danger">*</span>
           </label>
           <Input
             id="proj-name"
@@ -93,8 +92,7 @@ function NewProjectDialog({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="proj-desc"
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
             Description
           </label>
@@ -108,8 +106,7 @@ function NewProjectDialog({
 
         <div className="flex flex-col gap-1.5">
           <span
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
             Color
           </span>
@@ -129,19 +126,18 @@ function NewProjectDialog({
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="new-proj-tags"
-            className="text-xs font-medium"
-            style={{ color: "var(--color-muted)" }}
+            className="text-xs font-medium text-muted"
           >
             Tags
           </label>
           <TagInput ref={tagInputRef} id="new-proj-tags" value={tags} onChange={setTags} />
-          <p className="text-xs" style={{ color: "var(--color-muted)" }}>
+          <p className="text-xs text-muted">
             Press Enter to add a tag. Backspace removes the last tag.
           </p>
         </div>
 
         {error && (
-          <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+          <p className="text-xs text-danger">
             {error}
           </p>
         )}
@@ -242,8 +238,7 @@ export default function ProjectsPage() {
             <button
               type="button"
               onClick={() => setShowArchived(true)}
-              className="text-xs transition-colors"
-              style={{ color: "var(--color-muted)" }}
+              className="text-xs transition-colors text-muted"
             >
               {archivedCount} archived
             </button>
@@ -252,8 +247,7 @@ export default function ProjectsPage() {
             <button
               type="button"
               onClick={() => setShowArchived(false)}
-              className="text-xs transition-colors"
-              style={{ color: "var(--color-muted)" }}
+              className="text-xs transition-colors text-muted"
             >
               ← back
             </button>
@@ -273,7 +267,7 @@ export default function ProjectsPage() {
 
       {/* Context-menu action error */}
       {actionError && (
-        <p className="text-xs" style={{ color: "var(--color-danger)" }}>
+        <p className="text-xs text-danger">
           {actionError}
         </p>
       )}
@@ -281,12 +275,7 @@ export default function ProjectsPage() {
       {/* Error */}
       {isError && (
         <div
-          className="rounded-lg border p-4 text-sm"
-          style={{
-            borderColor: "var(--color-danger)",
-            color: "var(--color-danger)",
-            backgroundColor: "var(--color-panel)",
-          }}
+          className="rounded-lg border p-4 text-sm border-danger text-danger bg-panel"
         >
           Failed to load projects:{" "}
           {errText(error, "Unknown error")}
@@ -296,8 +285,7 @@ export default function ProjectsPage() {
       {/* Empty state */}
       {!isLoading && !isError && projects.length === 0 && (
         <div
-          className="flex-1 flex items-center justify-center text-sm"
-          style={{ color: "var(--color-muted)" }}
+          className="flex-1 flex items-center justify-center text-sm text-muted"
         >
           {showArchived ? "No archived projects" : "No active projects"}
         </div>

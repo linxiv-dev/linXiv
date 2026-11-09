@@ -38,25 +38,22 @@ export function StatusButton({ sourceId }: { sourceId: string }) {
   });
   const status = statuses?.[sourceId];
   const cycle = useSetReadingStatus();
-  const color =
+  const tone =
     status === "read"
-      ? "var(--color-success)"
+      ? "border-success text-success bg-success/12"
       : status === "reading"
-        ? "var(--color-accent)"
-        : "var(--color-muted)";
+        ? "border-accent text-accent bg-accent/12"
+        : "border-muted text-muted bg-muted/12";
   return (
     <button
       type="button"
       onClick={(e) => { e.stopPropagation(); cycle.mutate({ sourceId, status: cycleStatus(status) }); }}
       title="Cycle status: unread → reading → read → unread"
-      className="font-mono font-medium shrink-0 self-start cursor-pointer"
+      className={`font-mono font-medium shrink-0 self-start cursor-pointer border ${tone}`}
       style={{
         fontSize: "10.5px",
         padding: "3px 10px",
         borderRadius: 20,
-        border: `1px solid ${color}`,
-        color,
-        background: `color-mix(in srgb, ${color} 12%, transparent)`,
       }}
     >
       {statusLabel(status)}

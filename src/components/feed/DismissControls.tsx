@@ -28,7 +28,7 @@ export const DismissControls = memo(function DismissControls({
           aria-label="Never show this paper again"
           title="Dismiss forever"
           disabled={dismissing}
-          className="text-muted hover:text-[var(--color-danger)] transition-colors disabled:opacity-50"
+          className="text-muted hover:text-danger transition-colors disabled:opacity-50"
           onClick={onRequestPermanentDismiss}
         >
           ✕
