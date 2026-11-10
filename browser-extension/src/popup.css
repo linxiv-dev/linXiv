@@ -71,7 +71,14 @@ body {
   -webkit-line-clamp: 4;
 }
 
+.muted {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #71717a;
+}
+
 .save-button {
+  margin-top: 12px;
   width: 100%;
   border: 0;
   border-radius: 7px;
@@ -96,4 +103,307 @@ body {
 
 .error {
   color: #b91c1c;
+}
+.type {
+  margin: 0 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+.candidates {
+  margin-top: 10px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.candidate {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 4px 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ok {
+  color: #15803d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.link-button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #71717a;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.saved {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Settings page. Everything is under .settings-page so the popup is unaffected. */
+
+.settings-page {
+  --page: #f4f4f5;
+  --card: #ffffff;
+  --text: #18181b;
+  --text-muted: #71717a;
+  --line: #e4e4e7;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --accent-soft: #eff6ff;
+  --ok: #15803d;
+  --ok-soft: #f0fdf4;
+  --ok-line: #bbf7d0;
+  --bad: #b91c1c;
+  --bad-soft: #fef2f2;
+  --bad-line: #fecaca;
+
+  color-scheme: light;
+  background: var(--page);
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  .settings-page {
+    --page: #18181b;
+    --card: #27272a;
+    --text: #f4f4f5;
+    --text-muted: #a1a1aa;
+    --line: #3f3f46;
+    --accent: #3b82f6;
+    --accent-soft: #1e2a44;
+    --ok: #4ade80;
+    --ok-soft: #14291c;
+    --ok-line: #1f5133;
+    --bad: #f87171;
+    --bad-soft: #321a1a;
+    --bad-line: #6b2626;
+
+    color-scheme: dark;
+  }
+}
+
+.settings-page .settings {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 40px 20px;
+}
+
+.settings-page .settings-header {
+  margin-bottom: 24px;
+}
+
+.settings-page .settings-header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.settings-page .settings-header p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.settings-page .settings-card {
+  margin: 0 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--card);
+}
+
+.settings-page .backend-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-page .backend-group legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-page .backend-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.settings-page .backend-option:hover {
+  border-color: var(--text-muted);
+}
+
+.settings-page .backend-option:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.settings-page .backend-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-page .backend-option input {
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.settings-page .backend-option strong,
+.settings-page .backend-option small {
+  display: block;
+}
+
+.settings-page .backend-option strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-page .backend-option small {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-page .settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings-page .settings-field + .settings-field {
+  margin-top: 14px;
+}
+
+.settings-page .settings-field input {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: var(--page);
+  color: var(--text);
+  font: inherit;
+  font-weight: 400;
+}
+
+.settings-page .settings-field input:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-page .settings-field small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.settings-page .settings-field small.warning {
+  color: var(--bad);
+}
+
+.settings-page .token-help {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.settings-page .token-help h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-page .token-help p {
+  margin: 6px 0;
+}
+
+.settings-page .token-help ol {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.settings-page .token-help code {
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: var(--page);
+  color: var(--text);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.settings-page .settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-page .settings-button {
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 16px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-page .settings-button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.settings-page .settings-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-page .settings-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.settings-page .settings-status {
+  margin: 16px 0 0;
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-page .settings-status.is-ok {
+  border-color: var(--ok-line);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.settings-page .settings-status.is-error {
+  border-color: var(--bad-line);
+  background: var(--bad-soft);
+  color: var(--bad);
 }

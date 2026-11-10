@@ -1,9 +1,10 @@
-import type { ClipPreview } from "../types";
+import type { ClipFields } from "../types";
 
 function metaContent(document: Document, name: string): string | undefined {
   const value = document
     .querySelector<HTMLMetaElement>(`meta[name="${name}"]`)
-    ?.content.trim();
+    ?.getAttribute("content")
+    ?.trim();
 
   return value || undefined;
 }
@@ -12,7 +13,7 @@ function allMetaContent(document: Document, name: string): string[] {
   return Array.from(
     document.querySelectorAll<HTMLMetaElement>(`meta[name="${name}"]`)
   )
-    .map((element) => element.content.trim())
+    .map((element) => element.getAttribute("content")?.trim() ?? "")
     .filter(Boolean);
 }
 
@@ -73,77 +74,78 @@ export function parseArxivDateline(dateline: string): string | undefined {
   return `${year}-${String(month).padStart(2, "0")}-${match[1].padStart(2, "0")}`;
 }
 
-export function extractArxiv(
-  document: Document,
-  rawUrl: string
-): ClipPreview | null {
+/** Unversioned ids become v1 in linXiv, so find the version the page shows. */
+function versionedId(document: Document, id: string, rawUrl: string): string {
+  if (/v\d+$/.test(id)) {
+    return id;
+  }
+
+  const fromUrl = extractArxivIdFromUrl(rawUrl);
+
+  if (fromUrl?.startsWith(`${id}v`)) {
+    return fromUrl;
+  }
+
+  const history = document.querySelector(".submission-history")?.textContent ?? "";
+  const versions = Array.from(history.matchAll(/\[v(\d+)\]/g), (m) => Number(m[1]));
+
+  return versions.length > 0 ? `${id}v${Math.max(...versions)}` : id;
+}
+
+export function extractArxiv(document: Document, rawUrl: string): ClipFields | null {
   const metaArxivId = metaContent(document, "citation_arxiv_id")
     ?.replace(/^arXiv:/i, "")
     .trim();
 
-  const arxivId = metaArxivId || extractArxivIdFromUrl(rawUrl);
+  const bareId = metaArxivId || extractArxivIdFromUrl(rawUrl);
 
-  if (!arxivId) {
+  if (!bareId) {
     return null;
   }
 
+  const arxivId = versionedId(document, bareId, rawUrl);
+
   const title =
     metaContent(document, "citation_title") ??
-    document.querySelector<HTMLElement>("h1.title")?.textContent
-      ?.replace(/^Title:\s*/i, "")
-      .trim() ??
-    arxivId;
+    document.querySelector("h1.title")?.textContent?.replace(/^Title:\s*/i, "").trim();
 
   let authors = allMetaContent(document, "citation_author");
 
   if (authors.length === 0) {
-    authors = Array.from(
-      document.querySelectorAll<HTMLAnchorElement>("div.authors a")
-    )
+    authors = Array.from(document.querySelectorAll("div.authors a"))
       .map((author) => author.textContent?.trim() ?? "")
       .filter(Boolean);
   }
 
   const abstract =
     metaContent(document, "citation_abstract") ??
-    document.querySelector<HTMLElement>("blockquote.abstract")?.textContent
+    document.querySelector("blockquote.abstract")?.textContent
       ?.replace(/^Abstract:\s*/i, "")
       .trim();
-
-  const doi = metaContent(document, "citation_doi");
 
   const publicationDate =
     metaContent(document, "citation_date") ??
     metaContent(document, "citation_publication_date") ??
     metaContent(document, "citation_online_date");
 
-  const dateline = document.querySelector<HTMLElement>("#abs .dateline")?.textContent;
-  const submitted = dateline ? parseArxivDateline(dateline) : undefined;
+  const dateline = document.querySelector("#abs .dateline")?.textContent;
+  const date = dateline ? parseArxivDateline(dateline) : undefined;
 
   const year =
     publicationDate?.match(/\b(?:19|20)\d{2}\b/)?.[0] ??
-    submitted?.slice(0, 4) ??
+    date?.slice(0, 4) ??
     extractArxivYearFromId(arxivId);
 
-  const pdfUrl =
-    metaContent(document, "citation_pdf_url") ??
-    `https://arxiv.org/pdf/${arxivId}`;
-
   return {
-    site: "arxiv",
-
-    target: {
-      kind: "arxiv",
-      value: arxivId,
-    },
-
+    type: "article",
+    arxivId,
     title,
     authors,
     abstract,
-    doi,
+    doi: metaContent(document, "citation_doi"),
     year,
-    submitted,
-    pdfUrl,
-    canonicalUrl: `https://arxiv.org/abs/${arxivId}`,
+    date,
+    pdfUrl: metaContent(document, "citation_pdf_url") ?? `https://arxiv.org/pdf/${arxivId}`,
+    url: `https://arxiv.org/abs/${arxivId}`,
   };
 }
