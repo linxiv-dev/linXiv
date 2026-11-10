@@ -1255,6 +1255,7 @@ function PdfPane({
                   <Document
                     file={getPdfProxyUrl(paper.url)}
                     options={pdfDocumentOptions}
+                    suspense={false}
                     onLoadSuccess={(pdf) => {
                       setPreviewNumPages(pdf.numPages);
                       pdfPreviewDocRef.current = pdf;

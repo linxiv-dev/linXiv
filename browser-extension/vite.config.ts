@@ -20,7 +20,8 @@ function firefoxManifest(): Plugin {
         gecko: {
           id: "web-clipper@linxiv.app",
           strict_min_version: "140.0",
-          data_collection_permissions: { required: ["none"] },
+          // Page content and URL leave the browser for metadata lookups and the save.
+          data_collection_permissions: { required: ["browsingActivity", "websiteContent"] },
         },
       };
       writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -42,7 +43,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: resolve(root, "popup/popup.html"),
-        content: resolve(root, "src/content.ts"),
+        options: resolve(root, "options/options.html"),
       },
 
       output: {
