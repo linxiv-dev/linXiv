@@ -722,8 +722,13 @@ impl ShareNode {
         let Some((obj, text)) = live_text(doc) else {
             return Vec::new();
         };
+        // A cursor whose character is gone resolves to where it was. One that
+        // no longer resolves at all is placed at the end, not dropped.
+        // (Dev builds need the automerge profile override in Cargo.toml.)
         let at = |c: &automerge::Cursor| {
-            let index = doc.get_cursor_position(&obj, c, None).ok()?;
+            let index = doc
+                .get_cursor_position(&obj, c, None)
+                .unwrap_or_else(|_| text.chars().count());
             Some(index_to_utf16(&text, index))
         };
         let cursors = self.live_cursors.lock().unwrap();
@@ -1764,6 +1769,56 @@ mod tests {
             let heads: Vec<automerge::ChangeHash> =
                 heads.iter().map(|h| h.parse().unwrap()).collect();
             live_read(&doc.fork_at(&heads).unwrap()).unwrap().text
+        }
+
+        /// A caret pinned to the last character must survive that character's
+        /// deletion: automerge 0.11's debug assertion panics on this lookup.
+        #[tokio::test]
+        async fn cursor_on_a_deleted_last_character_resolves_to_the_end() {
+            let (a_dir, b_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+            let a = node(a_dir.path()).await;
+            let b = node(b_dir.path()).await;
+            let id = a.live_host("$x$").unwrap();
+            let start = a.live_state(&id).unwrap();
+
+            // What b would send with its caret before the closing `$`.
+            let anchor = a
+                .inner
+                .read_doc(&id, |doc| {
+                    use automerge::ReadDoc;
+                    let (obj, _) = live_text(doc).unwrap();
+                    doc.get_cursor(&obj, 2, None).unwrap().to_string()
+                })
+                .unwrap();
+            let wire = CursorWire {
+                peer: b.endpoint_id(),
+                anchor: Some(anchor.clone()),
+                focus: Some(anchor),
+            };
+            // No session here: record it as if a peer had sent it.
+            a.live_cursors
+                .lock()
+                .unwrap()
+                .entry(id.clone())
+                .or_default()
+                .insert(
+                    wire.peer.clone(),
+                    PeerCursor {
+                        anchor: automerge::Cursor::try_from(wire.anchor.clone().unwrap()).unwrap(),
+                        focus: automerge::Cursor::try_from(wire.focus.clone().unwrap()).unwrap(),
+                        seen: std::time::Instant::now(),
+                    },
+                );
+            assert_eq!(a.live_state(&id).unwrap().cursors[0].focus, 2);
+
+            // The host backspaces that `$`.
+            let after = a.live_edit(&id, "$x", &start.heads).unwrap();
+            assert_eq!(after.cursors.len(), 1);
+            assert_eq!((after.cursors[0].anchor, after.cursors[0].focus), (2, 2));
+            // And the node is still usable afterwards. A cursor on a deleted
+            // last character reads as "end of text" until its owner re-sends.
+            let more = a.live_edit(&id, "$x then more", &after.heads).unwrap();
+            assert_eq!(more.cursors[0].focus, 12);
         }
 
         #[test]

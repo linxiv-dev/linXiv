@@ -94,6 +94,14 @@ gtk = "0.18"
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
+# automerge 0.11 cross-checks cursor lookups in debug builds, and the check
+# itself is wrong for a cursor whose character was deleted from the end of a
+# text: it panics where release returns the right index. Live docs resolve
+# peers' cursors on every sync, so dev and test builds must match release.
+# Guarded by share's `cursor_on_a_deleted_last_character_resolves_to_the_end`.
+[profile.dev.package.automerge]
+debug-assertions = false
+
 [profile.release]
 codegen-units = 1
 lto = true
