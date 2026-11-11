@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { getNote } from "../api/notes";
@@ -8,6 +9,8 @@ import { Badge } from "../components/ui/badge";
 import { formatDate } from "../lib/date";
 import { MathText } from "../lib/tex";
 import { NoteBody, noteEdited } from "../components/notes/NoteBody";
+import { hostLiveDoc } from "../api/live";
+import { errText } from "../lib/errText";
 
 // Dedicated read page for a single note. The note cards on a paper clamp content
 // to a few lines; this is where a long note is read in full without dropping
@@ -18,6 +21,18 @@ export default function NotePage() {
   // Digit-only so a hand-typed "/notes/1e3" can't coerce to a different note id
   // than the URL names (Number("1e3") === 1000); mirrors the backend's path_i64.
   const noteId = id && /^\d+$/.test(id) ? Number(id) : NaN;
+  const [liveError, setLiveError] = useState<string | null>(null);
+
+  // Opens (or reopens) the live doc mirroring this note.
+  async function editLive() {
+    setLiveError(null);
+    try {
+      const doc = await hostLiveDoc({ kind: "note", key: String(noteId) });
+      navigate(`/live/${doc}`);
+    } catch (e) {
+      setLiveError(errText(e));
+    }
+  }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["note", noteId],
@@ -76,14 +91,24 @@ export default function NotePage() {
         >
           ← Back
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate(`/library/${note.source_fk}`)}
-        >
-          Open paper →
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={editLive}>
+            Edit live
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/library/${note.source_fk}`)}
+          >
+            Open paper →
+          </Button>
+        </div>
       </div>
+      {liveError && (
+        <p role="alert" className="text-sm text-danger">
+          {liveError}
+        </p>
+      )}
 
       <div className="space-y-2">
         <h1 className="font-display text-[27px] font-semibold leading-tight tracking-[-0.015em] text-text">

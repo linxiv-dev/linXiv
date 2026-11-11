@@ -21,6 +21,7 @@ import {
   listLiveDocs,
   liveTicket,
   setLiveCursor,
+  storeLiveDoc,
   syncLiveDoc,
 } from "../api/live";
 import {
@@ -117,7 +118,10 @@ function LiveList() {
               className="w-full flex items-center justify-between gap-3 rounded-md border border-border bg-panel px-4 py-3 text-left text-sm text-text hover:border-accent transition-colors"
             >
               <span className="truncate">{doc.title || "Untitled"}</span>
-              <Badge>{doc.hosted ? "Hosting" : "Joined"}</Badge>
+              <span className="flex items-center gap-2 shrink-0">
+                {doc.source?.kind === "note" && <Badge>Note</Badge>}
+                <Badge>{doc.hosted ? "Hosting" : "Joined"}</Badge>
+              </span>
             </button>
           </li>
         ))}
@@ -273,6 +277,9 @@ function LiveDoc({ id }: { id: string }) {
   const [failure, setFailure] = useState<string | null>(null);
   const texEnabled = useTexEnabled();
   const ready = status?.ready === true;
+  // What this doc mirrors, if anything (only its host knows).
+  const { data: docs } = useQuery({ queryKey: ["live-docs"], queryFn: listLiveDocs });
+  const source = docs?.find((doc) => doc.id === id)?.source;
 
   useEffect(() => {
     const [bar, host] = [barRef.current!, hostRef.current!];
@@ -334,7 +341,16 @@ function LiveDoc({ id }: { id: string }) {
 
     session.start();
     return () => {
+      // Let the last keystroke land, then write a bound doc back to its
+      // source so the note page shows it straight away.
+      const last = session.push();
       session.stop();
+      void last
+        .then(() => storeLiveDoc(id))
+        .then((bound) => {
+          if (bound) return queryClient.invalidateQueries({ queryKey: ["note"] });
+        })
+        .catch(() => {});
       clearTimeout(pending);
       clearInterval(heartbeat);
       window.removeEventListener("resize", relayout);
@@ -343,7 +359,7 @@ function LiveDoc({ id }: { id: string }) {
       bar.replaceChildren();
       host.replaceChildren();
     };
-  }, [id]);
+  }, [id, queryClient]);
 
   // Typing before the first sync would fork the doc from its host's copy.
   useEffect(() => {
@@ -426,6 +442,11 @@ function LiveDoc({ id }: { id: string }) {
             <span role="alert" className="text-xs text-danger">
               {failure}
             </span>
+          )}
+          {source?.kind === "note" && (
+            <Button variant="ghost" size="sm" onClick={() => navigate(`/notes/${source.key}`)}>
+              Open note
+            </Button>
           )}
           <Button variant="ghost" size="sm" onClick={copyInvite}>
             {copied ? "Copied" : "Copy invite"}

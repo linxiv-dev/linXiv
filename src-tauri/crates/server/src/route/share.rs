@@ -51,6 +51,8 @@ pub struct ShareState {
     api_installer: std::sync::Mutex<Option<ApiInstallFn>>,
     // Redial tasks for joined live docs (route/live.rs).
     pub(crate) live_dials: super::live::Dials,
+    // Throttle for each bound live doc's source bridge.
+    pub(crate) live_bridged: super::live::Bridged,
 }
 
 /// Installs the `linxiv-api/1` handler on a freshly bound node (headless bin;
@@ -67,6 +69,7 @@ impl ShareState {
             sync_started: AtomicBool::new(false),
             api_installer: std::sync::Mutex::new(None),
             live_dials: Default::default(),
+            live_bridged: Default::default(),
         }
     }
 
@@ -79,6 +82,7 @@ impl ShareState {
             sync_started: AtomicBool::new(false),
             api_installer: std::sync::Mutex::new(None),
             live_dials: Default::default(),
+            live_bridged: Default::default(),
         }
     }
 
@@ -494,7 +498,7 @@ async fn dispatch_inner(
         body: req.body.as_ref(),
     };
 
-    if let Some(res) = super::live::dispatch(share, &ctx).await {
+    if let Some(res) = super::live::dispatch(state, share, &ctx).await {
         return res;
     }
     // Arms that `.await` (iroh, the write lock) live here, not in the sync

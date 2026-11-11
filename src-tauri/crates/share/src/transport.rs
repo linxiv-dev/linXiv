@@ -685,7 +685,8 @@ impl ShareNode {
         self.live_known(id)?;
         self.inner.unregister(id);
         self.live_saved.lock().unwrap().remove(id);
-        for ext in ["automerge", "ticket"] {
+        // `source` is the server layer's binding sidecar.
+        for ext in ["automerge", "ticket", "source"] {
             let _ = std::fs::remove_file(live_path(&self.share_dir, id, ext));
         }
         Ok(())

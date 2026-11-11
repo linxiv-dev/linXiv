@@ -7,12 +7,14 @@ import type {
   LiveListing,
   LiveOpened,
   LiveRow,
+  LiveSource,
+  LiveStored,
   LiveSyncBody,
   LiveSynced,
   LiveTicket,
 } from "../types/generated";
 
-export type { LiveRow };
+export type { LiveRow, LiveSource };
 
 // The desktop app reaches the share node through `share_api`; a headless node
 // serves the same routes over HTTP.
@@ -30,9 +32,15 @@ export async function listLiveDocs(): Promise<LiveRow[]> {
   return (await live<LiveListing>("GET")).docs;
 }
 
-/** Start hosting a new live doc; returns its id. */
-export async function hostLiveDoc(text = ""): Promise<string> {
-  return (await live<LiveOpened>("POST", "", { text })).id;
+/** Start hosting a live doc, blank or mirroring `source` (reuses the doc
+ *  already open for that source); returns its id. */
+export async function hostLiveDoc(source?: LiveSource): Promise<string> {
+  return (await live<LiveOpened>("POST", "", source ? { source } : {})).id;
+}
+
+/** Write a bound doc's text back to its source now. */
+export async function storeLiveDoc(id: string): Promise<boolean> {
+  return (await live<LiveStored>("POST", `/${id}/store`)).bound;
 }
 
 /** Adopt a live doc from its host's ticket; returns its id. */

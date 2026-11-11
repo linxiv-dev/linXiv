@@ -265,7 +265,9 @@ pub(crate) fn render() -> String {
     out.push_str(&decl::<crate::route::share::PublishedReceipt>());
     out.push_str(&decl::<crate::route::share::TicketMinted>());
     out.push_str(&decl::<crate::route::share::MemberCode>());
+    out.push_str(&decl::<crate::route::live::LiveSource>());
     out.push_str(&decl::<crate::route::live::LiveRow>());
+    out.push_str(&decl::<crate::route::live::LiveStored>());
     out.push_str(&decl::<crate::route::live::LiveListing>());
     out.push_str(&decl::<crate::route::live::LiveHostBody>());
     out.push_str(&decl::<crate::route::live::LiveJoinBody>());

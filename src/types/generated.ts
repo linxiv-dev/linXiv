@@ -1081,6 +1081,17 @@ export type MemberCode = {
   code: string,
 };
 
+export type LiveSource = {
+  /**
+   * `note` today.
+   */
+  kind: string,
+  /**
+   * For `note`: the note id.
+   */
+  key: string,
+};
+
 export type LiveRow = {
   id: string,
   /**
@@ -1091,6 +1102,17 @@ export type LiveRow = {
    * Hosted on this device, as opposed to joined from a ticket.
    */
   hosted: boolean,
+  /**
+   * Set when the doc mirrors something in this library.
+   */
+  source?: LiveSource,
+};
+
+export type LiveStored = {
+  /**
+   * False when the doc mirrors nothing.
+   */
+  bound: boolean,
 };
 
 export type LiveListing = {
@@ -1102,6 +1124,11 @@ export type LiveHostBody = {
    * Initial text.
    */
   text?: string,
+  /**
+   * Mirror this instead: seeds the text from it and keeps it updated. One
+   * doc per source; asking again returns the existing doc.
+   */
+  source?: LiveSource,
 };
 
 export type LiveJoinBody = {
