@@ -11,7 +11,9 @@ use serde_json::Value;
 
 use linxiv_core::models::NoteUpdateIn;
 use linxiv_core::service::note as svc_note;
-use linxiv_share::{live_dir, valid_live_id, LiveState, ShareError, ShareNode, ShareTicket};
+use linxiv_share::{
+    live_dir, valid_live_id, LiveDialEnd, LiveState, ShareError, ShareNode, ShareTicket,
+};
 
 use crate::route::share::ShareState;
 use crate::route::{path_i64, to_value, ApiError, ReqCtx};
@@ -29,6 +31,9 @@ const REDIAL: Duration = Duration::from_secs(3);
 const BRIDGE_EVERY: Duration = Duration::from_secs(1);
 /// How often quiet cursors are checked for expiry.
 const CURSOR_SWEEP: Duration = Duration::from_secs(4);
+/// Pause before redialing a host that removed us. Longer than the host's
+/// own turn-away window, so the retry is a real one.
+const KICKED_WAIT: Duration = Duration::from_secs(90);
 /// Largest text an editor may post. The diff is superlinear on big rewrites.
 const MAX_TEXT: usize = 1024 * 1024;
 
@@ -356,8 +361,11 @@ fn keep_dialing(share: &ShareState, node: &Arc<ShareNode>, id: &str) {
             let redial = async {
                 loop {
                     match node.live_dial(&id).await {
-                        Ok(false) | Err(ShareError::NotFound(_)) => return,
-                        _ => tokio::time::sleep(REDIAL).await,
+                        Ok(LiveDialEnd::Hosted) | Err(ShareError::NotFound(_)) => return,
+                        // The host removed us and says so: stand down. One
+                        // slow retry in case we were let back in.
+                        Ok(LiveDialEnd::Kicked) => tokio::time::sleep(KICKED_WAIT).await,
+                        Err(_) => tokio::time::sleep(REDIAL).await,
                     }
                 }
             };
@@ -451,7 +459,7 @@ pub(crate) async fn dispatch(
         ("POST", ["api", "share", "live"]) => host(state, share, ctx).await,
         ("POST", ["api", "share", "live", id, "store"]) => store_now(state, share, id).await,
         ("POST", ["api", "share", "live", "join"]) => join(share, ctx).await,
-        ("GET", ["api", "share", "live", id, "ticket"]) => ticket(share, id).await,
+        ("GET", ["api", "share", "live", id, "ticket"]) => ticket(share, id, ctx).await,
         ("POST", ["api", "share", "live", id, "sync"]) => sync(state, share, id, ctx).await,
         ("POST", ["api", "share", "live", id, "cursor"]) => cursor(share, id, ctx).await,
         ("DELETE", ["api", "share", "live", id]) => close(share, id).await,
@@ -551,10 +559,21 @@ async fn join(share: &ShareState, ctx: &ReqCtx<'_>) -> Result<Value, ApiError> {
     to_value(&LiveOpened { id })
 }
 
-/// `GET /api/share/live/{id}/ticket` — the pasteable invite. Anyone holding it
-/// can read and edit the doc.
-async fn ticket(share: &ShareState, id: &str) -> Result<Value, ApiError> {
-    let ticket = node(share).await?.live_ticket(id)?;
+/// `GET /api/share/live/{id}/ticket?mode=` — the pasteable invite. By
+/// default whoever holds it can read and edit a plain doc; `mode=view` gives
+/// a view-only one, which the host enforces. For an encrypted doc the ticket
+/// only says where to connect: the share's roles decide the rest.
+async fn ticket(share: &ShareState, id: &str, ctx: &ReqCtx<'_>) -> Result<Value, ApiError> {
+    let node = node(share).await?;
+    let ticket = match ctx.q("mode") {
+        Some("view") => node.live_view_ticket(id).map_err(|e| match e {
+            ShareError::NotFound(_) => {
+                ApiError::new(409, "only the host can make a view-only invite")
+            }
+            e => e.into(),
+        })?,
+        _ => node.live_ticket(id)?,
+    };
     to_value(&LiveTicket { ticket })
 }
 

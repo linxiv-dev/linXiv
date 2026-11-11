@@ -74,8 +74,11 @@ export async function joinLiveDoc(ticket: string): Promise<string> {
   return (await live<LiveOpened>("POST", "/join", { ticket })).id;
 }
 
-export async function liveTicket(id: string): Promise<string> {
-  return (await live<LiveTicket>("GET", `/${id}/ticket`)).ticket;
+/** The doc's invite. `view` asks the host for a view-only one: its holder
+ *  follows the doc and cannot change it. */
+export async function liveTicket(id: string, mode?: "view"): Promise<string> {
+  const query = mode ? `?mode=${mode}` : "";
+  return (await live<LiveTicket>("GET", `/${id}/ticket${query}`)).ticket;
 }
 
 export function syncLiveDoc(id: string, body: LiveSyncBody): Promise<LiveSynced> {

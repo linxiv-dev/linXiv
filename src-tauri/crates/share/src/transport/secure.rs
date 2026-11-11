@@ -14,13 +14,14 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use automerge::{Automerge, ReadDoc};
+use linxiv_p2p::live_seal::Rejected;
 use linxiv_p2p::live_seal::{is_sealed, open_at_rest, seal_at_rest};
 use linxiv_p2p::live_secure::{Event, SecureLive};
-use linxiv_p2p::{LiveMessage, Role};
+use linxiv_p2p::{LiveMessage, MemberId, Role};
 
 use super::{
-    live_dir, live_path, member_id_hex, net, valid_live_id, write_atomic, CursorWire, Result,
-    ShareNode, LIVE_TEXT,
+    live_dir, live_hosted, live_path, member_id_hex, net, valid_live_id, write_atomic, CursorWire,
+    Result, ShareNode, LIVE_TEXT,
 };
 use crate::ShareError;
 
@@ -28,6 +29,10 @@ use crate::ShareError;
 const SECURE_KEY: &str = "secure";
 /// How often a member re-announces itself while anyone is connected.
 const HELLO_EVERY: Duration = Duration::from_secs(20);
+/// How long a session on a hosted encrypted doc may go without showing that
+/// a member is behind it. A member's client says hello the moment it
+/// connects, so this only ever runs out for someone who is not one.
+const PROOF_DEADLINE: Duration = Duration::from_secs(if cfg!(test) { 2 } else { 15 });
 
 /// One encrypted live doc on this device.
 pub(super) struct SecureDoc {
@@ -41,6 +46,8 @@ pub(super) struct SecureDoc {
     /// `None` means not looked up yet.
     role: Mutex<Option<Option<Role>>>,
     saved: Mutex<Option<Vec<automerge::ChangeHash>>>,
+    /// Hosted docs: which member each inbound session has proved to be.
+    proofs: Mutex<HashMap<u64, MemberId>>,
 }
 
 impl SecureDoc {
@@ -52,6 +59,7 @@ impl SecureDoc {
             hello: Mutex::default(),
             role: Mutex::default(),
             saved: Mutex::default(),
+            proofs: Mutex::default(),
         }
     }
 
@@ -183,6 +191,16 @@ impl ShareNode {
             return;
         };
         let out = doc.live.receive(beelay.auth(), &msg.bytes).await;
+        if live_hosted(&self.share_dir, &msg.project_id) {
+            if let Some(member) = out.verified {
+                doc.proofs.lock().unwrap().insert(msg.session(), member);
+            }
+            // A well-signed frame from someone with no role: an outsider, or
+            // a member who was removed. Either way, not on this pipe.
+            if out.rejected == Some(Rejected::NotMember) {
+                self.inner.live_kick(msg.session());
+            }
+        }
         for frame in out.frames {
             self.inner.live_send(&msg.project_id, frame);
         }
@@ -246,10 +264,52 @@ impl ShareNode {
             for frame in frames {
                 self.inner.live_send(&id, frame);
             }
+            if live_hosted(&self.share_dir, &id) {
+                self.police(&id, &doc, auth).await;
+            }
             if sweep {
                 if let Err(e) = self.save_secure(&id, &doc) {
                     tracing::warn!("encrypted live doc {id}: save failed: {e}");
                 }
+            }
+        }
+    }
+
+    /// Host side of an encrypted doc: ends every inbound session that is not
+    /// (or is no longer) a member's. Whoever is cut off can of course ignore
+    /// the hint and dial again; they are turned away for a while, and when
+    /// let back in they face the same check. Staying costs more than leaving.
+    async fn police(&self, id: &str, doc: &SecureDoc, auth: &linxiv_p2p::ProjectAuth) {
+        let sessions = self.inner.live_sessions(id);
+        let proofs = {
+            let mut proofs = doc.proofs.lock().unwrap();
+            let (open, closed): (HashMap<u64, MemberId>, HashMap<u64, MemberId>) = proofs
+                .drain()
+                .partition(|(session, _)| sessions.iter().any(|s| s.id == *session));
+            // A member whose session is gone is not here any more, unless it
+            // is also on another session.
+            for member in closed.values() {
+                if !open.values().any(|m| m == member) {
+                    doc.live.forget(*member);
+                }
+            }
+            *proofs = open.clone();
+            open
+        };
+        for session in sessions.iter().filter(|s| s.inbound) {
+            let stays = match proofs.get(&session.id) {
+                Some(member) => auth
+                    .query_access(doc.live.project(), *member)
+                    .await
+                    .is_ok_and(|role| role.is_some()),
+                None => session.since.elapsed() < PROOF_DEADLINE,
+            };
+            if !stays {
+                self.inner.live_kick(session.id);
+                if let Some(member) = proofs.get(&session.id) {
+                    doc.live.forget(*member);
+                }
+                self.bump_rev();
             }
         }
     }

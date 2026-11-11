@@ -295,7 +295,9 @@ function statusLabel(status: LiveStatus | null): string {
   if (!status) return "Opening";
   if (status.error) return status.error;
   if (status.denied)
-    return "Encrypted. This device is not a member of the share it belongs to.";
+    return status.secure
+      ? "Encrypted. This device has no access: not a member of its share, or removed from it."
+      : "The host removed this device from the doc.";
   if (status.secure) {
     const here =
       status.peers === 0
@@ -308,6 +310,8 @@ function statusLabel(status: LiveStatus | null): string {
   }
   if (status.hosted)
     return status.peers === 1 ? "1 person connected" : `${status.peers} people connected`;
+  if (status.ready && !status.canEdit)
+    return status.peers > 0 ? "View only. Connected to host" : "View only. Host offline";
   if (status.peers > 0) return "Connected to host";
   return status.ready
     ? "Host offline. Edits sync when it is back."
@@ -327,7 +331,7 @@ function LiveDoc({ id }: { id: string }) {
   const [marks, setMarks] = useState<Mark[]>([]);
   // Bumped when the layout under the marks moves without a status change.
   const [layout, setLayout] = useState(0);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"edit" | "view" | null>(null);
   const [armed, setArmed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const texEnabled = useTexEnabled();
@@ -456,11 +460,11 @@ function LiveDoc({ id }: { id: string }) {
     };
   }, [texEnabled]);
 
-  async function copyInvite() {
+  async function copyInvite(mode?: "view") {
     try {
-      await navigator.clipboard.writeText(await liveTicket(id));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(await liveTicket(id, mode));
+      setCopied(mode ?? "edit");
+      setTimeout(() => setCopied(null), 2000);
     } catch (e) {
       setFailure(errText(e));
     }
@@ -503,8 +507,13 @@ function LiveDoc({ id }: { id: string }) {
               Open note
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={copyInvite}>
-            {copied ? "Copied" : "Copy invite"}
+          {status?.hosted && !status.secure && (
+            <Button variant="ghost" size="sm" onClick={() => copyInvite("view")}>
+              {copied === "view" ? "Copied" : "Copy view-only invite"}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => copyInvite()}>
+            {copied === "edit" ? "Copied" : "Copy invite"}
           </Button>
           <Button variant={armed ? "danger" : "ghost"} size="sm" onClick={close}>
             {armed ? `Confirm: ${leaveLabel.toLowerCase()} and delete` : leaveLabel}

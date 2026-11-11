@@ -136,6 +136,8 @@ pub struct ShareNode {
     >,
     // Bumped whenever `live_cursors` changes; wakes waiting editors.
     live_rev: tokio::sync::watch::Sender<u32>,
+    // Joined live docs whose host ended our session on purpose, and when.
+    live_kicked: std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
     // Encrypted live docs (transport/secure.rs): the keyhive identity that
     // signs their frames, the engines, and the pump's wake-up.
     #[cfg(feature = "sync-beelay")]
@@ -204,6 +206,7 @@ impl ShareNode {
             live_saved: Default::default(),
             live_cursors: Default::default(),
             live_rev: tokio::sync::watch::channel(0).0,
+            live_kicked: Default::default(),
             #[cfg(feature = "sync-beelay")]
             auth_identity,
             #[cfg(feature = "sync-beelay")]
@@ -221,8 +224,9 @@ impl ShareNode {
         }));
         // Live peers write, so they reach live docs only, never a share.
         let live_dir = node.share_dir.clone();
-        node.inner
-            .set_live_access_check(Arc::new(move |_peer, id| live_hosted(&live_dir, id)));
+        node.inner.set_live_access_check(Arc::new(move |_peer, id| {
+            live_hosted(&live_dir, id) || live_alias_target(&live_dir, id).is_some()
+        }));
         node.register_published().await?;
         node.register_live();
         Ok(node)
@@ -394,7 +398,9 @@ impl ShareNode {
             ));
         }
         self.inner.join(ticket).await.map_err(|e| match e {
-            JoinError::Refused => ShareError::NotFound("share not found or revoked".to_string()),
+            JoinError::Refused | JoinError::Kicked => {
+                ShareError::NotFound("share not found or revoked".to_string())
+            }
             JoinError::Other(e) => net(e),
         })?;
         let doc = self
@@ -474,9 +480,29 @@ pub fn live_dir(share_dir: &Path) -> PathBuf {
 
 /// `live-` + 32 lowercase hex: the unguessable part is the whole capability.
 pub fn valid_live_id(id: &str) -> bool {
-    id.strip_prefix("live-").is_some_and(|hex| {
-        hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-    })
+    id.strip_prefix("live-")
+        .or(id.strip_prefix(VIEW_PREFIX))
+        .is_some_and(|hex| {
+            hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        })
+}
+
+/// Ids of docs joined through a view-only ticket start with this: the id is
+/// the host's read-only name for the doc, not the doc's own.
+const VIEW_PREFIX: &str = "view-";
+
+fn is_view_id(id: &str) -> bool {
+    id.starts_with(VIEW_PREFIX)
+}
+
+/// The hosted doc a view-only name stands for, from its `<alias>.alias` file.
+fn live_alias_target(share_dir: &Path, alias: &str) -> Option<String> {
+    if !is_view_id(alias) || !valid_live_id(alias) {
+        return None;
+    }
+    let target = std::fs::read_to_string(live_path(share_dir, alias, "alias")).ok()?;
+    let target = target.trim();
+    live_hosted(share_dir, target).then(|| target.to_string())
 }
 
 fn live_path(share_dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -494,6 +520,16 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
+}
+
+/// How [`ShareNode::live_dial`] ended, when it did not simply fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveDialEnd {
+    /// The doc is hosted on this device: nobody to dial.
+    Hosted,
+    /// The host ended our session on purpose and will turn us away for a
+    /// while. Wait before trying again.
+    Kicked,
 }
 
 /// One editor's view of a live doc. `heads` names the version `text` is at;
@@ -649,6 +685,58 @@ impl ShareNode {
                 Err(e) => tracing::warn!("live doc {id} failed to load, skipped: {e}"),
             }
         }
+        for (alias, target) in self.live_aliases() {
+            self.inner.live_read_only_alias(alias, target);
+        }
+    }
+
+    /// Every view-only name on disk with the hosted doc it stands for.
+    fn live_aliases(&self) -> Vec<(String, String)> {
+        let Ok(entries) = std::fs::read_dir(live_dir(&self.share_dir)) else {
+            return Vec::new();
+        };
+        entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "alias"))
+            .filter_map(|p| Some(p.file_stem()?.to_str()?.to_string()))
+            .filter_map(|alias| {
+                let target = live_alias_target(&self.share_dir, &alias)?;
+                Some((alias, target))
+            })
+            .collect()
+    }
+
+    /// A view-only invite to a doc hosted here: whoever joins with it follows
+    /// the doc live and cannot change it, whatever their client does. The
+    /// same doc gives the same invite each time.
+    pub fn live_view_ticket(&self, id: &str) -> Result<String> {
+        self.live_known(id)?;
+        if !live_hosted(&self.share_dir, id) {
+            return Err(ShareError::NotFound(id.to_string()));
+        }
+        let known = self
+            .live_aliases()
+            .into_iter()
+            .find(|(_, target)| target == id)
+            .map(|(alias, _)| alias);
+        let alias = match known {
+            Some(alias) => alias,
+            None => {
+                let alias = format!(
+                    "{VIEW_PREFIX}{}",
+                    automerge::ActorId::random().to_hex_string()
+                );
+                write_atomic(&live_path(&self.share_dir, &alias, "alias"), id.as_bytes())?;
+                alias
+            }
+        };
+        self.inner.live_read_only_alias(alias.clone(), id);
+        Ok(self
+            .inner
+            .live_alias_ticket(&alias)
+            .map_err(net)?
+            .to_string())
     }
 
     fn live_known(&self, id: &str) -> Result<()> {
@@ -696,6 +784,10 @@ impl ShareNode {
         if live_hosted(&self.share_dir, id) {
             return Ok(id.to_string());
         }
+        // Our own view-only invite: open the doc itself.
+        if let Some(target) = live_alias_target(&self.share_dir, id) {
+            return Ok(target);
+        }
         std::fs::create_dir_all(live_dir(&self.share_dir))?;
         let doc_path = live_path(&self.share_dir, id, "automerge");
         if !doc_path.is_file() {
@@ -712,16 +804,42 @@ impl ShareNode {
         Ok(id.to_string())
     }
 
-    /// Holds a live session to a joined doc's host until it drops; `Ok(false)`
-    /// when the doc is hosted here and there is nobody to dial.
-    pub async fn live_dial(&self, id: &str) -> Result<bool> {
+    /// Holds a live session to a joined doc's host until it drops. Returns
+    /// without error only when there is nothing to redial: the doc is hosted
+    /// here, or its host removed us.
+    pub async fn live_dial(&self, id: &str) -> Result<LiveDialEnd> {
         self.live_known(id)?;
         let Ok(raw) = std::fs::read_to_string(live_path(&self.share_dir, id, "ticket")) else {
-            return Ok(false);
+            return Ok(LiveDialEnd::Hosted);
         };
         let ticket: ShareTicket = raw.trim().parse().map_err(net)?;
-        self.inner.live(&ticket).await.map_err(net)?;
-        Ok(true)
+        match self.inner.live(&ticket).await {
+            Err(JoinError::Kicked) => {
+                self.live_kicked
+                    .lock()
+                    .unwrap()
+                    .insert(id.to_string(), std::time::Instant::now());
+                self.live_rev.send_modify(|n| *n = n.wrapping_add(1));
+                Ok(LiveDialEnd::Kicked)
+            }
+            Err(e) => Err(net(e)),
+            Ok(()) => Err(net("live session ended")),
+        }
+    }
+
+    /// Did this doc's host remove us, with no session re-established since?
+    fn live_kicked(&self, id: &str) -> bool {
+        // A session that has lasted is the host letting us back in.
+        let back = self
+            .inner
+            .live_sessions(id)
+            .iter()
+            .any(|s| s.since.elapsed() > std::time::Duration::from_secs(3));
+        let mut kicked = self.live_kicked.lock().unwrap();
+        if back {
+            kicked.remove(id);
+        }
+        kicked.contains_key(id)
     }
 
     /// Stops hosting (or leaves) a live doc and deletes the local copy.
@@ -729,6 +847,13 @@ impl ShareNode {
         self.live_known(id)?;
         self.inner.unregister(id);
         self.live_saved.lock().unwrap().remove(id);
+        self.live_kicked.lock().unwrap().remove(id);
+        for (alias, target) in self.live_aliases() {
+            if target == id {
+                self.inner.live_drop_alias(&alias);
+                let _ = std::fs::remove_file(live_path(&self.share_dir, &alias, "alias"));
+            }
+        }
         #[cfg(feature = "sync-beelay")]
         self.forget_secure(id);
         // `source` is the server layer's binding sidecar; `sdoc` an
@@ -791,11 +916,16 @@ impl ShareNode {
     }
 
     fn live_stamp(&self, id: &str, state: LiveState) -> LiveState {
+        // Removed by the host: treat the doc as closed to us, whatever our
+        // own records still say about our role.
+        let kicked = self.live_kicked(id);
         let state = LiveState {
             peers: self.inner.live_peers(id),
             hosted: live_hosted(&self.share_dir, id),
             rev: *self.live_rev.borrow(),
-            can_edit: true,
+            // Joined through a view-only invite: the host would discard edits.
+            can_edit: !kicked && !is_view_id(id),
+            denied: kicked,
             ..state
         };
         #[cfg(feature = "sync-beelay")]
@@ -804,8 +934,8 @@ impl ShareNode {
                 // Members in the conversation, not sessions on the pipe.
                 peers: doc.live.peers().len(),
                 secure: true,
-                can_edit: doc.can_edit(),
-                denied: doc.denied(),
+                can_edit: doc.can_edit() && !kicked,
+                denied: doc.denied() || kicked,
                 ..state
             };
         }
@@ -948,6 +1078,11 @@ impl ShareNode {
     /// returns the merged doc; live peers get the edit at once.
     pub fn live_edit(&self, id: &str, text: &str, base: &[String]) -> Result<LiveState> {
         self.live_known(id)?;
+        if self.live_kicked(id) || is_view_id(id) {
+            // Removed by the host, or here on a view-only invite: an edit
+            // would stay on this device and be discarded everywhere else.
+            return Err(ShareError::RoleConflict);
+        }
         #[cfg(feature = "sync-beelay")]
         if self.secure_doc(id).is_some_and(|doc| !doc.can_edit()) {
             // A viewer (or a role not looked up yet): peers would discard it.
@@ -1162,14 +1297,18 @@ impl ShareNode {
         if !valid_share_id(share_id) {
             return Err(ShareError::NotFound(share_id.to_string()));
         }
-        self.beelay()?
+        let out = self
+            .beelay()?
             .auth()
             .set_role(share_id, member, role)
             .await
             .map_err(|e| match e.downcast_ref::<linxiv_p2p::SetRoleError>() {
                 Some(linxiv_p2p::SetRoleError::LastReader) => ShareError::LastReader,
                 None => net(e),
-            })
+            });
+        // Encrypted live docs re-check who may stay connected.
+        self.secure_wake.notify_one();
+        out
     }
 
     /// Revoke a member; the project key rotates (PCS).
@@ -1177,11 +1316,15 @@ impl ShareNode {
         if !valid_share_id(share_id) {
             return Err(ShareError::NotFound(share_id.to_string()));
         }
-        self.beelay()?
+        let out = self
+            .beelay()?
             .auth()
             .revoke_member(share_id, member)
             .await
-            .map_err(net)
+            .map_err(net);
+        // Encrypted live docs drop the member's sessions at once.
+        self.secure_wake.notify_one();
+        out
     }
 
     /// Encrypt `bytes` under the share key and serve them as a blob; returns a
@@ -1290,7 +1433,9 @@ impl ShareNode {
             .sync_project(share_id)
             .await
             .map_err(|e| match e {
-                JoinError::Refused => ShareError::NotFound("access revoked or removed".to_string()),
+                JoinError::Refused | JoinError::Kicked => {
+                    ShareError::NotFound("access revoked or removed".to_string())
+                }
                 JoinError::Other(e) => net(e),
             })?
             .into();
@@ -1882,6 +2027,87 @@ mod tests {
             live_read(&doc.fork_at(&heads).unwrap()).unwrap().text
         }
 
+        /// A view-only invite: its holder follows the doc and cannot change
+        /// it, even by writing to its own copy; an editor's invite still can.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn view_only_invite_follows_and_cannot_write() {
+            let dirs: Vec<_> = (0..3).map(|_| tempfile::tempdir().unwrap()).collect();
+            let host = Arc::new(node(dirs[0].path()).await);
+            let viewer = Arc::new(node(dirs[1].path()).await);
+            let editor = Arc::new(node(dirs[2].path()).await);
+            let id = host.live_host("draft").unwrap();
+            let view: ShareTicket = host.live_view_ticket(&id).unwrap().parse().unwrap();
+            let edit: ShareTicket = host.live_ticket(&id).unwrap().parse().unwrap();
+            // A separate, stable capability that does not give the doc's id away.
+            assert_ne!(view.project_id(), id);
+            assert!(!view.project_id().contains(&id[5..]));
+            assert_eq!(host.live_view_ticket(&id).unwrap(), view.to_string());
+            // The host opening its own view invite just gets the doc.
+            assert_eq!(host.live_join(&view).unwrap(), id);
+
+            let vid = viewer.live_join(&view).unwrap();
+            let eid = editor.live_join(&edit).unwrap();
+            assert_eq!(
+                (vid.as_str(), eid.as_str()),
+                (view.project_id(), id.as_str())
+            );
+            let dials = [(viewer.clone(), vid.clone()), (editor.clone(), eid.clone())]
+                .map(|(node, id)| tokio::spawn(async move { node.live_dial(&id).await }));
+            let wait = std::time::Duration::from_secs(10);
+            let ready = |node: &Arc<ShareNode>, id: &str| {
+                let (node, id) = (node.clone(), id.to_string());
+                async move {
+                    for _ in 0..400 {
+                        if node.live_state(&id).is_ok_and(|s| s.ready) {
+                            return node.live_state(&id).unwrap();
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                    }
+                    panic!("never ready");
+                }
+            };
+            let seen = ready(&viewer, &vid).await;
+            assert_eq!((seen.text.as_str(), seen.can_edit), ("draft", false));
+            assert!(matches!(
+                viewer.live_edit(&vid, "viewer was here", &seen.heads),
+                Err(ShareError::RoleConflict)
+            ));
+            // A modified client writing to its own copy gets nowhere.
+            viewer.inner.with_doc(&vid, |doc| {
+                live_write(doc, "draft, vandalised", &seen.heads).unwrap()
+            });
+            // The editor's invite writes; host and viewer both follow.
+            let theirs = ready(&editor, &eid).await;
+            assert!(theirs.can_edit);
+            editor
+                .live_edit(&eid, "draft, edited", &theirs.heads)
+                .unwrap();
+            let host_now = host
+                .live_wait(&id, &host.live_state(&id).unwrap().heads, 2, 0, wait)
+                .await
+                .unwrap();
+            assert_eq!(host_now.text, "draft, edited");
+            for _ in 0..200 {
+                if viewer.live_state(&vid).unwrap().text.contains("edited") {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+            assert!(viewer.live_state(&vid).unwrap().text.contains("edited"));
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            for (node, id) in [(&host, &id), (&editor, &eid)] {
+                assert!(!node.live_state(id).unwrap().text.contains("vandalised"));
+            }
+            // The viewer passes on what it holds: a view-only invite.
+            assert_eq!(viewer.live_ticket(&vid).unwrap(), view.to_string());
+            // Closing the doc withdraws the view invite with it.
+            host.live_close(&id).unwrap();
+            assert!(host.live_aliases().is_empty());
+            for dial in dials {
+                dial.abort();
+            }
+        }
+
         /// A caret pinned to the last character must survive that character's
         /// deletion: automerge 0.11's debug assertion panics on this lookup.
         #[tokio::test]
@@ -2241,14 +2467,13 @@ mod tests {
             ));
 
             let ticket: ShareTicket = a.live_ticket(&id).unwrap().parse().unwrap();
-            let mut tasks = vec![pump(&a), pump(&b), pump(&c)];
-            for joiner in [&b, &c] {
+            let tasks = vec![pump(&a), pump(&b), pump(&c)];
+            let dial = |joiner: &Arc<ShareNode>| {
                 assert_eq!(joiner.live_join(&ticket).unwrap(), id);
                 let (joiner, id) = (joiner.clone(), id.clone());
-                tasks.push(tokio::spawn(async move {
-                    let _ = joiner.live_dial(&id).await;
-                }));
-            }
+                tokio::spawn(async move { joiner.live_dial(&id).await })
+            };
+            let (b_dial, c_dial) = (dial(&b), dial(&c));
 
             // The member gets the text, as a viewer.
             until("viewer reads", || {
@@ -2307,14 +2532,41 @@ mod tests {
             })
             .await;
 
-            // Still nothing for the outsider, on the pipe or on its disk.
+            // Still nothing for the outsider, on the pipe or on its disk. And
+            // it is not left sitting on the pipe: with no member behind its
+            // session, the host ended it, and said so.
             assert!(!c.live_state(&id).unwrap().ready);
+            assert_eq!(slow(c_dial).await.unwrap().unwrap(), LiveDialEnd::Kicked);
+            assert_eq!(a.inner.live_sessions(&id).len(), 1, "only the member stays");
+            // Dialing straight back gets the same answer.
+            assert_eq!(slow(c.live_dial(&id)).await.unwrap(), LiveDialEnd::Kicked);
             let on_disk = std::fs::read(live_path(dirs[2].path(), &id, "automerge")).unwrap();
             assert!(!on_disk.windows(7).any(|w| w == b"members"));
             // The host keeps its copy across a restart of the engine.
             a.live_secure_flush(true).await;
             a.forget_secure(&id);
             assert!(a.live_state(&id).unwrap().text.ends_with("b too"));
+
+            // Revoked: the host drops b's session at once, b is told why,
+            // and its copy turns read-only and closed.
+            assert!(b.live_state(&id).unwrap().can_edit);
+            a.revoke("7", bob).await.unwrap();
+            assert_eq!(slow(b_dial).await.unwrap().unwrap(), LiveDialEnd::Kicked);
+            until("host has nobody connected", || {
+                a.inner.live_sessions(&id).is_empty()
+            })
+            .await;
+            let gone = b.live_state(&id).unwrap();
+            assert!(gone.denied && !gone.can_edit);
+            assert!(matches!(
+                b.live_edit(&id, "still here?", &gone.heads),
+                Err(ShareError::RoleConflict)
+            ));
+            // What b saw while a member stays b's; nothing new arrives.
+            let host = a.live_state(&id).unwrap();
+            a.live_edit(&id, "after b left", &host.heads).unwrap();
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            assert!(!b.live_state(&id).unwrap().text.contains("after b left"));
 
             for task in tasks {
                 task.abort();

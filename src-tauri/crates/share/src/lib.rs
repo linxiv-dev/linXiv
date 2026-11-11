@@ -38,8 +38,8 @@ pub use transport::{
 #[cfg(feature = "sync-beelay")]
 pub use transport::{e2ee_dir, e2ee_received_dir, member_id_from_hex, member_id_hex};
 pub use transport::{
-    live_dir, received_dir, valid_live_id, valid_share_id, LiveCursor, LiveState, ShareNode,
-    ShareTicket, ALPN,
+    live_dir, received_dir, valid_live_id, valid_share_id, LiveCursor, LiveDialEnd, LiveState,
+    ShareNode, ShareTicket, ALPN,
 };
 
 const SHARE_EXT: &str = "automerge";
