@@ -238,7 +238,22 @@ function cursorMarks(
         const to = point(Math.max(cursor.anchor, cursor.focus));
         range.setStart(from.node, from.offset);
         range.setEnd(to.node, to.offset);
-        [...range.getClientRects()].forEach((rect, n) => add(rect, `sel${n}`));
+        // Box the text only, as a native selection does. The range's own
+        // rects include whole line blocks, which paint empty lines edge to edge.
+        const root = range.commonAncestorContainer;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const texts: Node[] = root.nodeType === Node.TEXT_NODE ? [root] : [];
+        while (walker.nextNode()) texts.push(walker.currentNode);
+        let n = 0;
+        for (const node of texts) {
+          if (!range.intersectsNode(node)) continue;
+          const part = document.createRange();
+          part.selectNodeContents(node);
+          if (node === range.startContainer) part.setStart(node, range.startOffset);
+          if (node === range.endContainer) part.setEnd(node, range.endOffset);
+          for (const rect of part.getClientRects())
+            if (rect.width > 0) add(rect, `sel${n++}`);
+        }
       }
     } catch {
       // The peer's offsets ran ahead of this editor's text; the next sync fixes it.
@@ -470,7 +485,7 @@ function LiveDoc({ id }: { id: string }) {
               width: mark.label ? 2 : mark.width,
               height: mark.height,
               background: mark.color,
-              opacity: mark.label ? 1 : 0.25,
+              opacity: mark.label ? 1 : 0.4,
             }}
           >
             {mark.label && (
