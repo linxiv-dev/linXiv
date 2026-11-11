@@ -1,0 +1,246 @@
+.TinyMDE {
+  background-color:#fff;
+  color:#000;
+  font-size:16px;
+  line-height:24px;
+  outline: none;
+  padding:5px;
+  /* Count the padding towards the height below, so a fixed-height container
+     doesn't end up 10px short of fitting its own editor. Also makes the box
+     behave the same whether or not the embedding page has a border-box reset. */
+  box-sizing: border-box;
+  /* min-height rather than height so the editor fills a fixed-height container
+     when it's near-empty, but still grows with the content when it overflows.
+     With height:100% the box stayed at the container's height and the
+     background stopped painting at the fold (#182). */
+  min-height: 100%;
+}
+
+.TinyMDE.TinyMDE_empty {
+  position: relative;
+}
+
+.TinyMDE.TinyMDE_empty::before {
+  content: attr(data-placeholder);
+  color: #a0a0a0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.TMBlankLine {
+  height:24px;
+}
+
+.TMH1, .TMSetextH1 {
+  font-size:22px;
+  line-height:32px;
+  font-weight:bold;
+  margin-bottom:8px;
+}
+
+.TMSetextH1 {
+  margin-bottom:0px;
+}
+
+.TMSetextH1Marker {
+  margin-bottom:8px;
+}
+
+.TMH2, .TMSetextH2 {
+  font-size:20px;
+  line-height:28px;
+  font-weight:bold;
+  margin-bottom:4px;
+}
+
+.TMMark_TMCode {
+  font-family:monospace;
+  font-size:.9em;  
+}
+
+.TMFencedCodeBacktick, .TMFencedCodeTilde, .TMIndentedCode, .TMCode {
+  font-family:monospace;
+  font-size:.9em;
+  background-color:#e0e0e0;
+}
+
+.TMCodeFenceBacktickOpen, .TMCodeFenceTildeOpen {
+  border-bottom: 1px solid #c0c0c0;
+  font-family: monospace;
+  font-size:.9em;
+}
+
+.TMCodeFenceBacktickClose, .TMCodeFenceTildeClose {
+  border-top: 1px solid #c0c0c0;
+  font-family: monospace;
+  font-size:.9em;
+}
+
+.TMInfoString {
+  color: #0000ff;
+}
+
+.TMCode {
+  border:1px solid #c0c0c0;
+  border-radius: 2px;
+}
+
+/* TeX math: the source is styled like code but tinted; when the host page provides MathJax, a
+   typeset preview (.TMMathPreview) is rendered next to the source. */
+.TMMath, .TMFencedMath {
+  font-family:monospace;
+  font-size:.9em;
+  color:#0060a0;
+  background-color:#eaf3fa;
+}
+
+.TMMathFenceOpen, .TMMathFenceClose {
+  font-family:monospace;
+  font-size:.9em;
+}
+
+.TMMathFenceOpen {
+  border-bottom: 1px solid #c0d4e4;
+}
+
+.TMMathFenceClose {
+  border-top: 1px solid #c0d4e4;
+}
+
+.TMMathPreview {
+  display:inline-block;
+  margin:0 .25em;
+  vertical-align:middle;
+  user-select:none;
+  -webkit-user-select:none;
+}
+
+.TMMathPreview_Display {
+  display:block;
+  text-align:center;
+  margin:.25em 0;
+}
+
+.TMBlockquote {
+  font-style: italic;
+  border-left:2px solid #c0c0c0;
+  padding-left:10px;
+  margin-left:10px;
+}
+
+.TMMark {
+  color:#a0a0a0;
+}
+
+.TMMark_TMH1, .TMMark_TMH2 {
+  color:#ff8080;
+}
+
+.TMMark_TMUL, .TMMark_TMOL {
+  color:#ff8080;
+}
+
+/* Task list checkbox: only the inner character (space/x/X) of `[ ]` / `[x]` is rendered as a drawn
+   checkbox. The character stays in the DOM as real, navigable text (its glyph is just hidden), so
+   the line's text content still equals its source. The surrounding `[` `]` keep the .TMMark style. */
+
+.TMMark_TMTask {
+  color: #e0e0e0;
+}
+
+.TMCheckbox {
+  position: relative;
+  color: transparent;
+  caret-color: #000000;
+  cursor: pointer;
+  font-family: monospace;
+}
+
+.TMCheckbox::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translateX(-50%) translateY(-50%);
+  width: 0.85em;
+  height: 0.85em;
+  border: 1px solid #c0c0c0;
+  box-sizing: border-box;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.TMCheckbox_checked::before {
+  border-color: #2aa775;
+}
+
+.TMCheckbox_checked::after {
+  content: "✓";
+  color: #2aa775;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-50%);
+  text-align: center;
+  vertical-align: top;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.TMImage {
+  text-decoration: underline;
+  text-decoration-color: #00ff00;
+}
+
+
+.TMLink {
+  text-decoration: underline;
+  text-decoration-color: #0000ff;
+}
+
+.TMLinkLabel {
+  text-decoration: underline;
+  font-family: monospace;
+}
+
+.TMLinkLabel_Definition, .TMLinkLabel_Valid {
+  color: #40c040;
+}
+
+.TMLinkLabel_Invalid {
+  color: #ff0000;
+}
+
+.TMLinkTitle {
+  font-style:italic;
+}
+
+.TMLinkDestination, .TMAutolink {
+  text-decoration: underline;
+  color: #0000ff;
+}
+
+.TMHR { 
+  position: relative;
+}
+
+.TMHR:before { 
+  content: '';
+  position: absolute;
+  bottom: 50%;
+  left: 40%;
+  border-bottom: 2px solid #808080;
+  width: 20%;
+  z-index:0;
+}
+
+.TMHTML, .TMHTMLBlock {
+  font-family:monospace;
+  font-size:.9em;
+  color:#8000ff;
+}
+
+.TMHTMLBlock {
+  color:#6000c0;
+}
+

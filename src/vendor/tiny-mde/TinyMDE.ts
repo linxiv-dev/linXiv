@@ -1,0 +1,2430 @@
+// @ts-nocheck -- vendored: upstream relies on switch fallthrough and unused params this repo's tsconfig rejects.
+import {
+  inlineGrammar,
+  lineGrammar,
+  punctuationLeading,
+  punctuationTrailing,
+  editorRegExp,
+  htmlescape,
+  htmlBlockGrammar,
+  commands,
+  HTMLBlockRule,
+  Command,
+  LineCommand,
+  GrammarRule,
+  createMergedInlineGrammar,
+} from "./grammar";
+
+export interface EditorProps {
+  element?: string | HTMLElement;
+  editor?: string | HTMLElement;
+  content?: string;
+  textarea?: string | HTMLTextAreaElement;
+  customInlineGrammar?: Record<string, GrammarRule>;
+  placeholder?: string;
+}
+
+export interface Position {
+  row: number;
+  col: number;
+}
+
+export interface HistoryState {
+  content: string;
+  selection: Position | null;
+  anchor: Position | null;
+}
+
+export interface ChangeEvent {
+  content: string;
+  linesDirty: boolean[];
+}
+
+export interface SelectionEvent {
+  focus: Position;
+  anchor: Position;
+  commandState: Record<string, boolean | null>;
+}
+
+export interface DropEvent {
+  dataTransfer: DataTransfer;
+}
+
+type EventType = 'change' | 'selection' | 'drop';
+type EventHandler<T> = (event: T) => void;
+
+export class Editor {
+  public e: HTMLDivElement | null = null;
+  public textarea: HTMLTextAreaElement | null = null;
+  public lines: string[] = [];
+  public lineElements: NodeListOf<ChildNode> | HTMLCollection | ChildNode[] = [];
+  public lineTypes: string[] = [];
+  public lineCaptures: RegExpExecArray[] = [];
+  public lineReplacements: string[] = [];
+  public linkLabels: string[] = [];
+  public lineDirty: boolean[] = [];
+  public lastCommandState: Record<string, boolean | null> | null = null;
+  private customInlineGrammar: Record<string, GrammarRule> = {};
+  private mergedInlineGrammar: Record<string, GrammarRule> = inlineGrammar;
+  private hasFocus: boolean = true;
+  private lastSelection: { focus: Position | null; anchor: Position | null } | null = null;
+  private placeholder: string | undefined;
+
+  public listeners: {
+    change: EventHandler<ChangeEvent>[];
+    selection: EventHandler<SelectionEvent>[];
+    drop: EventHandler<DropEvent>[];
+  } = {
+    change: [],
+    selection: [],
+    drop: [],
+  };
+
+  private undoStack: HistoryState[] = [];
+  private redoStack: HistoryState[] = [];
+  private isRestoringHistory: boolean = false;
+  private maxHistory: number = 100;
+
+  constructor(props: EditorProps = {}) {
+    this.e = null;
+    this.textarea = null;
+    this.lines = [];
+    this.lineElements = [] as ChildNode[];
+    this.lineTypes = [];
+    this.lineCaptures = [];
+    this.lineReplacements = [];
+    this.linkLabels = [];
+    this.lineDirty = [];
+    this.lastCommandState = null;
+    this.hasFocus = true;
+    this.lastSelection = null;
+    this.customInlineGrammar = props.customInlineGrammar || {};
+    this.mergedInlineGrammar = createMergedInlineGrammar(this.customInlineGrammar);
+
+    this.listeners = {
+      change: [],
+      selection: [],
+      drop: [],
+    };
+
+    let element: HTMLElement | null = null;
+    if (typeof props.element === 'string') {
+      element = document.getElementById(props.element);
+    } else if (props.element) {
+      element = props.element;
+    }
+
+    if (typeof props.textarea === 'string') {
+      this.textarea = document.getElementById(props.textarea) as HTMLTextAreaElement;
+    } else if (props.textarea) {
+      this.textarea = props.textarea;
+    }
+
+    if (this.textarea) {
+      if (!element) element = this.textarea;
+    }
+
+    if (!element) {
+      element = document.getElementsByTagName("body")[0];
+    }
+    if (element && element.tagName === "TEXTAREA") {
+      this.textarea = element as HTMLTextAreaElement;
+      element = this.textarea.parentNode as HTMLElement;
+    }
+
+    if (this.textarea) {
+      this.textarea.style.display = "none";
+    }
+
+    this.placeholder = props.placeholder !== undefined
+      ? props.placeholder
+      : this.textarea?.placeholder || undefined;
+
+    this.undoStack = [];
+    this.redoStack = [];
+    this.isRestoringHistory = false;
+    this.maxHistory = 100;
+
+    this.createEditorElement(element, props);
+    this.setContent(
+      typeof props.content === "string"
+        ? props.content
+        : this.textarea
+        ? this.textarea.value
+        : "# Hello TinyMDE!\nEdit **here**"
+    );
+    
+    this.e!.addEventListener("keydown", (e) => this.handleUndoRedoKey(e));
+  }
+
+  get canUndo(): boolean {
+    return this.undoStack.length >= 2;
+  }
+
+  get canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  private pushHistory(): void {
+    if (this.isRestoringHistory) return;
+    this.pushCurrentState();
+    this.redoStack = [];
+  }
+
+  private pushCurrentState(): void {
+    this.undoStack.push({
+      content: this.getContent(),
+      selection: this.getSelection(),
+      anchor: this.getSelection(true),
+    });
+    if (this.undoStack.length > this.maxHistory) this.undoStack.shift();
+  }
+
+  public undo(): void {
+    if (this.undoStack.length < 2) return;
+    this.isRestoringHistory = true;
+    this.pushCurrentState();
+    const current = this.undoStack.pop()!;
+    this.redoStack.push(current);
+    const prev = this.undoStack[this.undoStack.length - 1];
+    this.setContent(prev.content);
+    if (prev.selection) this.setSelection(prev.selection, prev.anchor);
+    this.undoStack.pop();
+    this.isRestoringHistory = false;
+  }
+
+  public redo(): void {
+    if (!this.redoStack.length) return;
+    this.isRestoringHistory = true;
+    this.pushCurrentState();
+    const next = this.redoStack.pop()!;
+    this.setContent(next.content);
+    if (next.selection) this.setSelection(next.selection, next.anchor);
+    this.isRestoringHistory = false;
+  }
+
+  private handleUndoRedoKey(e: KeyboardEvent): void {
+    const isMac = editorRegExp.macPlatform.test(navigator.platform);
+    const ctrl = isMac ? e.metaKey : e.ctrlKey;
+    if (ctrl && !e.altKey) {
+      if (e.key === "z" || e.key === "Z") {
+        if (e.shiftKey) {
+          this.redo();
+        } else {
+          this.undo();
+        }
+        e.preventDefault();
+      } else if (e.key === "y" || e.key === "Y") {
+        this.redo();
+        e.preventDefault();
+      }
+    }
+  }
+
+  private createEditorElement(element: HTMLElement, props: EditorProps): void {
+    if (props && props.editor !== undefined) {
+      if (typeof props.editor === 'string') {
+        this.e = document.getElementById(props.editor) as HTMLDivElement;
+      } else {
+        this.e = props.editor as HTMLDivElement;
+      }
+    } else {
+      this.e = document.createElement("div");
+    }
+
+    this.e.classList.add("TinyMDE");
+    this.e.contentEditable = "true";
+    this.e.style.whiteSpace = "pre-wrap";
+    (this.e.style as any).webkitUserModify = "read-write-plaintext-only";
+
+    if (this.placeholder) {
+      this.e.setAttribute("data-placeholder", this.placeholder);
+    }
+
+    if (props.editor === undefined) {
+      if (
+        this.textarea &&
+        this.textarea.parentNode === element &&
+        this.textarea.nextSibling
+      ) {
+        element.insertBefore(this.e, this.textarea.nextSibling);
+      } else {
+        element.appendChild(this.e);
+      }
+    }
+
+    this.e.addEventListener("input", (e) => this.handleInputEvent(e));
+    this.e.addEventListener("beforeinput", (e) => this.handleBeforeInputEvent(e));
+    this.e.addEventListener("compositionend", (e) => this.handleInputEvent(e));
+    document.addEventListener("selectionchange", (e) => {
+      if (this.hasFocus) { this.handleSelectionChangeEvent(e); }
+      }
+    );
+    this.e.addEventListener("blur", () => this.hasFocus = false );
+    this.e.addEventListener("focus", () => this.hasFocus = true );
+    this.e.addEventListener("paste", (e) => this.handlePaste(e));
+    this.e.addEventListener("drop", (e) => this.handleDrop(e));
+    this.e.addEventListener("click", (e) => this.handleClick(e));
+    this.lineElements = this.e.childNodes;
+  }
+
+  public setContent(content: string): void {
+    while (this.e!.firstChild) {
+      this.e!.removeChild(this.e!.firstChild);
+    }
+    this.lines = content.split(editorRegExp.lineSplit);
+    this.lineDirty = [];
+    for (let lineNum = 0; lineNum < this.lines.length; lineNum++) {
+      let le = document.createElement("div");
+      this.e!.appendChild(le);
+      this.lineDirty.push(true);
+    }
+    this.lineTypes = new Array(this.lines.length);
+    this.updateFormatting();
+    this.updatePlaceholder();
+    this.fireChange();
+    if (!this.isRestoringHistory) this.pushHistory();
+  }
+
+  public getContent(): string {
+    return this.lines.join("\n");
+  }
+
+  private updatePlaceholder(): void {
+    if (!this.placeholder || !this.e) return;
+    if (this.getContent() === "") {
+      this.e.classList.add("TinyMDE_empty");
+    } else {
+      this.e.classList.remove("TinyMDE_empty");
+    }
+  }
+
+  private updateFormatting(): void {
+    this.updateLineTypes();
+    this.updateLinkLabels();
+    this.applyLineTypes();
+    this.typeset();
+  }
+
+  /**
+   * Renders typeset previews for math spans/blocks using the host page's MathJax (v3+, loaded with
+   * an SVG output component so `MathJax.tex2svg` exists). Nothing is bundled: without a global
+   * MathJax the TeX source is simply shown with its `.TMMath` styling. Previews are non-editable
+   * elements that contribute no text content, so selection/column math, undo and the
+   * text-content-based line diffing in updateLineContents() are unaffected. Runs automatically
+   * after every re-render (unchanged previews are kept, matched via data-tex); call it manually
+   * only if MathJax finishes loading after the editor first rendered.
+   */
+  public typeset(): void {
+    const mathJax = (window as any).MathJax;
+    if (!this.e || !mathJax || typeof mathJax.tex2svg !== "function") return;
+
+    // Inline `$...$` and single-line `$$...$$` spans: preview inserted right after the source span.
+    for (const el of Array.from(this.e.querySelectorAll(".TMMath"))) {
+      const span = el as HTMLElement;
+      const tex = span.textContent || "";
+      // Insert after the closing `$`/`$$` mark (the span's next sibling), so a block-level display
+      // preview doesn't push the closing delimiter onto its own wrapped line.
+      const closingMark = span.nextElementSibling;
+      const target = closingMark && closingMark.classList.contains("TMMark") ? closingMark : span;
+      const existing = target.nextElementSibling;
+      if (existing && existing.classList.contains("TMMathPreview")) {
+        if ((existing as HTMLElement).dataset.tex === tex) continue;
+        existing.remove();
+      }
+      const preview = this.buildMathPreview(mathJax, tex, span.classList.contains("TMMath_Display"));
+      if (preview) target.insertAdjacentElement("afterend", preview);
+    }
+
+    // `$$` fenced blocks: one preview for the whole block, appended to the closing fence line.
+    for (let lineNum = 0; lineNum < this.lineTypes.length; lineNum++) {
+      if (this.lineTypes[lineNum] !== "TMMathFenceClose") continue;
+      let start = lineNum;
+      while (start > 0 && this.lineTypes[start - 1] === "TMFencedMath") start--;
+      const tex = this.lines.slice(start, lineNum).join("\n");
+      const lineEl = this.lineElements[lineNum] as HTMLElement;
+      const existing = lineEl.querySelector(".TMMathPreview");
+      if (existing) {
+        if ((existing as HTMLElement).dataset.tex === tex) continue;
+        existing.remove();
+      }
+      const preview = this.buildMathPreview(mathJax, tex, true);
+      if (preview) lineEl.appendChild(preview);
+    }
+  }
+
+  private buildMathPreview(mathJax: any, tex: string, display: boolean): HTMLElement | null {
+    let rendered: HTMLElement;
+    try {
+      rendered = mathJax.tex2svg(tex, { display }) as HTMLElement;
+    } catch (e) {
+      return null;
+    }
+    // The a11y duplicate of the source carries text; drop it so the preview stays text-free.
+    rendered.querySelectorAll("mjx-assistive-mml").forEach((n) => n.remove());
+    // Anything still contributing text (e.g. MathJax's <text> error output) would corrupt the
+    // editor's text-content-based line diffing — skip the preview rather than risk that.
+    if ((rendered.textContent || "").trim() !== "") return null;
+    const preview = document.createElement("span");
+    preview.className = display ? "TMMathPreview TMMathPreview_Display" : "TMMathPreview";
+    preview.contentEditable = "false";
+    preview.dataset.tex = tex;
+    preview.appendChild(rendered);
+    return preview;
+  }
+
+  private updateLinkLabels(): void {
+    this.linkLabels = [];
+    for (let l = 0; l < this.lines.length; l++) {
+      if (this.lineTypes[l] === "TMLinkReferenceDefinition") {
+        this.linkLabels.push(
+          this.lineCaptures[l][
+            lineGrammar.TMLinkReferenceDefinition.labelPlaceholder!
+          ]
+        );
+      }
+    }
+  }
+
+  private replace(replacement: string, capture: RegExpExecArray): string {
+    return replacement.replace(editorRegExp.replacementPlaceholder, (str, p1, p2) => {
+      if (p1 === "$") return htmlescape(capture[parseInt(p2)]);
+      else
+        return `<span class="TMInlineFormatted">${this.processInlineStyles(
+          capture[parseInt(p2)]
+        )}</span>`;
+    });
+  }
+
+  private applyLineTypes(): void {
+    let lineNum = 0;
+    while (lineNum < this.lines.length) {
+      // A "block" whose text flows across several source lines (a paragraph, a multi-line
+      // blockquote, or a list item with wrapped/lazy-continuation lines) is rendered as one
+      // inline-parsing unit so that inline styles (bold, italic, ...) can span the soft line
+      // breaks between its lines.
+      if (this.isInlineGroupLeader(lineNum)) {
+        const leaderType = this.lineTypes[lineNum];
+        let end = lineNum;
+        while (
+          end + 1 < this.lines.length &&
+          this.isInlineContinuation(end + 1, leaderType)
+        ) {
+          end++;
+        }
+        this.applyInlineGroup(lineNum, end);
+        lineNum = end + 1;
+      } else {
+        this.applyLine(lineNum);
+        lineNum++;
+      }
+    }
+  }
+
+  /** A line that can begin a multi-line inline group (a paragraph-bearing block). */
+  private isInlineGroupLeader(lineNum: number): boolean {
+    const t = this.lineTypes[lineNum];
+    if (t === "TMPara" || t === "TMUL" || t === "TMOL") return true;
+    // A blockquote line whose content is blank is a paragraph break inside the quote, so it
+    // doesn't start (or join) a group.
+    if (t === "TMBlockquote") return !this.isBlankBlockquoteContent(lineNum);
+    return false;
+  }
+
+  /** Whether `lineNum` continues the inline group whose leader has type `leaderType`. */
+  private isInlineContinuation(lineNum: number, leaderType: string): boolean {
+    const t = this.lineTypes[lineNum];
+    // A plain paragraph line is a lazy continuation of the preceding block (paragraph, list item,
+    // or blockquote). Consecutive list markers (TMUL/TMOL), by contrast, each start a new item
+    // and therefore do NOT continue the group.
+    if (t === "TMPara") return true;
+    if (t === "TMBlockquote" && leaderType === "TMBlockquote")
+      return !this.isBlankBlockquoteContent(lineNum);
+    return false;
+  }
+
+  /** True when a blockquote line carries no (non-whitespace) content, e.g. `>` or `> `. */
+  private isBlankBlockquoteContent(lineNum: number): boolean {
+    const cap = this.lineCaptures[lineNum];
+    const content = cap && cap[2] !== undefined ? cap[2] : "";
+    return editorRegExp.blankContent.test(content);
+  }
+
+  private applyLine(lineNum: number): void {
+    const el = this.lineElements[lineNum] as HTMLElement;
+    if (this.lineDirty[lineNum]) {
+      let contentHTML = this.replace(
+        this.lineReplacements[lineNum],
+        this.lineCaptures[lineNum]
+      );
+      el.className = this.lineTypes[lineNum];
+      el.removeAttribute("style");
+      el.innerHTML = contentHTML === "" ? "<br />" : contentHTML;
+      // This line is no longer rendered as part of a multi-line inline group.
+      delete el.dataset.mlSig;
+    }
+    el.dataset.lineNum = lineNum.toString();
+  }
+
+  /**
+   * Renders a group of lines [start..end] that together form one inline-parsing unit. The inline
+   * content of each line (the `$$N` portion of its replacement — the whole line for a paragraph,
+   * the text after the marker for a list item or blockquote) is joined with newlines and parsed as
+   * a single unit, so inline styles can span the soft line breaks. The resulting HTML is split back
+   * into one fragment per line; any element still open at a line break is closed and re-opened so
+   * each line keeps its own well-formed block element. Per-line markers (list bullets, blockquote
+   * `>`) are preserved exactly. A single-line group (start === end) renders identically to before.
+   */
+  private applyInlineGroup(start: number, end: number): void {
+    // Signature of every input that affects this group's rendering (line types, replacements and
+    // captures — hence the marker prefixes and the inline content). Stored per line element so a
+    // group is re-rendered whenever its content, a sibling line, or its boundaries change (e.g. on
+    // a split/merge) even if the individual line wasn't separately marked dirty.
+    const contents: string[] = [];
+    let sigSource = `${end - start}`;
+    for (let i = start; i <= end; i++) {
+      const idx = this.inlineContentIndex(this.lineReplacements[i]);
+      contents.push(this.lineCaptures[i][idx] !== undefined ? this.lineCaptures[i][idx] : "");
+      sigSource += `\x1f${this.lineTypes[i]}\x1f${this.lineReplacements[i]}\x1f${JSON.stringify(
+        this.lineCaptures[i]
+      )}`;
+    }
+    const sig = `${this.hashString(sigSource)}`;
+
+    let needsRender = false;
+    for (let i = start; i <= end; i++) {
+      if (
+        this.lineDirty[i] ||
+        (this.lineElements[i] as HTMLElement).dataset.mlSig !== sig
+      ) {
+        needsRender = true;
+        break;
+      }
+    }
+
+    if (needsRender) {
+      const fragments = this.splitInlineHTMLByLine(
+        this.processInlineStyles(contents.join("\n"))
+      );
+      for (let i = start; i <= end; i++) {
+        const el = this.lineElements[i] as HTMLElement;
+        const frag = fragments[i - start] || "";
+        const contentHTML = this.replaceWithInline(
+          this.lineReplacements[i],
+          this.lineCaptures[i],
+          frag
+        );
+        el.className = this.lineTypes[i];
+        el.removeAttribute("style");
+        el.innerHTML = contentHTML === "" ? "<br />" : contentHTML;
+        el.dataset.mlSig = sig;
+      }
+    }
+
+    for (let i = start; i <= end; i++) {
+      (this.lineElements[i] as HTMLElement).dataset.lineNum = i.toString();
+    }
+  }
+
+  /** Index of the inline-content placeholder (`$$N`) in a line replacement, or 0 if none. */
+  private inlineContentIndex(replacement: string): number {
+    const m = editorRegExp.inlineContentPlaceholder.exec(replacement);
+    return m ? parseInt(m[1]) : 0;
+  }
+
+  /**
+   * Like replace(), but uses a pre-computed inline fragment for the `$$N` (inline content)
+   * placeholder instead of inline-parsing the capture itself. Used for multi-line groups where the
+   * inline content was parsed jointly across all lines.
+   */
+  private replaceWithInline(
+    replacement: string,
+    capture: RegExpExecArray,
+    inlineFragment: string
+  ): string {
+    return replacement.replace(editorRegExp.replacementPlaceholder, (str, p1, p2) => {
+      if (p1 === "$") return htmlescape(capture[parseInt(p2)]);
+      else return `<span class="TMInlineFormatted">${inlineFragment}</span>`;
+    });
+  }
+
+  /**
+   * Splits inline HTML produced for a joined multi-line paragraph back into one fragment per
+   * source line (fragments are separated by the `\n` markers emitted by processInlineStyles).
+   * Inline elements that are still open at a line break are closed at the end of the fragment and
+   * re-opened at the start of the next one, so that every fragment is independently well-formed
+   * while the formatting visually continues across the lines.
+   */
+  private splitInlineHTMLByLine(html: string): string[] {
+    const fragments: string[] = [];
+    const openTags: string[] = []; // full opening-tag strings of currently open elements
+    let current = "";
+    let i = 0;
+    while (i < html.length) {
+      const ch = html[i];
+      if (ch === "\n") {
+        // Close currently open tags (in reverse) to finish this line's fragment ...
+        for (let t = openTags.length - 1; t >= 0; t--) {
+          current += `</${this.inlineTagName(openTags[t])}>`;
+        }
+        fragments.push(current);
+        // ... and re-open them (in order) at the start of the next line's fragment.
+        current = openTags.join("");
+        i++;
+      } else if (ch === "<") {
+        const close = html.indexOf(">", i);
+        if (close < 0) {
+          // Defensive: malformed output, emit the remainder verbatim.
+          current += html.substr(i);
+          break;
+        }
+        const tag = html.substring(i, close + 1);
+        current += tag;
+        if (tag[1] === "/") {
+          openTags.pop();
+        } else if (tag[tag.length - 2] !== "/") {
+          // Opening tag that isn't self-closing.
+          openTags.push(tag);
+        }
+        i = close + 1;
+      } else {
+        current += ch;
+        i++;
+      }
+    }
+    fragments.push(current);
+    return fragments;
+  }
+
+  private inlineTagName(openTag: string): string {
+    const m = editorRegExp.inlineTagName.exec(openTag);
+    return m ? m[1] : "span";
+  }
+
+  private hashString(s: string): number {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+      h = (((h << 5) + h) ^ s.charCodeAt(i)) >>> 0;
+    }
+    return h;
+  }
+
+  private updateLineTypes(): void {
+    let codeBlockType: string | false = false;
+    let codeBlockSeqLength = 0;
+    let mathBlock = false;
+    let htmlBlock: HTMLBlockRule | false = false;
+
+    for (let lineNum = 0; lineNum < this.lines.length; lineNum++) {
+      let lineType = "TMPara";
+      let lineCapture: RegExpExecArray = [this.lines[lineNum]] as RegExpExecArray;
+      let lineReplacement = "$$0";
+
+      // Check ongoing code blocks
+      if (codeBlockType === "TMCodeFenceBacktickOpen") {
+        let capture = lineGrammar.TMCodeFenceBacktickClose.regexp.exec(this.lines[lineNum]);
+        if (capture && capture.groups!["seq"].length >= codeBlockSeqLength) {
+          lineType = "TMCodeFenceBacktickClose";
+          lineReplacement = lineGrammar.TMCodeFenceBacktickClose.replacement;
+          lineCapture = capture;
+          codeBlockType = false;
+        } else {
+          lineType = "TMFencedCodeBacktick";
+          lineReplacement = '<span class="TMFencedCode">$0<br /></span>';
+          lineCapture = [this.lines[lineNum]] as RegExpExecArray;
+        }
+      } else if (codeBlockType === "TMCodeFenceTildeOpen") {
+        let capture = lineGrammar.TMCodeFenceTildeClose.regexp.exec(this.lines[lineNum]);
+        if (capture && capture.groups!["seq"].length >= codeBlockSeqLength) {
+          lineType = "TMCodeFenceTildeClose";
+          lineReplacement = lineGrammar.TMCodeFenceTildeClose.replacement;
+          lineCapture = capture;
+          codeBlockType = false;
+        } else {
+          lineType = "TMFencedCodeTilde";
+          lineReplacement = '<span class="TMFencedCode">$0<br /></span>';
+          lineCapture = [this.lines[lineNum]] as RegExpExecArray;
+        }
+      }
+
+      // Check ongoing math blocks (opened by a `$$` fence line; can't overlap with a code block
+      // since fences only open via the generic rules below, which a consumed line never reaches)
+      if (mathBlock) {
+        let capture = lineGrammar.TMMathFenceClose.regexp.exec(this.lines[lineNum]);
+        if (capture) {
+          lineType = "TMMathFenceClose";
+          lineReplacement = lineGrammar.TMMathFenceClose.replacement;
+          lineCapture = capture;
+          mathBlock = false;
+        } else {
+          lineType = "TMFencedMath";
+          lineReplacement = '<span class="TMFencedMath">$0<br /></span>';
+          lineCapture = [this.lines[lineNum]] as RegExpExecArray;
+        }
+      }
+
+      // Check HTML block types
+      if (lineType === "TMPara" && htmlBlock === false) {
+        for (let htmlBlockType of htmlBlockGrammar) {
+          if (this.lines[lineNum].match(htmlBlockType.start)) {
+            if (
+              htmlBlockType.paraInterrupt ||
+              lineNum === 0 ||
+              !(
+                this.lineTypes[lineNum - 1] === "TMPara" ||
+                this.lineTypes[lineNum - 1] === "TMUL" ||
+                this.lineTypes[lineNum - 1] === "TMOL" ||
+                this.lineTypes[lineNum - 1] === "TMBlockquote"
+              )
+            ) {
+              htmlBlock = htmlBlockType;
+              break;
+            }
+          }
+        }
+      }
+
+      if (htmlBlock !== false) {
+        lineType = "TMHTMLBlock";
+        lineReplacement = '<span class="TMHTMLContent">$0<br /></span>';
+        lineCapture = [this.lines[lineNum]] as RegExpExecArray;
+
+        if (htmlBlock.end) {
+          if (this.lines[lineNum].match(htmlBlock.end)) {
+            htmlBlock = false;
+          }
+        } else {
+          if (
+            lineNum === this.lines.length - 1 ||
+            this.lines[lineNum + 1].match(lineGrammar.TMBlankLine.regexp)
+          ) {
+            htmlBlock = false;
+          }
+        }
+      }
+
+      // Check all regexps if we haven't applied one of the code block types
+      if (lineType === "TMPara") {
+        for (let type in lineGrammar) {
+          if (lineGrammar[type].regexp) {
+            let capture = lineGrammar[type].regexp.exec(this.lines[lineNum]);
+            if (capture) {
+              lineType = type;
+              lineReplacement = lineGrammar[type].replacement;
+              lineCapture = capture;
+              break;
+            }
+          }
+        }
+      }
+
+      // If we've opened a code block, remember that
+      if (lineType === "TMCodeFenceBacktickOpen" || lineType === "TMCodeFenceTildeOpen") {
+        codeBlockType = lineType;
+        codeBlockSeqLength = lineCapture.groups!["seq"].length;
+      }
+
+      // Same for math blocks
+      if (lineType === "TMMathFenceOpen") {
+        mathBlock = true;
+      }
+
+      // Link reference definition and indented code can't interrupt a paragraph
+      if (
+        (lineType === "TMIndentedCode" || lineType === "TMLinkReferenceDefinition") &&
+        lineNum > 0 &&
+        (this.lineTypes[lineNum - 1] === "TMPara" ||
+          this.lineTypes[lineNum - 1] === "TMUL" ||
+          this.lineTypes[lineNum - 1] === "TMOL" ||
+          this.lineTypes[lineNum - 1] === "TMBlockquote")
+      ) {
+        lineType = "TMPara";
+        lineCapture = [this.lines[lineNum]] as RegExpExecArray;
+        lineReplacement = "$$0";
+      }
+
+      // Setext H2 markers that can also be interpreted as an empty list item should be regarded as such
+      if (lineType === "TMSetextH2Marker") {
+        let capture = lineGrammar.TMUL.regexp.exec(this.lines[lineNum]);
+        if (capture) {
+          lineType = "TMUL";
+          lineReplacement = lineGrammar.TMUL.replacement;
+          lineCapture = capture;
+        }
+      }
+
+      // Setext headings are only valid if preceded by a paragraph
+      if (lineType === "TMSetextH1Marker" || lineType === "TMSetextH2Marker") {
+        if (lineNum === 0 || this.lineTypes[lineNum - 1] !== "TMPara") {
+          let capture = lineGrammar.TMHR.regexp.exec(this.lines[lineNum]);
+          if (capture) {
+            lineType = "TMHR";
+            lineCapture = capture;
+            lineReplacement = lineGrammar.TMHR.replacement;
+          } else {
+            lineType = "TMPara";
+            lineCapture = [this.lines[lineNum]] as RegExpExecArray;
+            lineReplacement = "$$0";
+          }
+        } else {
+          let headingLine = lineNum - 1;
+          const headingLineType = lineType === "TMSetextH1Marker" ? "TMSetextH1" : "TMSetextH2";
+          do {
+            if (this.lineTypes[headingLine] !== headingLineType) {
+              this.lineTypes[headingLine] = headingLineType;
+              this.lineDirty[headingLine] = true;
+            }
+            this.lineReplacements[headingLine] = "$$0";
+            this.lineCaptures[headingLine] = [this.lines[headingLine]] as RegExpExecArray;
+            headingLine--;
+          } while (headingLine >= 0 && this.lineTypes[headingLine] === "TMPara");
+        }
+      }
+
+      // GFM task list item: a list item whose content begins with a checkbox marker `[ ]`, `[x]`
+      // or `[X]` followed by whitespace (or the end of the line). The brackets and separator stay
+      // as ordinary TMMark text; only the inner character is rendered as a checkbox (via CSS), so
+      // the line's text content still equals its source and the cursor navigates it normally.
+      if (lineType === "TMUL" || lineType === "TMOL") {
+        const content = lineCapture[2] !== undefined ? lineCapture[2] : "";
+        const task = editorRegExp.taskListItem.exec(content);
+        if (task) {
+          const checked = task[2] !== " "; // [x] / [X] are checked, [ ] is not
+          const bulletClass = lineType === "TMUL" ? "TMMark_TMUL" : "TMMark_TMOL";
+          const boxClass = checked
+            ? "TMCheckbox TMCheckbox_checked"
+            : "TMCheckbox TMCheckbox_unchecked";
+          // Synthetic capture: [full, bullet, "[", inner, "]", separator, inline content]. The
+          // inline content stays the last `$$N` group so inlineContentIndex()/applyInlineGroup()
+          // (and thus multi-line continuation) behave exactly as for a plain list item.
+          lineCapture = [
+            lineCapture[0],
+            lineCapture[1],
+            task[1],
+            task[2],
+            task[3],
+            task[4],
+            task[5],
+          ] as unknown as RegExpExecArray;
+          lineReplacement =
+            `<span class="TMMark ${bulletClass}">$1</span>` +
+            `<span class="TMMark TMMark_TMTask">$2</span>` +
+            `<span class="${boxClass}">$3</span>` +
+            `<span class="TMMark TMMark_TMTask">$4</span>` +
+            `<span class="TMMark TMMark_TMTask">$5</span>` +
+            `$$6`;
+        }
+      }
+
+      if (this.lineTypes[lineNum] !== lineType) {
+        this.lineTypes[lineNum] = lineType;
+        this.lineDirty[lineNum] = true;
+      }
+      this.lineReplacements[lineNum] = lineReplacement;
+      this.lineCaptures[lineNum] = lineCapture;
+    }
+  }
+
+  public getSelection(getAnchor: boolean = false): Position | null {
+    const selection = window.getSelection();
+    let startNode = getAnchor ? selection!.anchorNode : selection!.focusNode;
+    if (!startNode) return null;
+    let offset = getAnchor ? selection!.anchorOffset : selection!.focusOffset;
+    if (startNode === this.e) {
+      if (offset < this.lines.length)
+        return {
+          row: offset,
+          col: 0,
+        };
+      return {
+        row: offset - 1,
+        col: this.lines[offset - 1].length,
+      };
+    }
+
+    let col = this.computeColumn(startNode, offset);
+    if (col === null) return null;
+
+    let node = startNode;
+    while (node.parentElement !== this.e) {
+      node = node.parentElement!;
+    }
+
+    let row = 0;
+    // If the node doesn't have a previous sibling, it must be the first line
+    if (node.previousSibling) {
+      const currentLineNumData = (node as HTMLElement).dataset?.lineNum;
+      const previousLineNumData = (node.previousSibling as HTMLElement).dataset?.lineNum;
+
+      if (currentLineNumData && previousLineNumData) {
+        const currentLineNum = parseInt(currentLineNumData);
+        const previousLineNum = parseInt(previousLineNumData);
+        if (currentLineNum === previousLineNum + 1) {
+          row = currentLineNum;
+        } else {
+          // If the current line is NOT the previous line + 1, then either 
+          // the current line got split in two or merged with the previous line
+          // Either way, we need to recalculate the row number
+          while (node.previousSibling) {
+            row++;
+            node = node.previousSibling;
+          }
+        }
+      }
+    }
+    
+    return { row: row, col: col };
+  }
+
+  public setSelection(focus: Position, anchor: Position | null = null): void {
+    if (!focus) return;
+
+    let { node: focusNode, offset: focusOffset } = this.computeNodeAndOffset(
+      focus.row,
+      focus.col,
+      anchor ? anchor.row === focus.row && anchor.col > focus.col : false
+    );
+    let anchorNode = null,
+      anchorOffset = null;
+    if (anchor && (anchor.row !== focus.row || anchor.col !== focus.col)) {
+      let { node, offset } = this.computeNodeAndOffset(
+        anchor.row,
+        anchor.col,
+        focus.row === anchor.row && focus.col > anchor.col
+      );
+      anchorNode = node;
+      anchorOffset = offset;
+    }
+
+    let windowSelection = window.getSelection();
+    windowSelection!.setBaseAndExtent(
+      focusNode,
+      focusOffset,
+      anchorNode || focusNode,
+      anchorNode ? anchorOffset! : focusOffset
+    );
+  }
+
+  public restoreLastSelection(): boolean {
+    if (this.lastSelection && this.lastSelection.focus) {
+      this.setSelection(this.lastSelection.focus, this.lastSelection.anchor);
+      return true;
+    }
+    return false;
+  }
+
+  public paste(text: string, anchor: Position | null = null, focus: Position | null = null): void {
+    if (!anchor) anchor = this.getSelection(true);
+    if (!focus) focus = this.getSelection(false);
+    let beginning: Position, end: Position;
+    if (!focus) {
+      focus = {
+        row: this.lines.length - 1,
+        col: this.lines[this.lines.length - 1].length,
+      };
+    }
+    if (!anchor) {
+      anchor = focus;
+    }
+    if (
+      anchor.row < focus.row ||
+      (anchor.row === focus.row && anchor.col <= focus.col)
+    ) {
+      beginning = anchor;
+      end = focus;
+    } else {
+      beginning = focus;
+      end = anchor;
+    }
+    let insertedLines = text.split(editorRegExp.lineSplit);
+    let lineBefore = this.lines[beginning.row].substr(0, beginning.col);
+    let lineEnd = this.lines[end.row].substr(end.col);
+    insertedLines[0] = lineBefore.concat(insertedLines[0]);
+    let endColPos = insertedLines[insertedLines.length - 1].length;
+    insertedLines[insertedLines.length - 1] = insertedLines[insertedLines.length - 1].concat(lineEnd);
+    this.spliceLines(beginning.row, 1 + end.row - beginning.row, insertedLines);
+    focus.row = beginning.row + insertedLines.length - 1;
+    focus.col = endColPos;
+    this.updateFormatting();
+    this.setSelection(focus);
+    this.fireChange();
+  }
+
+  public wrapSelection(pre: string, post: string, focus: Position | null = null, anchor: Position | null = null): void {
+    if (!focus) focus = this.getSelection(false);
+    if (!anchor) anchor = this.getSelection(true);
+    if (!focus || !anchor || focus.row !== anchor.row) return;
+    if (!this.isRestoringHistory) this.pushHistory();
+    this.lineDirty[focus.row] = true;
+
+    const startCol = focus.col < anchor.col ? focus.col : anchor.col;
+    const endCol = focus.col < anchor.col ? anchor.col : focus.col;
+    const left = this.lines[focus.row].substr(0, startCol).concat(pre);
+    const mid = endCol === startCol ? "" : this.lines[focus.row].substr(startCol, endCol - startCol);
+    const right = post.concat(this.lines[focus.row].substr(endCol));
+    this.lines[focus.row] = left.concat(mid, right);
+    anchor.col = left.length;
+    focus.col = anchor.col + mid.length;
+
+    this.updateFormatting();
+    this.setSelection(focus, anchor);
+    this.fireChange();
+  }
+
+  public addEventListener<T extends EventType>(
+    type: T,
+    listener: T extends 'change' ? EventHandler<ChangeEvent> :
+             T extends 'selection' ? EventHandler<SelectionEvent> :
+             T extends 'drop' ? EventHandler<DropEvent> : never
+  ): void {
+    if (type.match(editorRegExp.changeEvent)) {
+      this.listeners.change.push(listener as EventHandler<ChangeEvent>);
+    }
+    if (type.match(editorRegExp.selectionEvent)) {
+      this.listeners.selection.push(listener as EventHandler<SelectionEvent>);
+    }
+    if (type.match(editorRegExp.dropEvent)) {
+      this.listeners.drop.push(listener as EventHandler<DropEvent>);
+    }
+  }
+
+  private fireChange(): void {
+    this.updatePlaceholder();
+    if (!this.textarea && !this.listeners.change.length) return;
+    const content = this.getContent();
+    if (this.textarea) this.textarea.value = content;
+    for (let listener of this.listeners.change) {
+      listener({
+        content: content,
+        linesDirty: [...this.lineDirty],
+      });
+    }
+  }
+
+  /**
+   * beforeinput handler, exclusively to handle insertParagraph,
+   * insertLineBreak, deleteContentBackward, and deleteContentForward events.
+   * These used to be handled in the input event, but that caused issues with
+   * Firefox where the input event would be sometimes not be fired for these
+   * input types. deleteContentBackward/Forward are also handled here to fix a
+   * Firefox-specific bug (#151) where backspacing on an empty line would not
+   * remove it, because Firefox only removes the <br> inside the empty <div>
+   * rather than merging the divs, and fixNodeHierarchy() would then re-add the
+   * <br>, resulting in a no-op.
+   * @param event The input event
+   * @returns nothing
+   */
+  private handleBeforeInputEvent(event: Event): void {
+    const beforeInputEvent = event as InputEvent;
+
+    // Handle cross-line delete operations (backspace at col 0, delete at end of line)
+    if (
+      beforeInputEvent.inputType === "deleteContentBackward" ||
+      beforeInputEvent.inputType === "deleteContentForward"
+    ) {
+      const focus = this.getSelection();
+      const anchor = this.getSelection(true);
+      if (!focus || !anchor) return;
+
+      const isBackspace = beforeInputEvent.inputType === "deleteContentBackward";
+
+      // Only intercept collapsed selections at line boundaries
+      if (focus.row === anchor.row && focus.col === anchor.col) {
+        if (isBackspace && focus.col === 0 && focus.row > 0) {
+          // Backspace at start of line: merge current line into end of previous
+          event.preventDefault();
+          if (!this.isRestoringHistory) this.pushHistory();
+          this.clearDirtyFlag();
+          const prevLineLen = this.lines[focus.row - 1].length;
+          this.lines[focus.row - 1] = this.lines[focus.row - 1] + this.lines[focus.row];
+          this.lineDirty[focus.row - 1] = true;
+          this.spliceLines(focus.row, 1);
+          this.updateFormatting();
+          this.setSelection({ row: focus.row - 1, col: prevLineLen });
+          this.fireChange();
+          return;
+        }
+        if (!isBackspace && focus.col === this.lines[focus.row].length && focus.row < this.lines.length - 1) {
+          // Delete at end of line: merge next line into current
+          event.preventDefault();
+          if (!this.isRestoringHistory) this.pushHistory();
+          this.clearDirtyFlag();
+          const currentLineLen = this.lines[focus.row].length;
+          this.lines[focus.row] = this.lines[focus.row] + this.lines[focus.row + 1];
+          this.lineDirty[focus.row] = true;
+          this.spliceLines(focus.row + 1, 1);
+          this.updateFormatting();
+          this.setSelection({ row: focus.row, col: currentLineLen });
+          this.fireChange();
+          return;
+        }
+      }
+      // For within-line deletes or non-collapsed selections, let the browser handle it
+      return;
+    }
+
+    if (
+      beforeInputEvent.inputType !== "insertParagraph" &&
+      beforeInputEvent.inputType !== "insertLineBreak"
+    ) return;
+    if (!this.isRestoringHistory) this.pushHistory();
+    event.preventDefault();
+    this.clearDirtyFlag();
+
+    const focus = this.getSelection();
+    const anchor = this.getSelection(true);
+
+    if (!focus || !anchor) return;
+    
+    // If focus and anchor are in different lines, simply remove everything 
+    // after the beginning of the selection and before the end of the selection
+    // and remove any lines in between
+    if (focus.row !== anchor.row) {
+      const beginning = focus.row < anchor.row ? focus : anchor;
+      const end = focus.row < anchor.row ? anchor : focus;
+      this.lines[beginning.row] = this.lines[beginning.row].substring(0, beginning.col);
+      this.lines[end.row] = this.lines[end.row].substring(end.col);
+      this.spliceLines(beginning.row + 1, end.row - beginning.row - 1);
+      focus.row = beginning.row + 1;
+      focus.col = 0;
+    } else {
+      let continuableType: string | false = false;
+      switch (this.lineTypes[focus.row]) {
+        case "TMUL":
+          continuableType = "TMUL";
+          break;
+        case "TMOL":
+          continuableType = "TMOL";
+          break;
+        case "TMIndentedCode":
+          continuableType = "TMIndentedCode";
+          break;
+      }
+ 
+      const lineBeforeBreak = this.lines[focus.row].substring(0, focus.col <= anchor.col ? focus.col : anchor.col);
+      const lineAfterBreak = this.lines[focus.row].substring(focus.col <= anchor.col ? anchor.col : focus.col);
+      this.spliceLines(focus.row, 1, [lineBeforeBreak, lineAfterBreak]);
+
+      focus.row += 1;
+      focus.col = 0;
+
+      if (continuableType) {
+        let capture = lineGrammar[continuableType].regexp.exec(this.lines[focus.row - 1]);
+        if (capture) {
+          if (capture[2]) {
+            if (continuableType === "TMOL") {
+              capture[1] = capture[1].replace(editorRegExp.orderedListNumber, (result) => {
+                return (parseInt(result) + 1).toString();
+              });
+            }
+            this.lines[focus.row] = `${capture[1]}${this.lines[focus.row]}`;
+            this.lineDirty[focus.row] = true;
+            focus.col = capture[1].length;
+          } else {
+            this.lines[focus.row - 1] = "";
+            this.lineDirty[focus.row - 1] = true;
+          }
+        }
+      }
+    }
+    this.updateFormatting();
+    this.setSelection(focus);
+
+    // Scroll the element containing the selection into view
+    if (focus && focus.row < this.lineElements.length) {
+      (this.lineElements[focus.row] as HTMLElement).scrollIntoView({
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    }
+
+    this.fireChange();
+  }
+
+  private handleInputEvent(event: Event): void {
+    const inputEvent = event as InputEvent;
+    if (inputEvent.inputType === "insertCompositionText") return;
+    if (!this.isRestoringHistory) this.pushHistory();
+
+    let focus = this.getSelection();
+
+    if ((inputEvent.inputType === "insertParagraph" || inputEvent.inputType === "insertLineBreak") && focus) {
+      // This should never happen since these are handled by the beforeinput handler
+      return;
+    } else {
+      if (!this.e!.firstChild) {
+        this.e!.innerHTML = '<div class="TMBlankLine"><br></div>';
+      } else {
+        this.fixNodeHierarchy();
+      }
+      this.updateLineContentsAndFormatting();
+    }
+    if (focus) {
+      this.setSelection(focus);
+    }
+
+    this.fireChange();
+  }
+
+  private handleSelectionChangeEvent(_e: Event): void {
+    this.fireSelection();
+  }
+
+  private handlePaste(event: ClipboardEvent): void {
+    if (!this.isRestoringHistory) this.pushHistory();
+    event.preventDefault();
+
+    let text = (event as any).clipboardData.getData("text/plain");
+    this.paste(text);
+  }
+
+  private handleDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.fireDrop(event.dataTransfer!);
+  }
+
+  /**
+   * Toggles a task list checkbox when its rendered box is clicked. Only the single inner character
+   * of the marker (`[ ]` -> `[x]` and back) is changed; the edit is length-preserving, recorded in
+   * the undo history, and fires a `change` event, mirroring setCommandState's line-edit flow.
+   */
+  private handleClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    const box = target && target.closest ? (target.closest(".TMCheckbox") as HTMLElement | null) : null;
+    if (!box) return; // Not a checkbox click — let the default caret placement happen.
+
+    // Walk up to the line element (a direct child of the editor) to find its source row.
+    let lineEl: HTMLElement | null = box;
+    while (lineEl && lineEl.parentNode !== this.e) {
+      lineEl = lineEl.parentNode as HTMLElement | null;
+    }
+    if (!lineEl || lineEl.dataset.lineNum === undefined) return;
+    const row = parseInt(lineEl.dataset.lineNum, 10);
+    if (isNaN(row) || row < 0 || row >= this.lines.length) return;
+
+    const col = this.computeColumn(box, 0);
+    if (col === null) return;
+    const ch = this.lines[row].charAt(col);
+    if (ch !== " " && ch !== "x" && ch !== "X") return; // Defensive: not actually a checkbox char.
+
+    event.preventDefault();
+
+    if (!this.isRestoringHistory) this.pushHistory();
+    this.clearDirtyFlag();
+    const replacement = ch === " " ? "x" : " ";
+    this.lines[row] = this.lines[row].substr(0, col) + replacement + this.lines[row].substr(col + 1);
+    this.lineDirty[row] = true;
+    this.updateFormatting();
+    this.fireChange();
+  }
+
+  public processInlineStyles(originalString: string): string {
+    let processed = "";
+    let stack: Array<{delimiter: string, delimString: string, count: number, output: string}> = [];
+    let offset = 0;
+    let string = originalString;
+
+    outer: while (string) {
+      // Soft line break: when a paragraph that spans several source lines is parsed as one
+      // joined string, the lines are separated by \n. Preserve it as a newline marker in the
+      // output; splitInlineHTMLByLine() later splits the result back into per-line fragments.
+      // No inline rule starts on a newline (NotTriggerChar and `.` both exclude it), so handling
+      // it here keeps the tokenizer from stalling.
+      if (string.charCodeAt(0) === 10) {
+        processed += "\n";
+        string = string.substr(1);
+        offset += 1;
+        continue outer;
+      }
+
+      // Process simple rules (non-delimiter)
+      for (let rule of ["escape", "code", "mathDisplay", "math", "autolink", "html"]) {
+        if (this.mergedInlineGrammar[rule]) {
+          let cap = this.mergedInlineGrammar[rule].regexp.exec(string);
+          if (cap) {
+            string = string.substr(cap[0].length);
+            offset += cap[0].length;
+            processed += this.mergedInlineGrammar[rule].replacement.replace(editorRegExp.inlineReplacementPlaceholder, (str, p1) => htmlescape(cap[p1]));
+            continue outer;
+          }
+        }
+      }
+      
+      // Process custom inline grammar rules
+      for (let rule in this.customInlineGrammar) {
+        if (rule !== "escape" && rule !== "code" && rule !== "mathDisplay" && rule !== "math" && rule !== "autolink" && rule !== "html" && rule !== "linkOpen" && rule !== "imageOpen" && rule !== "linkLabel" && rule !== "default") {
+          let cap = this.mergedInlineGrammar[rule].regexp.exec(string);
+          if (cap) {
+            string = string.substr(cap[0].length);
+            offset += cap[0].length;
+            processed += this.mergedInlineGrammar[rule].replacement.replace(editorRegExp.inlineReplacementPlaceholder, (str, p1) => htmlescape(cap[p1]));
+            continue outer;
+          }
+        }
+      }
+
+      // Check for GFM extended (non-delimited) autolinks: bare URLs (www.…, http(s)://…, ftp://…),
+      // email addresses, and mailto:/xmpp: links. These are only recognized at the start of the
+      // string or immediately after whitespace or one of the delimiters `*`, `_`, `~`, `(`.
+      const precedingChar = offset > 0 ? originalString[offset - 1] : "";
+      if (precedingChar === "" || editorRegExp.autolinkPrecedingChar.test(precedingChar)) {
+        let autolink = this.parseAutolinkExtension(string);
+        if (autolink) {
+          processed = `${processed}${autolink.output}`;
+          string = string.substr(autolink.charCount);
+          offset += autolink.charCount;
+          continue outer;
+        }
+      }
+
+      // Check for links / images
+      let potentialLink = string.match(this.mergedInlineGrammar.linkOpen.regexp);
+      let potentialImage = string.match(this.mergedInlineGrammar.imageOpen.regexp);
+      if (potentialImage || potentialLink) {
+        let result = this.parseLinkOrImage(string, !!potentialImage);
+        if (result) {
+          processed = `${processed}${result.output}`;
+          string = string.substr(result.charCount);
+          offset += result.charCount;
+          continue outer;
+        }
+      }
+
+      // Check for em / strong delimiters
+      let cap = editorRegExp.emphasisDelimiter.exec(string);
+      if (cap) {
+        let delimCount = cap[0].length;
+        const delimString = cap[0];
+        const currentDelimiter = cap[0][0];
+
+        string = string.substr(cap[0].length);
+
+        const preceding = offset > 0 ? originalString.substr(0, offset) : " ";
+        const following = offset + cap[0].length < originalString.length ? string : " ";
+
+        const punctuationFollows = following.match(punctuationLeading);
+        const punctuationPrecedes = preceding.match(punctuationTrailing);
+        const whitespaceFollows = following.match(editorRegExp.leadingWhitespace);
+        const whitespacePrecedes = preceding.match(editorRegExp.trailingWhitespace);
+
+        let canOpen = !whitespaceFollows && (!punctuationFollows || !!whitespacePrecedes || !!punctuationPrecedes);
+        let canClose = !whitespacePrecedes && (!punctuationPrecedes || !!whitespaceFollows || !!punctuationFollows);
+
+        if (currentDelimiter === "_" && canOpen && canClose) {
+          canOpen = !!punctuationPrecedes;
+          canClose = !!punctuationFollows;
+        }
+
+        if (canClose) {
+          let stackPointer = stack.length - 1;
+          while (delimCount && stackPointer >= 0) {
+            if (stack[stackPointer].delimiter === currentDelimiter) {
+              while (stackPointer < stack.length - 1) {
+                const entry = stack.pop()!;
+                processed = `${entry.output}${entry.delimString.substr(0, entry.count)}${processed}`;
+              }
+
+              if (delimCount >= 2 && stack[stackPointer].count >= 2) {
+                processed = `<span class="TMMark">${currentDelimiter}${currentDelimiter}</span><strong class="TMStrong">${processed}</strong><span class="TMMark">${currentDelimiter}${currentDelimiter}</span>`;
+                delimCount -= 2;
+                stack[stackPointer].count -= 2;
+              } else {
+                processed = `<span class="TMMark">${currentDelimiter}</span><em class="TMEm">${processed}</em><span class="TMMark">${currentDelimiter}</span>`;
+                delimCount -= 1;
+                stack[stackPointer].count -= 1;
+              }
+
+              if (stack[stackPointer].count === 0) {
+                let entry = stack.pop()!;
+                processed = `${entry.output}${processed}`;
+                stackPointer--;
+              }
+            } else {
+              stackPointer--;
+            }
+          }
+        }
+
+        if (delimCount && canOpen) {
+          stack.push({
+            delimiter: currentDelimiter,
+            delimString: delimString,
+            count: delimCount,
+            output: processed,
+          });
+          processed = "";
+          delimCount = 0;
+        }
+
+        if (delimCount) {
+          processed = `${processed}${delimString.substr(0, delimCount)}`;
+        }
+
+        offset += cap[0].length;
+        continue outer;
+      }
+
+      // Check for strikethrough delimiter
+      cap = editorRegExp.strikethroughDelimiter.exec(string);
+      if (cap) {
+        let consumed = false;
+        let stackPointer = stack.length - 1;
+        while (!consumed && stackPointer >= 0) {
+          if (stack[stackPointer].delimiter === "~") {
+            while (stackPointer < stack.length - 1) {
+              const entry = stack.pop()!;
+              processed = `${entry.output}${entry.delimString.substr(0, entry.count)}${processed}`;
+            }
+
+            processed = `<span class="TMMark">~~</span><del class="TMStrikethrough">${processed}</del><span class="TMMark">~~</span>`;
+            let entry = stack.pop()!;
+            processed = `${entry.output}${processed}`;
+            consumed = true;
+          } else {
+            stackPointer--;
+          }
+        }
+
+        if (!consumed) {
+          stack.push({
+            delimiter: "~",
+            delimString: "~~",
+            count: 2,
+            output: processed,
+          });
+          processed = "";
+        }
+
+        offset += cap[0].length;
+        string = string.substr(cap[0].length);
+        continue outer;
+      }
+
+      // Process 'default' rule
+      cap = this.mergedInlineGrammar.default.regexp.exec(string);
+      if (cap) {
+        string = string.substr(cap[0].length);
+        offset += cap[0].length;
+        processed += this.mergedInlineGrammar.default.replacement.replace(editorRegExp.inlineReplacementPlaceholder, (str, p1) => htmlescape(cap[p1]));
+        continue outer;
+      }
+      throw "Infinite loop!";
+    }
+
+    while (stack.length) {
+      const entry = stack.pop()!;
+      processed = `${entry.output}${entry.delimString.substr(0, entry.count)}${processed}`;
+    }
+
+    return processed;
+  }
+
+  private computeColumn(startNode: Node, offset: number): number | null {
+    let node = startNode;
+    let col: number;
+    while (node && node.parentNode !== this.e) {
+      node = node.parentNode!;
+    }
+    if (node === null) return null;
+
+    if (startNode.nodeType === Node.TEXT_NODE || offset === 0) {
+      col = offset;
+      node = startNode;
+    } else if (offset > 0) {
+      node = startNode.childNodes[offset - 1];
+      col = node.textContent!.length;
+    } else {
+      col = 0;
+      node = startNode;
+    }
+    while (node.parentNode !== this.e) {
+      if (node.previousSibling) {
+        node = node.previousSibling;
+        col += node.textContent!.length;
+      } else {
+        node = node.parentNode as unknown as ChildNode;
+      }
+    }
+    return col;
+  }
+
+  private computeNodeAndOffset(row: number, col: number, bindRight: boolean = false): {node: Node, offset: number} {
+    if (row >= this.lineElements.length) {
+      row = this.lineElements.length - 1;
+      col = this.lines[row].length;
+    }
+    if (col > this.lines[row].length) {
+      col = this.lines[row].length;
+    }
+    const parentNode = this.lineElements[row] as HTMLElement;
+    let node = parentNode.firstChild;
+
+    let childrenComplete = false;
+    let rv = {
+      node: parentNode.firstChild ? parentNode.firstChild : parentNode,
+      offset: 0,
+    };
+
+    while (node !== parentNode) {
+      if (!childrenComplete && node!.nodeType === Node.TEXT_NODE) {
+        if (node!.nodeValue!.length >= col) {
+          if (bindRight && node!.nodeValue!.length === col) {
+            rv = { node: node!, offset: col };
+            col = 0;
+          } else {
+            return { node: node!, offset: col };
+          }
+        } else {
+          col -= node!.nodeValue!.length;
+        }
+      }
+      if (!childrenComplete && node!.firstChild) {
+        node = node!.firstChild;
+      } else if (node!.nextSibling) {
+        childrenComplete = false;
+        node = node!.nextSibling;
+      } else {
+        childrenComplete = true;
+        node = node!.parentNode as unknown as ChildNode;
+      }
+    }
+
+    return rv;
+  }
+
+  private updateLineContentsAndFormatting(): void {
+    this.clearDirtyFlag();
+    this.updateLineContents();
+    this.updateFormatting();
+  }
+
+  private clearDirtyFlag(): void {
+    this.lineDirty = new Array(this.lines.length);
+    for (let i = 0; i < this.lineDirty.length; i++) {
+      this.lineDirty[i] = false;
+    }
+  }
+
+  private updateLineContents(): void {
+    let lineDelta = this.e!.childElementCount - this.lines.length;
+    if (lineDelta) {
+      let firstChangedLine = 0;
+      while (
+        firstChangedLine <= this.lines.length &&
+        firstChangedLine <= this.lineElements.length &&
+        this.lineElements[firstChangedLine] &&
+        this.lines[firstChangedLine] === (this.lineElements[firstChangedLine] as HTMLElement).textContent &&
+        this.lineTypes[firstChangedLine] === (this.lineElements[firstChangedLine] as HTMLElement).className
+      ) {
+        firstChangedLine++;
+      }
+
+      let lastChangedLine = -1;
+      while (
+        -lastChangedLine < this.lines.length &&
+        -lastChangedLine < this.lineElements.length &&
+        this.lines[this.lines.length + lastChangedLine] ===
+          (this.lineElements[this.lineElements.length + lastChangedLine] as HTMLElement).textContent &&
+        this.lineTypes[this.lines.length + lastChangedLine] ===
+          (this.lineElements[this.lineElements.length + lastChangedLine] as HTMLElement).className
+      ) {
+        lastChangedLine--;
+      }
+
+      let linesToDelete = this.lines.length + lastChangedLine + 1 - firstChangedLine;
+      if (linesToDelete < -lineDelta) linesToDelete = -lineDelta;
+      if (linesToDelete < 0) linesToDelete = 0;
+
+      let linesToAdd = [];
+      for (let l = 0; l < linesToDelete + lineDelta; l++) {
+        linesToAdd.push((this.lineElements[firstChangedLine + l] as HTMLElement).textContent || "");
+      }
+      this.spliceLines(firstChangedLine, linesToDelete, linesToAdd, false);
+    } else {
+      for (let line = 0; line < this.lineElements.length; line++) {
+        let e = this.lineElements[line] as HTMLElement;
+        let ct = e.textContent || "";
+        if (this.lines[line] !== ct || this.lineTypes[line] !== e.className) {
+          this.lines[line] = ct;
+          this.lineTypes[line] = e.className;
+          this.lineDirty[line] = true;
+        }
+      }
+    }
+  }
+
+  private spliceLines(
+    startLine: number,
+    linesToDelete: number = 0,
+    linesToInsert: string[] = [],
+    adjustLineElements: boolean = true
+  ): void {
+    if (adjustLineElements) {
+      for (let i = 0; i < linesToDelete; i++) {
+        this.e!.removeChild(this.e!.childNodes[startLine]);
+      }
+    }
+
+    let insertedBlank = [];
+    let insertedDirty = [];
+
+    for (let i = 0; i < linesToInsert.length; i++) {
+      insertedBlank.push("");
+      insertedDirty.push(true);
+      if (adjustLineElements) {
+        if (this.e!.childNodes[startLine])
+          this.e!.insertBefore(document.createElement("div"), this.e!.childNodes[startLine]);
+        else this.e!.appendChild(document.createElement("div"));
+      }
+    }
+
+    this.lines.splice(startLine, linesToDelete, ...linesToInsert);
+    this.lineTypes.splice(startLine, linesToDelete, ...insertedBlank);
+    this.lineDirty.splice(startLine, linesToDelete, ...insertedDirty);
+  }
+
+  private fixNodeHierarchy(): void {
+    const originalChildren = Array.from(this.e!.childNodes);
+
+    const replaceChild = (child: Node, ...newChildren: Node[]) => {
+      const parent = child.parentElement!;
+      const nextSibling = child.nextSibling;
+      parent.removeChild(child);
+      newChildren.forEach((newChild) =>
+        nextSibling ? parent.insertBefore(newChild, nextSibling) : parent.appendChild(newChild)
+      );
+    };
+
+    originalChildren.forEach((child) => {
+      if (child.nodeType !== Node.ELEMENT_NODE || (child as HTMLElement).tagName !== "DIV") {
+        const divWrapper = document.createElement("div");
+        replaceChild(child, divWrapper);
+        divWrapper.appendChild(child);
+      } else if (child.childNodes.length === 0) {
+        child.appendChild(document.createElement("br"));
+      } else {
+        const grandChildren = Array.from(child.childNodes);
+        if (
+          grandChildren.some(
+            (grandChild) =>
+              grandChild.nodeType === Node.ELEMENT_NODE && (grandChild as HTMLElement).tagName === "DIV"
+          )
+        ) {
+          return replaceChild(child, ...grandChildren);
+        }
+      }
+    });
+  }
+
+  /**
+   * Attempts to parse a GFM extended (non-delimited) autolink at the start of `string`: a bare URL
+   * (`www.…`, `http://…`, `https://…`, `ftp://…`), an email address, or a `mailto:`/`xmpp:` link.
+   * The caller is responsible for the preceding-character boundary check. On success, returns the
+   * rendered HTML (the matched text wrapped in a `TMAutolink` span, exactly like the content of an
+   * angle-bracketed autolink) and the number of source characters consumed; otherwise `false`.
+   */
+  public parseAutolinkExtension(string: string): {output: string, charCount: number} | false {
+    const match = this.matchExtendedAutolink(string);
+    if (!match) return false;
+    return {
+      output: `<span class="TMAutolink">${htmlescape(match)}</span>`,
+      charCount: match.length,
+    };
+  }
+
+  /** Returns the longest extended-autolink substring at the start of `string`, or `false`. */
+  private matchExtendedAutolink(string: string): string | false {
+    // --- Bare URL / www autolink -----------------------------------------------------------------
+    // www. is treated as part of the domain; an explicit scheme is stripped before the domain.
+    const schemeCap = editorRegExp.autolinkScheme.exec(string);
+    const isWww = editorRegExp.autolinkWww.test(string);
+    if (schemeCap || isWww) {
+      const prefixLen = schemeCap ? schemeCap[0].length : 0;
+      const afterPrefix = string.substr(prefixLen);
+      // A valid domain is dot-separated segments of alphanumerics, `_` and `-`, with at least one
+      // dot and no underscore in the last two segments.
+      const domainCap = editorRegExp.autolinkDomain.exec(afterPrefix);
+      if (domainCap && this.isValidAutolinkDomain(domainCap[0])) {
+        // After the domain, any run of non-space, non-`<` characters forms the path/query/fragment.
+        const pathCap = editorRegExp.autolinkPath.exec(afterPrefix.substr(domainCap[0].length));
+        const link = string.substr(0, prefixLen + domainCap[0].length + (pathCap ? pathCap[0].length : 0));
+        const trimmed = this.trimAutolinkTrailing(link);
+        // Guard against trailing punctuation trimming having eaten into the domain.
+        if (trimmed.length >= prefixLen + domainCap[0].length) return trimmed;
+      }
+    }
+
+    // --- mailto: / xmpp: autolink ----------------------------------------------------------------
+    const protoCap = editorRegExp.autolinkProtocol.exec(string);
+    if (protoCap) {
+      const emailCap = this.matchAutolinkEmail(string.substr(protoCap[0].length));
+      if (emailCap) {
+        // xmpp addresses may carry a `/resource` suffix.
+        let extra = "";
+        if (editorRegExp.autolinkXmpp.test(string)) {
+          const resCap = editorRegExp.autolinkXmppResource.exec(
+            string.substr(protoCap[0].length + emailCap.length)
+          );
+          if (resCap) extra = resCap[0];
+        }
+        return protoCap[0] + emailCap + extra;
+      }
+    }
+
+    // --- Bare email autolink ---------------------------------------------------------------------
+    const email = this.matchAutolinkEmail(string);
+    if (email) return email;
+
+    return false;
+  }
+
+  /** GFM domain validity: at least one dot and no underscore in the last two segments. */
+  private isValidAutolinkDomain(domain: string): boolean {
+    const segments = domain.split(".");
+    if (segments.length < 2) return false;
+    return !segments.slice(-2).some((seg) => seg.indexOf("_") >= 0);
+  }
+
+  /** Matches a bare email address at the start of `string` per the GFM extension, or `false`. */
+  private matchAutolinkEmail(string: string): string | false {
+    // Local part: alphanumerics plus `.`, `-`, `_`, `+`. Domain: dot-separated labels of
+    // alphanumerics, `-` and `_`, with at least one dot and no `-`/`_` as the final character.
+    const cap = editorRegExp.autolinkEmail.exec(string);
+    if (!cap) return false;
+    let email = cap[0];
+    while (email.length && editorRegExp.emailTrailingChar.test(email)) email = email.substr(0, email.length - 1);
+    // Must still end in a complete TLD (i.e. retain a dot after the trimming).
+    if (!editorRegExp.emailTld.test(email)) return false;
+    return email;
+  }
+
+  /**
+   * Strips trailing characters that GFM excludes from an autolink: the punctuation `?!.,:*_~`, and
+   * any unbalanced trailing `)` (more closing than opening parentheses in the link).
+   */
+  private trimAutolinkTrailing(link: string): string {
+    let end = link.length;
+    let changed = true;
+    while (changed && end > 0) {
+      changed = false;
+      const c = link[end - 1];
+      if ("?!.,:*_~".indexOf(c) >= 0) {
+        end--;
+        changed = true;
+      } else if (c === ")") {
+        let open = 0;
+        let close = 0;
+        for (let i = 0; i < end; i++) {
+          if (link[i] === "(") open++;
+          else if (link[i] === ")") close++;
+        }
+        if (close > open) {
+          end--;
+          changed = true;
+        }
+      }
+    }
+    return link.substr(0, end);
+  }
+
+  public parseLinkOrImage(originalString: string, isImage: boolean): {output: string, charCount: number} | false {
+    // Skip the opening bracket
+    let textOffset = isImage ? 2 : 1;
+    let opener = originalString.substr(0, textOffset);
+    let type = isImage ? "TMImage" : "TMLink";
+    let currentOffset = textOffset;
+
+    let bracketLevel = 1;
+    let linkText: string | false = false;
+    let linkRef: string | false = false;
+    let linkLabel: string[] = [];
+    let linkDetails: string[] = [];
+
+    textOuter: while (
+      currentOffset < originalString.length &&
+      linkText === false
+    ) {
+      let string = originalString.substr(currentOffset);
+
+      // Capture any escapes, code and math spans at current position
+      for (let rule of ["escape", "code", "mathDisplay", "math", "autolink", "html"]) {
+        let cap = this.mergedInlineGrammar[rule].regexp.exec(string);
+        if (cap) {
+          currentOffset += cap[0].length;
+          continue textOuter;
+        }
+      }
+
+      // Check for image
+      if (string.match(this.mergedInlineGrammar.imageOpen.regexp)) {
+        bracketLevel++;
+        currentOffset += 2;
+        continue textOuter;
+      }
+
+      // Check for link
+      if (string.match(this.mergedInlineGrammar.linkOpen.regexp)) {
+        bracketLevel++;
+        if (!isImage) {
+          if (this.parseLinkOrImage(string, false)) {
+            return false;
+          }
+        }
+        currentOffset += 1;
+        continue textOuter;
+      }
+
+      // Check for closing bracket
+      if (string.match(editorRegExp.linkClosingBracket)) {
+        bracketLevel--;
+        if (bracketLevel === 0) {
+          linkText = originalString.substr(textOffset, currentOffset - textOffset);
+          currentOffset++;
+          continue textOuter;
+        }
+      }
+
+      // Nothing matches, proceed to next char
+      currentOffset++;
+    }
+
+    // Did we find a link text?
+    if (linkText === false) return false;
+
+    // Check what type of link this is
+    let nextChar = currentOffset < originalString.length ? originalString.substr(currentOffset, 1) : "";
+
+    // REFERENCE LINKS
+    if (nextChar === "[") {
+      let string = originalString.substr(currentOffset);
+      let cap = this.mergedInlineGrammar.linkLabel.regexp.exec(string);
+      if (cap) {
+        currentOffset += cap[0].length;
+        linkLabel.push(cap[1], cap[2], cap[3]);
+        if (cap[this.mergedInlineGrammar.linkLabel.labelPlaceholder!]) {
+          linkRef = cap[this.mergedInlineGrammar.linkLabel.labelPlaceholder!];
+        } else {
+          linkRef = linkText.trim();
+        }
+      } else {
+        return false;
+      }
+    } else if (nextChar !== "(") {
+      // Shortcut ref link
+      linkRef = linkText.trim();
+    } else {
+      // INLINE LINKS
+      currentOffset++;
+      let parenthesisLevel = 1;
+
+      inlineOuter: while (currentOffset < originalString.length && parenthesisLevel > 0) {
+        let string = originalString.substr(currentOffset);
+
+        // Process whitespace
+        let cap = editorRegExp.leadingWhitespaceRun.exec(string);
+        if (cap) {
+          switch (linkDetails.length) {
+            case 0:
+              linkDetails.push(cap[0]);
+              break;
+            case 1:
+              linkDetails.push(cap[0]);
+              break;
+            case 2:
+              if (linkDetails[0].match(editorRegExp.containsOpenAngle)) {
+                linkDetails[1] = linkDetails[1].concat(cap[0]);
+              } else {
+                if (parenthesisLevel !== 1) return false;
+                linkDetails.push("");
+                linkDetails.push(cap[0]);
+              }
+              break;
+            case 3:
+              linkDetails.push(cap[0]);
+              break;
+            case 4:
+              return false;
+            case 5:
+              linkDetails.push("");
+            case 6:
+              linkDetails[5] = linkDetails[5].concat(cap[0]);
+              break;
+            case 7:
+              linkDetails[6] = linkDetails[6].concat(cap[0]);
+              break;
+            default:
+              return false;
+          }
+          currentOffset += cap[0].length;
+          continue inlineOuter;
+        }
+
+        // Process backslash escapes
+        cap = this.mergedInlineGrammar.escape.regexp.exec(string);
+        if (cap) {
+          switch (linkDetails.length) {
+            case 0:
+              linkDetails.push("");
+            case 1:
+              linkDetails.push(cap[0]);
+              break;
+            case 2:
+              linkDetails[1] = linkDetails[1].concat(cap[0]);
+              break;
+            case 3:
+              return false;
+            case 4:
+              return false;
+            case 5:
+              linkDetails.push("");
+            case 6:
+              linkDetails[5] = linkDetails[5].concat(cap[0]);
+              break;
+            default:
+              return false;
+          }
+          currentOffset += cap[0].length;
+          continue inlineOuter;
+        }
+
+        // Process opening angle bracket
+        if (linkDetails.length < 2 && string.match(editorRegExp.openingAngle)) {
+          if (linkDetails.length === 0) linkDetails.push("");
+          linkDetails[0] = linkDetails[0].concat("<");
+          currentOffset++;
+          continue inlineOuter;
+        }
+
+        // Process closing angle bracket
+        if ((linkDetails.length === 1 || linkDetails.length === 2) && string.match(editorRegExp.closingAngle)) {
+          if (linkDetails.length === 1) linkDetails.push("");
+          linkDetails.push(">");
+          currentOffset++;
+          continue inlineOuter;
+        }
+
+        // Process non-parenthesis delimiter for title
+        cap = editorRegExp.titleQuote.exec(string);
+        if (cap && (linkDetails.length === 0 || linkDetails.length === 1 || linkDetails.length === 4)) {
+          while (linkDetails.length < 4) linkDetails.push("");
+          linkDetails.push(cap[0]);
+          currentOffset++;
+          continue inlineOuter;
+        }
+
+        if (cap && (linkDetails.length === 5 || linkDetails.length === 6) && linkDetails[4] === cap[0]) {
+          if (linkDetails.length === 5) linkDetails.push("");
+          linkDetails.push(cap[0]);
+          currentOffset++;
+          continue inlineOuter;
+        }
+
+        // Process opening parenthesis
+        if (string.match(editorRegExp.openingParen)) {
+          switch (linkDetails.length) {
+            case 0:
+              linkDetails.push("");
+            case 1:
+              linkDetails.push("");
+            case 2:
+              linkDetails[1] = linkDetails[1].concat("(");
+              if (!linkDetails[0].match(editorRegExp.endsWithOpenAngle)) parenthesisLevel++;
+              break;
+            case 3:
+              linkDetails.push("");
+            case 4:
+              linkDetails.push("(");
+              break;
+            case 5:
+              linkDetails.push("");
+            case 6:
+              if (linkDetails[4] === "(") return false;
+              linkDetails[5] = linkDetails[5].concat("(");
+              break;
+            default:
+              return false;
+          }
+          currentOffset++;
+          continue inlineOuter;
+        }
+
+        // Process closing parenthesis
+        if (string.match(editorRegExp.closingParen)) {
+          if (linkDetails.length <= 2) {
+            while (linkDetails.length < 2) linkDetails.push("");
+            if (!linkDetails[0].match(editorRegExp.endsWithOpenAngle)) parenthesisLevel--;
+            if (parenthesisLevel > 0) {
+              linkDetails[1] = linkDetails[1].concat(")");
+            }
+          } else if (linkDetails.length === 5 || linkDetails.length === 6) {
+            if (linkDetails[4] === "(") {
+              if (linkDetails.length === 5) linkDetails.push("");
+              linkDetails.push(")");
+            } else {
+              if (linkDetails.length === 5) linkDetails.push(")");
+              else linkDetails[5] = linkDetails[5].concat(")");
+            }
+          } else {
+            parenthesisLevel--;
+          }
+
+          if (parenthesisLevel === 0) {
+            while (linkDetails.length < 7) linkDetails.push("");
+          }
+
+          currentOffset++;
+          continue inlineOuter;
+        }
+
+        // Any old character
+        cap = editorRegExp.anyChar.exec(string);
+        if (cap) {
+          switch (linkDetails.length) {
+            case 0:
+              linkDetails.push("");
+            case 1:
+              linkDetails.push(cap[0]);
+              break;
+            case 2:
+              linkDetails[1] = linkDetails[1].concat(cap[0]);
+              break;
+            case 3:
+              return false;
+            case 4:
+              return false;
+            case 5:
+              linkDetails.push("");
+            case 6:
+              linkDetails[5] = linkDetails[5].concat(cap[0]);
+              break;
+            default:
+              return false;
+          }
+          currentOffset += cap[0].length;
+          continue inlineOuter;
+        }
+        throw "Infinite loop";
+      }
+      if (parenthesisLevel > 0) return false;
+    }
+
+    if (linkRef !== false) {
+      // Reference link; check that linkRef is valid
+      let valid = false;
+      for (let label of this.linkLabels) {
+        if (label === linkRef) {
+          valid = true;
+          break;
+        }
+      }
+      let labelClass = valid ? "TMLinkLabel TMLinkLabel_Valid" : "TMLinkLabel TMLinkLabel_Invalid";
+      let output = `<span class="TMMark TMMark_${type}">${opener}</span><span class="${type} ${
+        linkLabel.length < 3 || !linkLabel[1] ? labelClass : ""
+      }">${this.processInlineStyles(linkText)}</span><span class="TMMark TMMark_${type}">]</span>`;
+
+      if (linkLabel.length >= 3) {
+        output = output.concat(
+          `<span class="TMMark TMMark_${type}">${linkLabel[0]}</span>`,
+          `<span class="${labelClass}">${linkLabel[1]}</span>`,
+          `<span class="TMMark TMMark_${type}">${linkLabel[2]}</span>`
+        );
+      }
+      return {
+        output: output,
+        charCount: currentOffset,
+      };
+    } else if (linkDetails.length > 0) {
+      // Inline link
+      while (linkDetails.length < 7) {
+        linkDetails.push("");
+      }
+
+      // Every literal mark fragment is HTML-escaped: linkDetails[0]/[2] hold the angle brackets of
+      // an `<...>` destination, so leaving them raw would inject a stray `<`/`>` into the output —
+      // which splitInlineHTMLByLine then mistakes for an HTML tag.
+      return {
+        output: `<span class="TMMark TMMark_${type}">${opener}</span><span class="${type}">${this.processInlineStyles(
+          linkText
+        )}</span><span class="TMMark TMMark_${type}">](${
+          htmlescape(linkDetails[0])
+        }</span><span class="${type}Destination">${
+          htmlescape(linkDetails[1])
+        }</span><span class="TMMark TMMark_${type}">${htmlescape(linkDetails[2])}${
+          htmlescape(linkDetails[3])
+        }${htmlescape(linkDetails[4])}</span><span class="${type}Title">${
+          htmlescape(linkDetails[5])
+        }</span><span class="TMMark TMMark_${type}">${htmlescape(linkDetails[6])})</span>`,
+        charCount: currentOffset,
+      };
+    }
+
+    return false;
+  }
+
+  private computeCommonAncestor(node1: Node | null, node2: Node | null): Node | null {
+    if (!node1 || !node2) return null;
+    if (node1 === node2) return node1;
+    const ancestry = (node: Node) => {
+      let ancestry = [];
+      while (node) {
+        ancestry.unshift(node);
+        node = node.parentNode!;
+      }
+      return ancestry;
+    };
+
+    const ancestry1 = ancestry(node1);
+    const ancestry2 = ancestry(node2);
+
+    if (ancestry1[0] !== ancestry2[0]) return null;
+    let i;
+    for (i = 0; ancestry1[i] === ancestry2[i]; i++);
+    return ancestry1[i - 1];
+  }
+
+  private computeEnclosingMarkupNode(focus: Position, anchor: Position | null, className: string): Node | null {
+    let node = null;
+    if (!focus) return null;
+    if (!anchor) {
+      const sel = window.getSelection();
+      if (!sel || !sel.focusNode) return null;
+      node = sel.focusNode;
+    } else {
+      if (focus.row !== anchor.row) return null;
+      const sel = window.getSelection();
+      if (!sel) return null;
+      node = this.computeCommonAncestor(sel.focusNode, sel.anchorNode);
+    }
+    if (!node) return null;
+    while (node !== this.e) {
+      if ((node as HTMLElement).classList && (node as HTMLElement).classList.contains(className)) return node;
+      node = node.parentNode!;
+    }
+    return null;
+  }
+
+  public getCommandState(focus: Position | null = null, anchor: Position | null = null): Record<string, boolean | null> {
+    let commandState: Record<string, boolean | null> = {};
+    if (!focus) focus = this.getSelection(false);
+    if (!anchor) anchor = this.getSelection(true);
+    if (!focus) {
+      for (let cmd in commands) {
+        commandState[cmd] = null;
+      }
+      return commandState;
+    }
+    if (!anchor) anchor = focus;
+
+    let start: Position, end: Position;
+    if (anchor.row < focus.row || (anchor.row === focus.row && anchor.col < focus.col)) {
+      start = anchor;
+      end = focus;
+    } else {
+      start = focus;
+      end = anchor;
+    }
+    if (end.row > start.row && end.col === 0) {
+      end.row--;
+      end.col = this.lines[end.row].length;
+    }
+
+    for (let cmd in commands) {
+      if (commands[cmd].type === "inline") {
+        if (!focus || focus.row !== anchor!.row || !this.isInlineFormattingAllowed()) {
+          commandState[cmd] = null;
+        } else {
+          commandState[cmd] =
+            !!this.computeEnclosingMarkupNode(focus, anchor, commands[cmd].className) ||
+            (focus.col === anchor!.col &&
+              !!this.lines[focus.row].substr(0, focus.col).match(commands[cmd].unset.prePattern) &&
+              !!this.lines[focus.row].substr(focus.col).match(commands[cmd].unset.postPattern));
+        }
+      }
+      if (commands[cmd].type === "line") {
+        if (!focus) {
+          commandState[cmd] = null;
+        } else {
+          let state: boolean | null = this.lineTypes[start.row] === commands[cmd].className;
+          for (let line = start.row; line <= end.row; line++) {
+            if ((this.lineTypes[line] === commands[cmd].className) !== state) {
+              state = null;
+              break;
+            }
+          }
+          commandState[cmd] = state;
+        }
+      }
+    }
+    return commandState;
+  }
+
+  public setCommandState(command: string, state: boolean): void {
+    if (!this.isRestoringHistory) this.pushHistory();
+    if (commands[command].type === "inline") {
+      let anchor = this.getSelection(true);
+      let focus = this.getSelection(false);
+      if (!anchor) anchor = focus;
+      if (!anchor) return;
+      if (anchor.row !== focus!.row) return;
+      if (!this.isInlineFormattingAllowed()) return;
+      let markupNode = this.computeEnclosingMarkupNode(focus!, anchor, commands[command].className);
+      this.clearDirtyFlag();
+
+      if (markupNode) {
+        this.lineDirty[focus!.row] = true;
+        const startCol = this.computeColumn(markupNode, 0)!;
+        const len = markupNode.textContent!.length;
+        const left = this.lines[focus!.row]
+          .substr(0, startCol)
+          .replace(commands[command].unset.prePattern, "");
+        const mid = this.lines[focus!.row].substr(startCol, len);
+        const right = this.lines[focus!.row]
+          .substr(startCol + len)
+          .replace(commands[command].unset.postPattern, "");
+        this.lines[focus!.row] = left.concat(mid, right);
+        anchor.col = left.length;
+        focus!.col = anchor.col + len;
+        this.updateFormatting();
+        this.setSelection(focus!, anchor);
+        this.fireChange();
+      } else if (
+        focus!.col === anchor.col &&
+        !!this.lines[focus!.row].substr(0, focus!.col).match(commands[command].unset.prePattern) &&
+        !!this.lines[focus!.row].substr(focus!.col).match(commands[command].unset.postPattern)
+      ) {
+        this.lineDirty[focus!.row] = true;
+        const left = this.lines[focus!.row]
+          .substr(0, focus!.col)
+          .replace(commands[command].unset.prePattern, "");
+        const right = this.lines[focus!.row]
+          .substr(focus!.col)
+          .replace(commands[command].unset.postPattern, "");
+        this.lines[focus!.row] = left.concat(right);
+        focus!.col = anchor.col = left.length;
+        this.updateFormatting();
+        this.setSelection(focus!, anchor);
+        this.fireChange();
+      } else {
+        let { startCol, endCol } =
+          focus!.col < anchor.col
+            ? { startCol: focus!.col, endCol: anchor.col }
+            : { startCol: anchor.col, endCol: focus!.col };
+
+        let match = this.lines[focus!.row]
+          .substr(startCol, endCol - startCol)
+          .match(editorRegExp.surroundingWhitespace);
+        if (match) {
+          startCol += match.groups!.leading.length;
+          endCol -= match.groups!.trailing.length;
+        }
+
+        focus!.col = startCol;
+        anchor.col = endCol;
+
+        // wrapSelection() fires the change event itself.
+        this.wrapSelection(commands[command].set.pre, commands[command].set.post, focus, anchor);
+      }
+    } else if (commands[command].type === "line") {
+      let anchor = this.getSelection(true);
+      let focus = this.getSelection(false);
+      if (!anchor) anchor = focus;
+      if (!focus) return;
+      this.clearDirtyFlag();
+      let start = anchor!.row > focus!.row ? focus! : anchor!;
+      let end = anchor!.row > focus!.row ? anchor! : focus!;
+      if (end.row > start.row && end.col === 0) {
+        end.row--;
+      }
+
+      for (let line = start.row; line <= end.row; line++) {
+        if (state && this.lineTypes[line] !== commands[command].className) {
+          this.lines[line] = this.lines[line].replace(
+            commands[command].set.pattern,
+            commands[command].set.replacement.replace("$#", (line - start.row + 1).toString())
+          );
+          this.lineDirty[line] = true;
+        }
+        if (!state && this.lineTypes[line] === commands[command].className) {
+          this.lines[line] = this.lines[line].replace(
+            commands[command].unset.pattern,
+            commands[command].unset.replacement
+          );
+          this.lineDirty[line] = true;
+        }
+      }
+      this.updateFormatting();
+      this.setSelection(
+        { row: end.row, col: this.lines[end.row].length },
+        { row: start.row, col: 0 }
+      );
+      this.fireChange();
+    }
+  }
+
+  /**
+   * Returns the list-item marker prefix (e.g. `- `, `* `, `1. `) of `line`, or null if the line
+   * isn't a bulleted or ordered list item.
+   */
+  private listItemMarker(line: string): string | null {
+    const ul = lineGrammar.TMUL.regexp.exec(line);
+    if (ul) return ul[1];
+    const ol = lineGrammar.TMOL.regexp.exec(line);
+    if (ol) return ol[1];
+    return null;
+  }
+
+  /** True when line `row` is a list item whose content begins with a task-list checkbox. */
+  public isTaskListItem(row: number): boolean {
+    if (row < 0 || row >= this.lines.length) return false;
+    const type = this.lineTypes[row];
+    if (type !== "TMUL" && type !== "TMOL") return false;
+    const marker = this.listItemMarker(this.lines[row]);
+    if (marker === null) return false;
+    return editorRegExp.taskListItem.test(this.lines[row].substr(marker.length));
+  }
+
+  /** Adds an unchecked `[ ]` checkbox to a line, making it a bulleted list item if it wasn't one. */
+  private addTaskCheckbox(line: string): string {
+    const marker = this.listItemMarker(line);
+    if (marker !== null) {
+      const content = line.substr(marker.length);
+      if (editorRegExp.taskListItem.test(content)) return line; // already a task item
+      return `${marker}[ ] ${content}`;
+    }
+    // Not a list item yet: strip any existing block marker and make it a bulleted task item,
+    // mirroring how the `ul` command normalizes a line.
+    return line.replace((commands.ul as LineCommand).set.pattern, "- [ ] $2");
+  }
+
+  /** Removes a task-list checkbox from a line, leaving the surrounding list item intact. */
+  private removeTaskCheckbox(line: string): string {
+    const marker = this.listItemMarker(line);
+    if (marker === null) return line;
+    const task = editorRegExp.taskListItem.exec(line.substr(marker.length));
+    if (!task) return line;
+    return `${marker}${task[5]}`;
+  }
+
+  /**
+   * Toggles GFM task-list checkboxes on the selected line(s). If every selected line is already a
+   * task item, their checkboxes are removed (leaving plain list items); otherwise each line gets an
+   * unchecked `[ ]` checkbox (becoming a bulleted list item if it wasn't a list item yet). Mirrors
+   * setCommandState's line-edit flow: pushes undo history, reformats, and fires a `change` event.
+   */
+  public toggleTaskList(): void {
+    let anchor = this.getSelection(true);
+    let focus = this.getSelection(false);
+    if (!anchor) anchor = focus;
+    if (!focus) return;
+
+    let start = anchor!.row > focus!.row ? focus! : anchor!;
+    let end = anchor!.row > focus!.row ? anchor! : focus!;
+    if (end.row > start.row && end.col === 0) {
+      end.row--;
+    }
+
+    let allTasks = true;
+    for (let line = start.row; line <= end.row; line++) {
+      if (!this.isTaskListItem(line)) {
+        allTasks = false;
+        break;
+      }
+    }
+
+    if (!this.isRestoringHistory) this.pushHistory();
+    this.clearDirtyFlag();
+
+    for (let line = start.row; line <= end.row; line++) {
+      const updated = allTasks
+        ? this.removeTaskCheckbox(this.lines[line])
+        : this.addTaskCheckbox(this.lines[line]);
+      if (updated !== this.lines[line]) {
+        this.lines[line] = updated;
+        this.lineDirty[line] = true;
+      }
+    }
+
+    this.updateFormatting();
+    this.setSelection(
+      { row: end.row, col: this.lines[end.row].length },
+      { row: start.row, col: 0 }
+    );
+    this.fireChange();
+  }
+
+  public isInlineFormattingAllowed(): boolean {
+    const sel = window.getSelection();
+    if (!sel || !sel.focusNode || !sel.anchorNode) return false;
+
+    if (
+      sel.isCollapsed &&
+      sel.focusNode.nodeType === 3 &&
+      sel.focusOffset === sel.focusNode.nodeValue!.length
+    ) {
+      let node;
+      for (node = sel.focusNode; node && node.nextSibling === null; node = node.parentNode!);
+      if (
+        node &&
+        node.nextSibling &&
+        (node.nextSibling as HTMLElement).classList &&
+        (node.nextSibling as HTMLElement).classList.contains("TMInlineFormatted")
+      )
+        return true;
+    }
+
+    let ancestor = this.computeCommonAncestor(sel.focusNode, sel.anchorNode);
+    if (!ancestor) return false;
+
+    while (ancestor && ancestor !== this.e) {
+      if (
+        (ancestor as HTMLElement).classList &&
+        ((ancestor as HTMLElement).classList.contains("TMInlineFormatted") ||
+          (ancestor as HTMLElement).classList.contains("TMBlankLine"))
+      )
+        return true;
+      ancestor = ancestor.parentNode!;
+    }
+
+    return false;
+  }
+
+  public toggleCommandState(command: string): void {
+    if (!this.lastCommandState) this.lastCommandState = this.getCommandState();
+    this.setCommandState(command, !this.lastCommandState[command]);
+  }
+
+  private fireDrop(dataTransfer: DataTransfer): void {
+    for (let listener of this.listeners.drop) {
+      listener({ dataTransfer });
+    }
+  }
+
+  private fireSelection(): void {
+    let focus = this.getSelection(false);
+    let anchor = this.getSelection(true);
+
+    // Save the current selection for restoration later
+    this.lastSelection = {
+      focus: focus,
+      anchor: anchor
+    };
+
+    if (this.listeners.selection && this.listeners.selection.length) {
+      let commandState = this.getCommandState(focus, anchor);
+      if (this.lastCommandState) {
+        Object.assign(this.lastCommandState, commandState);
+      } else {
+        this.lastCommandState = Object.assign({}, commandState);
+      }
+      for (let listener of this.listeners.selection) {
+        listener({
+          focus: focus!,
+          anchor: anchor!,
+          commandState: this.lastCommandState,
+        });
+      }
+    }
+  }
+}
+
+export default Editor;

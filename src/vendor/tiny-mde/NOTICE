@@ -1,0 +1,10 @@
+tiny-mde (TinyMDE), a markdown editor by Jens-Fabian Goetzmann.
+MIT licensed; see LICENSE in this directory.
+
+Vendored from the linXiv fork (github.com/jakeuribe/tiny-mde-linxiv), based on
+upstream jefago/tiny-markdown-editor at 5c9558d plus the fork's MathJax
+preview work. Copied: TinyMDE.ts, TinyMDECommandBar.ts, grammar.ts,
+svg/svg.ts, editor.css, commandbar.css.
+
+Local change: a `// @ts-nocheck` first line on TinyMDE.ts. Theme overrides
+live outside this directory, in src/styles/live-editor.css.
