@@ -27,7 +27,9 @@ export default function NotePage() {
   async function editLive() {
     setLiveError(null);
     try {
-      const doc = await hostLiveDoc({ kind: "note", key: String(noteId) });
+      const doc = await hostLiveDoc({
+        source: { kind: "note", key: String(noteId) },
+      });
       navigate(`/live/${doc}`);
     } catch (e) {
       setLiveError(errText(e));

@@ -23,6 +23,12 @@ export interface LiveStatus {
   peers: number;
   /** Other people's selections, as offsets into the editor's text. */
   cursors: LiveCursorRow[];
+  /** End-to-end encrypted; `peers` then counts members present. */
+  secure: boolean;
+  /** False for a viewer of an encrypted doc. */
+  canEdit: boolean;
+  /** Encrypted, and this device is not a member: it will never open. */
+  denied: boolean;
   error: string | null;
   /** The doc no longer exists on this device. */
   closed: boolean;
@@ -110,6 +116,9 @@ export class LiveSession {
     hosted: false,
     peers: 0,
     cursors: [],
+    secure: false,
+    canEdit: false,
+    denied: false,
     error: null,
     closed: false,
   };
@@ -131,7 +140,8 @@ export class LiveSession {
 
   /** Call on every editor change. Posts until the backend has the text. */
   push(): Promise<void> {
-    if (!this.status.ready || this.stopped) return Promise.resolve();
+    if (!this.status.ready || !this.status.canEdit || this.stopped)
+      return Promise.resolve();
     return (this.pushing ??= this.drain()
       .catch((e) => this.fail(e))
       .finally(() => {
@@ -185,7 +195,11 @@ export class LiveSession {
           await this.sleep(BUSY_MS);
         } else if (this.pushing) {
           await this.pushing; // its reply is fresher than this one
-        } else if (this.status.ready && this.editor.getText() !== this.shadow) {
+        } else if (
+          this.status.ready &&
+          this.status.canEdit &&
+          this.editor.getText() !== this.shadow
+        ) {
           const posted = this.shadow;
           await this.push();
           // Still unposted: the push failed. Don't spin on it.
@@ -214,6 +228,9 @@ export class LiveSession {
       hosted: res.hosted,
       peers: res.peers,
       cursors: res.cursors,
+      secure: res.secure,
+      canEdit: res.can_edit,
+      denied: res.denied,
       error: null,
       closed: false,
     });

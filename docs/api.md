@@ -94,7 +94,7 @@ Source: [`route/live.rs`](../src-tauri/crates/server/src/route/live.rs)
 | Method | Path | Body | Response | Notes |
 |---|---|---|---|---|
 | GET | `/api/share/live` |  | `LiveListing` | every live doc on this device, hosted or joined. |
-| POST | `/api/share/live` | `LiveHostBody` | `LiveOpened` | start hosting a new live doc, blank, from `text`, or mirroring a `source` (which then wins over `text`). |
+| POST | `/api/share/live` | `LiveHostBody` | `LiveOpened` | start hosting a new live doc, blank, from `text`, or mirroring a `source` (which then wins over `text`). With `share_id` it is end-to-end encrypted for that e2ee share's members. |
 | POST | `/api/share/live/{id}/store` |  | `LiveStored` | reconcile the doc with its source now instead of on the next sync. For an editor about to close. |
 | POST | `/api/share/live/join` | `LiveJoinBody` | `LiveOpened` | adopt a live doc from its host's ticket. The first sync connects; the doc reports `ready` once the host's text arrives. |
 | GET | `/api/share/live/{id}/ticket` |  | `LiveTicket` | the pasteable invite. Anyone holding it can read and edit the doc. |

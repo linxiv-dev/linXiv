@@ -1106,6 +1106,10 @@ export type LiveRow = {
    * Set when the doc mirrors something in this library.
    */
   source?: LiveSource,
+  /**
+   * End-to-end encrypted for the members of an e2ee share.
+   */
+  secure: boolean,
 };
 
 export type LiveStored = {
@@ -1129,6 +1133,12 @@ export type LiveHostBody = {
    * doc per source; asking again returns the existing doc.
    */
   source?: LiveSource,
+  /**
+   * Encrypt the doc end to end for the members of this e2ee share: only
+   * they can read it, and only its editors can type. The ticket then just
+   * says where to connect.
+   */
+  share_id?: string,
 };
 
 export type LiveJoinBody = {
@@ -1218,6 +1228,18 @@ export type LiveSynced = {
    * Version of `cursors`; echo it in the next `wait`.
    */
   rev: number,
+  /**
+   * End-to-end encrypted; `peers` then counts members present.
+   */
+  secure: boolean,
+  /**
+   * False for a viewer of an encrypted doc.
+   */
+  can_edit: boolean,
+  /**
+   * Encrypted, and this device is not a member: it will never open.
+   */
+  denied: boolean,
 };
 
 export type InviteMinted = {

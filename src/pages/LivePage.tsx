@@ -18,6 +18,7 @@ import {
   closeLiveDoc,
   hostLiveDoc,
   joinLiveDoc,
+  listEncryptedShares,
   listLiveDocs,
   liveTicket,
   setLiveCursor,
@@ -52,6 +53,12 @@ function LiveList() {
     queryKey: ["live-docs"],
     queryFn: listLiveDocs,
   });
+  // Encrypting needs an e2ee share to take members and roles from.
+  const { data: shares } = useQuery({
+    queryKey: ["live-encrypted-shares"],
+    queryFn: listEncryptedShares,
+  });
+  const [shareId, setShareId] = useState("");
   const [ticket, setTicket] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -73,9 +80,30 @@ function LiveList() {
         <h1 className="font-display text-[27px] font-semibold leading-tight tracking-[-0.015em] text-text">
           Live docs
         </h1>
-        <Button size="sm" disabled={busy} onClick={() => open(() => hostLiveDoc())}>
-          New live doc
-        </Button>
+        <div className="flex items-center gap-2">
+          {shares && shares.length > 0 && (
+            <select
+              aria-label="Who can read the new doc"
+              value={shareId}
+              onChange={(e) => setShareId(e.target.value)}
+              className="rounded-md border border-border bg-bg px-2 py-1 text-xs text-text"
+            >
+              <option value="">Anyone with the invite</option>
+              {shares.map((s) => (
+                <option key={s.share_id} value={s.share_id}>
+                  Encrypted for: {s.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => open(() => hostLiveDoc({ shareId: shareId || undefined }))}
+          >
+            New live doc
+          </Button>
+        </div>
       </div>
 
       <form
@@ -119,6 +147,7 @@ function LiveList() {
             >
               <span className="truncate">{doc.title || "Untitled"}</span>
               <span className="flex items-center gap-2 shrink-0">
+                {doc.secure && <Badge>Encrypted</Badge>}
                 {doc.source?.kind === "note" && <Badge>Note</Badge>}
                 <Badge>{doc.hosted ? "Hosting" : "Joined"}</Badge>
               </span>
@@ -265,6 +294,18 @@ function cursorMarks(
 function statusLabel(status: LiveStatus | null): string {
   if (!status) return "Opening";
   if (status.error) return status.error;
+  if (status.denied)
+    return "Encrypted. This device is not a member of the share it belongs to.";
+  if (status.secure) {
+    const here =
+      status.peers === 0
+        ? "Nobody else here"
+        : status.peers === 1
+          ? "1 other member here"
+          : `${status.peers} other members here`;
+    const mode = !status.ready ? "Waiting for a member" : status.canEdit ? here : `View only. ${here}`;
+    return `Encrypted. ${mode}`;
+  }
   if (status.hosted)
     return status.peers === 1 ? "1 person connected" : `${status.peers} people connected`;
   if (status.peers > 0) return "Connected to host";
@@ -290,7 +331,7 @@ function LiveDoc({ id }: { id: string }) {
   const [armed, setArmed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const texEnabled = useTexEnabled();
-  const ready = status?.ready === true;
+  const ready = status?.ready === true && status.canEdit;
   // What this doc mirrors, if anything (only its host knows).
   const { data: docs } = useQuery({ queryKey: ["live-docs"], queryFn: listLiveDocs });
   const source = docs?.find((doc) => doc.id === id)?.source;

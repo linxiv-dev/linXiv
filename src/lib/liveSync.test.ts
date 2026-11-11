@@ -105,6 +105,9 @@ function harness(initial: string) {
               hosted: true,
               cursors: [],
               rev: 0,
+              secure: false,
+              can_edit: true,
+              denied: false,
               ...r,
             }),
         })
@@ -240,6 +243,20 @@ test("a joined doc stays untouched until its first sync", async () => {
   editor.text = "typed too early";
   await session.push();
   assert.equal(calls.length, 1, "only the poll is outstanding");
+  session.stop();
+});
+
+test("a viewer's editor never posts", async () => {
+  const { calls, editor, session, tick } = harness("");
+  session.start();
+  await tick();
+  calls.shift()!.reply({ text: "members only", heads: ["h0"], secure: true, can_edit: false });
+  await tick();
+  assert.equal(editor.text, "members only");
+  calls.shift(); // the idle poll
+  editor.text = "members only, scribbled";
+  await session.push();
+  assert.equal(calls.length, 0);
   session.stop();
 });
 

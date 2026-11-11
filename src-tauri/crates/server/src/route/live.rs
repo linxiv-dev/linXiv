@@ -54,6 +54,8 @@ pub struct LiveRow {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     source: Option<LiveSource>,
+    /// End-to-end encrypted for the members of an e2ee share.
+    secure: bool,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -73,6 +75,12 @@ pub struct LiveHostBody {
     #[serde(default)]
     #[ts(optional)]
     source: Option<LiveSource>,
+    /// Encrypt the doc end to end for the members of this e2ee share: only
+    /// they can read it, and only its editors can type. The ticket then just
+    /// says where to connect.
+    #[serde(default)]
+    #[ts(optional)]
+    share_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -166,6 +174,12 @@ pub struct LiveSynced {
     cursors: Vec<LiveCursorRow>,
     /// Version of `cursors`; echo it in the next `wait`.
     rev: u32,
+    /// End-to-end encrypted; `peers` then counts members present.
+    secure: bool,
+    /// False for a viewer of an encrypted doc.
+    can_edit: bool,
+    /// Encrypted, and this device is not a member: it will never open.
+    denied: bool,
 }
 
 impl From<LiveState> for LiveSynced {
@@ -187,6 +201,9 @@ impl From<LiveState> for LiveSynced {
                 })
                 .collect(),
             rev: s.rev,
+            secure: s.secure,
+            can_edit: s.can_edit,
+            denied: s.denied,
         }
     }
 }
@@ -376,17 +393,41 @@ pub(crate) fn spawn_tasks(node: &Arc<ShareNode>) {
             }
         }
     });
+    // The pump: peers' cursors, and everything encrypted docs send and
+    // receive (their sealing is async, so it happens here, off the routes).
     let (weak, mut inbox) = (Arc::downgrade(node), node.live_messages());
+    let (wake, mut ticks) = (node.live_secure_wake(), node.changes());
     tokio::spawn(async move {
         use tokio::sync::broadcast::error::RecvError;
+        let mut sweep = tokio::time::interval(CURSOR_SWEEP);
         loop {
-            let msg = tokio::time::timeout(CURSOR_SWEEP, inbox.recv()).await;
-            let Some(node) = weak.upgrade() else { return };
-            match msg {
-                Ok(Ok(msg)) => node.live_cursor_received(&msg),
-                Ok(Err(RecvError::Lagged(_))) => {}
-                Ok(Err(RecvError::Closed)) => return,
-                Err(_) => node.live_expire_cursors(),
+            tokio::select! {
+                msg = inbox.recv() => {
+                    let Some(node) = weak.upgrade() else { return };
+                    match msg {
+                        Ok(msg) => {
+                            node.live_cursor_received(&msg);
+                            node.live_secure_received(&msg).await;
+                        }
+                        Err(RecvError::Lagged(_)) => {}
+                        Err(RecvError::Closed) => return,
+                    }
+                }
+                // A local edit or cursor move on an encrypted doc.
+                _ = wake.notified() => {
+                    let Some(node) = weak.upgrade() else { return };
+                    node.live_secure_flush(false).await;
+                }
+                // Sessions came or went: someone may need a hello.
+                tick = ticks.changed() => {
+                    let (Ok(()), Some(node)) = (tick, weak.upgrade()) else { return };
+                    node.live_secure_flush(false).await;
+                }
+                _ = sweep.tick() => {
+                    let Some(node) = weak.upgrade() else { return };
+                    node.live_expire_cursors();
+                    node.live_secure_flush(true).await;
+                }
             }
         }
     });
@@ -440,6 +481,7 @@ async fn list(share: &ShareState) -> Result<Value, ApiError> {
                 id,
                 title,
                 hosted: state.hosted,
+                secure: state.secure,
             })
         })
         .collect();
@@ -447,7 +489,8 @@ async fn list(share: &ShareState) -> Result<Value, ApiError> {
 }
 
 /// `POST /api/share/live` — start hosting a new live doc, blank, from
-/// `text`, or mirroring a `source` (which then wins over `text`).
+/// `text`, or mirroring a `source` (which then wins over `text`). With
+/// `share_id` it is end-to-end encrypted for that e2ee share's members.
 async fn host(state: &AppState, share: &ShareState, ctx: &ReqCtx<'_>) -> Result<Value, ApiError> {
     let body: LiveHostBody = ctx.parse_body()?;
     let node = node(share).await?;
@@ -467,7 +510,15 @@ async fn host(state: &AppState, share: &ShareState, ctx: &ReqCtx<'_>) -> Result<
     if text.len() > MAX_TEXT {
         return Err(ApiError::new(413, "live doc text too large"));
     }
-    let id = node.live_host(&text)?;
+    let id = match &body.share_id {
+        Some(share_id) => node
+            .live_host_secure(share_id, &text)
+            .map_err(|e| match e {
+                ShareError::NotFound(_) => ApiError::new(404, "not an e2ee share on this device"),
+                e => e.into(),
+            })?,
+        None => node.live_host(&text)?,
+    };
     if let Some(source) = body.source {
         let heads = node.live_state(&id)?.heads;
         write_binding(share, &id, &Binding { source, heads })?;

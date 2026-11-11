@@ -12,14 +12,15 @@ import type {
   LiveSyncBody,
   LiveSynced,
   LiveTicket,
+  ReceivedListing,
+  SharedProjectsListing,
 } from "../types/generated";
 
 export type { LiveRow, LiveSource };
 
 // The desktop app reaches the share node through `share_api`; a headless node
 // serves the same routes over HTTP.
-function live<T>(method: string, path = "", body?: unknown): Promise<T> {
-  const full = `/api/share/live${path}`;
+function share<T>(method: string, full: string, body?: unknown): Promise<T> {
   return isTauri
     ? shareApi<T>(method, full, body)
     : apiFetch<T>(full, {
@@ -28,14 +29,39 @@ function live<T>(method: string, path = "", body?: unknown): Promise<T> {
       });
 }
 
+function live<T>(method: string, path = "", body?: unknown): Promise<T> {
+  return share<T>(method, `/api/share/live${path}`, body);
+}
+
+/** An e2ee share a live doc can be encrypted for. */
+export interface EncryptedShare {
+  share_id: string;
+  name: string;
+}
+
+/** The e2ee shares this device hosts or belongs to. */
+export async function listEncryptedShares(): Promise<EncryptedShare[]> {
+  const [hosted, received] = await Promise.all([
+    share<SharedProjectsListing>("GET", "/api/share/projects"),
+    share<ReceivedListing>("GET", "/api/share/received"),
+  ]);
+  return [...hosted.shared_projects, ...received.received]
+    .filter((s) => s.e2ee)
+    .map(({ share_id, name }) => ({ share_id, name }));
+}
+
 export async function listLiveDocs(): Promise<LiveRow[]> {
   return (await live<LiveListing>("GET")).docs;
 }
 
-/** Start hosting a live doc, blank or mirroring `source` (reuses the doc
- *  already open for that source); returns its id. */
-export async function hostLiveDoc(source?: LiveSource): Promise<string> {
-  return (await live<LiveOpened>("POST", "", source ? { source } : {})).id;
+/** Start hosting a live doc; returns its id. `source` makes it mirror
+ *  something (reusing the doc already open for it); `shareId` encrypts it end
+ *  to end for that e2ee share's members. */
+export async function hostLiveDoc(
+  opts: { source?: LiveSource; shareId?: string } = {}
+): Promise<string> {
+  const body = { source: opts.source, share_id: opts.shareId };
+  return (await live<LiveOpened>("POST", "", body)).id;
 }
 
 /** Write a bound doc's text back to its source now. */

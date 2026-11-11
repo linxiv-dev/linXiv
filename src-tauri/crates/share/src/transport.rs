@@ -23,6 +23,9 @@ const E2EE_SUBDIR: &str = "e2ee";
 
 type Result<T> = std::result::Result<T, ShareError>;
 
+#[cfg(feature = "sync-beelay")]
+mod secure;
+
 fn net<E: std::fmt::Display>(e: E) -> ShareError {
     ShareError::Transport(format!("share transport: {e}"))
 }
@@ -133,6 +136,17 @@ pub struct ShareNode {
     >,
     // Bumped whenever `live_cursors` changes; wakes waiting editors.
     live_rev: tokio::sync::watch::Sender<u32>,
+    // Encrypted live docs (transport/secure.rs): the keyhive identity that
+    // signs their frames, the engines, and the pump's wake-up.
+    #[cfg(feature = "sync-beelay")]
+    auth_identity: Option<linxiv_p2p::AuthIdentity>,
+    #[cfg(feature = "sync-beelay")]
+    secure: secure::SecureDocs,
+    #[cfg(feature = "sync-beelay")]
+    secure_wake: Arc<tokio::sync::Notify>,
+    // Key-store key, also sealing encrypted live docs at rest.
+    #[cfg(feature = "sync-beelay")]
+    dek: Option<[u8; 32]>,
 }
 
 impl ShareNode {
@@ -178,7 +192,7 @@ impl ShareNode {
         #[cfg(not(feature = "sync-beelay"))]
         let identity = DeviceIdentity::load_or_generate(p2p_dir.join(DEVICE_KEY_FILE))?;
         #[cfg(feature = "sync-beelay")]
-        let (inner, beelay) =
+        let (inner, beelay, auth_identity) =
             Self::bind_stack(&identity, p2p_dir, offline, relay, _dek.as_ref()).await?;
         #[cfg(not(feature = "sync-beelay"))]
         let inner = Self::bind_plain(&identity, offline, relay).await?;
@@ -190,6 +204,14 @@ impl ShareNode {
             live_saved: Default::default(),
             live_cursors: Default::default(),
             live_rev: tokio::sync::watch::channel(0).0,
+            #[cfg(feature = "sync-beelay")]
+            auth_identity,
+            #[cfg(feature = "sync-beelay")]
+            secure: Default::default(),
+            #[cfg(feature = "sync-beelay")]
+            secure_wake: Default::default(),
+            #[cfg(feature = "sync-beelay")]
+            dek: _dek,
         };
         // Serve only what is published at the top level of share_dir; received/
         // mirrors land in the p2p registry after a join.
@@ -230,7 +252,11 @@ impl ShareNode {
         offline: bool,
         relay: Option<linxiv_p2p::CustomRelay>,
         dek: Option<&[u8; 32]>,
-    ) -> Result<(linxiv_p2p::ShareNode, Option<linxiv_p2p::BeelayNode>)> {
+    ) -> Result<(
+        linxiv_p2p::ShareNode,
+        Option<linxiv_p2p::BeelayNode>,
+        Option<linxiv_p2p::AuthIdentity>,
+    )> {
         let auth_identity = match linxiv_p2p::AuthIdentity::load_or_generate_with_dek(
             p2p_dir.join("auth.key"),
             dek,
@@ -238,7 +264,11 @@ impl ShareNode {
             Ok(identity) => identity,
             Err(e) => {
                 tracing::warn!("keyhive auth key failed to load, e2ee sharing disabled: {e}");
-                return Ok((Self::bind_plain(identity, offline, relay).await?, None));
+                return Ok((
+                    Self::bind_plain(identity, offline, relay).await?,
+                    None,
+                    None,
+                ));
             }
         };
         let auth = match linxiv_p2p::ProjectAuth::load_or_new_with_dek(
@@ -251,7 +281,11 @@ impl ShareNode {
             Ok(auth) => auth,
             Err(e) => {
                 tracing::warn!("keyhive auth state failed to load, e2ee sharing disabled: {e}");
-                return Ok((Self::bind_plain(identity, offline, relay).await?, None));
+                return Ok((
+                    Self::bind_plain(identity, offline, relay).await?,
+                    None,
+                    None,
+                ));
             }
         };
         let beelay_dir = p2p_dir.join("beelay");
@@ -270,10 +304,14 @@ impl ShareNode {
             linxiv_p2p::bind_stack(identity, &auth_identity, auth, Some(&beelay_dir)).await
         };
         match stack {
-            Ok((inner, beelay)) => Ok((inner, Some(beelay))),
+            Ok((inner, beelay)) => Ok((inner, Some(beelay), Some(auth_identity))),
             Err(e) => {
                 tracing::warn!("beelay/blob stack failed to bind, e2ee sharing disabled: {e}");
-                Ok((Self::bind_plain(identity, offline, relay).await?, None))
+                Ok((
+                    Self::bind_plain(identity, offline, relay).await?,
+                    None,
+                    None,
+                ))
             }
         }
     }
@@ -472,6 +510,12 @@ pub struct LiveState {
     pub cursors: Vec<LiveCursor>,
     /// Version of `cursors`; moves whenever a peer's selection does.
     pub rev: u32,
+    /// End-to-end encrypted for the members of an e2ee share.
+    pub secure: bool,
+    /// False for a viewer of an encrypted doc; always true for a plain one.
+    pub can_edit: bool,
+    /// An encrypted doc this device is not a member for: it will never open.
+    pub denied: bool,
 }
 
 /// A peer's selection, as UTF-16 offsets into the accompanying text.
@@ -685,19 +729,58 @@ impl ShareNode {
         self.live_known(id)?;
         self.inner.unregister(id);
         self.live_saved.lock().unwrap().remove(id);
-        // `source` is the server layer's binding sidecar.
-        for ext in ["automerge", "ticket", "source"] {
+        #[cfg(feature = "sync-beelay")]
+        self.forget_secure(id);
+        // `source` is the server layer's binding sidecar; `sdoc` an
+        // encrypted doc's text.
+        for ext in ["automerge", "ticket", "source", "sdoc"] {
             let _ = std::fs::remove_file(live_path(&self.share_dir, id, ext));
         }
         Ok(())
+    }
+
+    /// Reads a live doc's text document: the encrypted engine's when the doc
+    /// is one, the registry's otherwise. `None` if unknown.
+    fn live_doc_read<R>(&self, id: &str, f: impl FnOnce(&Automerge) -> R) -> Option<R> {
+        #[cfg(feature = "sync-beelay")]
+        if let Some(doc) = self.secure_doc(id) {
+            return Some(doc.live.read(f));
+        }
+        self.inner.read_doc(id, f)
+    }
+
+    /// Edits a live doc's text document and gets the change on its way to
+    /// peers.
+    fn live_doc_edit<R>(&self, id: &str, f: impl FnOnce(&mut Automerge) -> R) -> Option<R> {
+        #[cfg(feature = "sync-beelay")]
+        if let Some(doc) = self.secure_doc(id) {
+            let out = doc.live.edit(f);
+            doc.touched();
+            self.secure_wake.notify_one();
+            // Other editors on this device wait on the cursor rev.
+            self.live_rev.send_modify(|n| *n = n.wrapping_add(1));
+            return Some(out);
+        }
+        self.inner.with_doc(id, f)
+    }
+
+    /// Sends an ephemeral payload to a live doc's peers, sealed when the doc
+    /// is encrypted.
+    fn live_doc_send(&self, id: &str, bytes: Vec<u8>) {
+        #[cfg(feature = "sync-beelay")]
+        if let Some(doc) = self.secure_doc(id) {
+            doc.queue(bytes);
+            self.secure_wake.notify_one();
+            return;
+        }
+        self.inner.live_send(id, bytes);
     }
 
     /// The doc as it stands, without touching it.
     pub fn live_state(&self, id: &str) -> Result<LiveState> {
         self.live_known(id)?;
         let state = self
-            .inner
-            .read_doc(id, |doc| {
+            .live_doc_read(id, |doc| {
                 Ok::<_, ShareError>(LiveState {
                     cursors: self.live_cursors_in(id, doc),
                     ..live_read(doc)?
@@ -708,12 +791,25 @@ impl ShareNode {
     }
 
     fn live_stamp(&self, id: &str, state: LiveState) -> LiveState {
-        LiveState {
+        let state = LiveState {
             peers: self.inner.live_peers(id),
             hosted: live_hosted(&self.share_dir, id),
             rev: *self.live_rev.borrow(),
+            can_edit: true,
             ..state
+        };
+        #[cfg(feature = "sync-beelay")]
+        if let Some(doc) = self.secure_doc(id) {
+            return LiveState {
+                // Members in the conversation, not sessions on the pipe.
+                peers: doc.live.peers().len(),
+                secure: true,
+                can_edit: doc.can_edit(),
+                denied: doc.denied(),
+                ..state
+            };
         }
+        state
     }
 
     /// Peers' selections resolved against `doc` as it stands.
@@ -754,7 +850,7 @@ impl ShareNode {
         use automerge::ReadDoc;
         self.live_known(id)?;
         let ends = selection.and_then(|(anchor, focus)| {
-            self.inner.read_doc(id, |doc| {
+            self.live_doc_read(id, |doc| {
                 let (obj, text) = live_text(doc)?;
                 let pin = |utf16: u32| {
                     let index = utf16_to_index(&text, utf16);
@@ -773,8 +869,7 @@ impl ShareNode {
             anchor: ends.as_ref().map(|e| e.0.clone()),
             focus: ends.map(|e| e.1),
         };
-        self.inner
-            .live_send(id, serde_json::to_vec(&wire).map_err(super::crdt)?);
+        self.live_doc_send(id, serde_json::to_vec(&wire).map_err(super::crdt)?);
         Ok(())
     }
 
@@ -790,23 +885,35 @@ impl ShareNode {
         if !msg.is_remote() || !valid_live_id(&msg.project_id) {
             return;
         }
+        // An encrypted doc takes cursors only from its sealed lane, where
+        // the sender is verified (transport/secure.rs).
+        #[cfg(feature = "sync-beelay")]
+        if self.secure_doc(&msg.project_id).is_some() {
+            return;
+        }
         let Ok(wire) = serde_json::from_slice::<CursorWire>(&msg.bytes) else {
             return;
         };
         if wire.peer.is_empty() || wire.peer.len() > 128 || wire.peer == self.endpoint_id() {
             return;
         }
+        let peer = wire.peer.clone();
+        self.record_cursor(&msg.project_id, peer, wire);
+    }
+
+    /// Stores (or clears) `peer`'s selection on a doc and wakes waiters.
+    fn record_cursor(&self, id: &str, peer: String, wire: CursorWire) {
         let parse = |s: Option<String>| automerge::Cursor::try_from(s?).ok();
         let mut cursors = self.live_cursors.lock().unwrap();
-        let doc = cursors.entry(msg.project_id.clone()).or_default();
+        let doc = cursors.entry(id.to_string()).or_default();
         match (parse(wire.anchor), parse(wire.focus)) {
             (Some(anchor), Some(focus)) => {
-                if doc.len() >= MAX_CURSORS && !doc.contains_key(&wire.peer) {
+                if doc.len() >= MAX_CURSORS && !doc.contains_key(&peer) {
                     return;
                 }
                 let seen = std::time::Instant::now();
                 doc.insert(
-                    wire.peer,
+                    peer,
                     PeerCursor {
                         anchor,
                         focus,
@@ -815,7 +922,7 @@ impl ShareNode {
                 );
             }
             _ => {
-                doc.remove(&wire.peer);
+                doc.remove(&peer);
             }
         }
         drop(cursors);
@@ -841,9 +948,13 @@ impl ShareNode {
     /// returns the merged doc; live peers get the edit at once.
     pub fn live_edit(&self, id: &str, text: &str, base: &[String]) -> Result<LiveState> {
         self.live_known(id)?;
+        #[cfg(feature = "sync-beelay")]
+        if self.secure_doc(id).is_some_and(|doc| !doc.can_edit()) {
+            // A viewer (or a role not looked up yet): peers would discard it.
+            return Err(ShareError::RoleConflict);
+        }
         let state = self
-            .inner
-            .with_doc(id, |doc| {
+            .live_doc_edit(id, |doc| {
                 let own = live_write(doc, text, base)?;
                 Ok::<_, ShareError>(LiveState {
                     own,
@@ -2051,6 +2162,163 @@ mod tests {
             // both nodes are live here: the join must complete, not park
             assert!(!accepted.pending, "loopback accept should not be pending");
             member
+        }
+
+        /// Drives a node's encrypted live docs the way the server's pump does.
+        fn pump(node: &Arc<ShareNode>) -> tokio::task::JoinHandle<()> {
+            let (node, mut inbox) = (node.clone(), node.live_messages());
+            let wake = node.live_secure_wake();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        msg = inbox.recv() => match msg {
+                            Ok(msg) => node.live_secure_received(&msg).await,
+                            Err(_) => return,
+                        },
+                        _ = wake.notified() => node.live_secure_flush(false).await,
+                        _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                            node.live_secure_flush(true).await
+                        }
+                    }
+                }
+            })
+        }
+
+        async fn until(what: &str, cond: impl Fn() -> bool) {
+            for _ in 0..400 {
+                if cond() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            panic!("timed out waiting for: {what}");
+        }
+
+        /// An encrypted live doc's text is sealed on disk when the device
+        /// has a key-store key, and only opens under that key.
+        #[tokio::test]
+        async fn encrypted_live_doc_is_sealed_at_rest() {
+            let dir = tempfile::tempdir().unwrap();
+            let share = dir.path().to_path_buf();
+            let p2p = |key: u8| dir.path().join(format!("p2p-{key}"));
+            let node = ShareNode::bind_inner(share.clone(), &p2p(7), true, None, Some([7; 32]))
+                .await
+                .unwrap();
+            let other = ShareNode::bind_inner(share, &p2p(8), true, None, Some([8; 32]))
+                .await
+                .unwrap();
+            let sealed = node.seal_doc(b"launch codes");
+            assert!(!sealed.windows(6).any(|w| w == b"launch"));
+            assert_eq!(node.unseal_doc(&sealed).unwrap(), b"launch codes");
+            assert!(other.unseal_doc(&sealed).is_none());
+            // No key-store key: stored as is, like the device's key files.
+            let plain = super::node(dir.path()).await;
+            assert_eq!(
+                plain.unseal_doc(&plain.seal_doc(b"x")).unwrap(),
+                b"x".to_vec()
+            );
+            assert!(plain.unseal_doc(&sealed).is_none());
+        }
+
+        /// An encrypted live doc on an e2ee share: the member reads it and,
+        /// once made an editor, writes; the ticket alone opens nothing.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn encrypted_live_doc_follows_the_shares_membership() {
+            let dirs: Vec<_> = (0..3).map(|_| tempfile::tempdir().unwrap()).collect();
+            let a = Arc::new(node(dirs[0].path()).await);
+            let b = Arc::new(node(dirs[1].path()).await);
+            let c = Arc::new(node(dirs[2].path()).await);
+            let sp = sample("7", "Secret Project");
+            let bob = share_to(&a, &b, &sp).await; // a viewer
+
+            let id = a.live_host_secure("7", "members only").unwrap();
+            // What is on disk and on the plain pipe names the share, no more.
+            let placeholder = std::fs::read(live_path(dirs[0].path(), &id, "automerge")).unwrap();
+            assert!(!placeholder.windows(7).any(|w| w == b"members"));
+            assert!(matches!(
+                a.live_host_secure("no-such-share", "x"),
+                Err(ShareError::NotFound(_))
+            ));
+
+            let ticket: ShareTicket = a.live_ticket(&id).unwrap().parse().unwrap();
+            let mut tasks = vec![pump(&a), pump(&b), pump(&c)];
+            for joiner in [&b, &c] {
+                assert_eq!(joiner.live_join(&ticket).unwrap(), id);
+                let (joiner, id) = (joiner.clone(), id.clone());
+                tasks.push(tokio::spawn(async move {
+                    let _ = joiner.live_dial(&id).await;
+                }));
+            }
+
+            // The member gets the text, as a viewer.
+            until("viewer reads", || {
+                b.live_state(&id)
+                    .is_ok_and(|s| s.ready && s.text == "members only")
+            })
+            .await;
+            let seen = b.live_state(&id).unwrap();
+            assert!(seen.secure && !seen.can_edit && !seen.denied);
+            assert!(matches!(
+                b.live_edit(&id, "viewer was here", &seen.heads),
+                Err(ShareError::RoleConflict)
+            ));
+
+            // The ticket holder who is not a member gets nothing, and knows it.
+            until("outsider is told", || {
+                c.live_state(&id).is_ok_and(|s| s.secure && s.denied)
+            })
+            .await;
+            let outside = c.live_state(&id).unwrap();
+            assert!(!outside.ready && outside.text.is_empty());
+
+            // Host typing reaches the viewer live.
+            let host = a.live_state(&id).unwrap();
+            assert!(host.secure && host.can_edit);
+            let host = a.live_edit(&id, "members only, live", &host.heads).unwrap();
+            until("viewer follows", || {
+                b.live_state(&id)
+                    .is_ok_and(|s| s.text == "members only, live")
+            })
+            .await;
+
+            // Promoted to editor: the news rides the pipe, then b can type.
+            a.set_role("7", bob, Role::Edit).await.unwrap();
+            a.live_edit(&id, "members only, live.", &host.heads)
+                .unwrap();
+            until("b learns it may edit", || {
+                b.live_state(&id)
+                    .is_ok_and(|s| s.can_edit && s.text.ends_with("live."))
+            })
+            .await;
+            let theirs = b.live_state(&id).unwrap();
+            b.live_edit(&id, "members only, live. b too", &theirs.heads)
+                .unwrap();
+            until("host sees the new editor's text", || {
+                a.live_state(&id).is_ok_and(|s| s.text.ends_with("b too"))
+            })
+            .await;
+            assert_eq!(a.live_state(&id).unwrap().peers, 1, "one other member here");
+
+            // Cursors come sealed and carry the verified member, not a claim.
+            b.live_set_cursor(&id, Some((3, 3))).unwrap();
+            until("host sees b's cursor", || {
+                a.live_state(&id)
+                    .is_ok_and(|s| s.cursors.len() == 1 && s.cursors[0].peer == member_id_hex(&bob))
+            })
+            .await;
+
+            // Still nothing for the outsider, on the pipe or on its disk.
+            assert!(!c.live_state(&id).unwrap().ready);
+            let on_disk = std::fs::read(live_path(dirs[2].path(), &id, "automerge")).unwrap();
+            assert!(!on_disk.windows(7).any(|w| w == b"members"));
+            // The host keeps its copy across a restart of the engine.
+            a.live_secure_flush(true).await;
+            a.forget_secure(&id);
+            assert!(a.live_state(&id).unwrap().text.ends_with("b too"));
+
+            for task in tasks {
+                task.abort();
+            }
         }
 
         // Pasting an invite whose host is asleep is a success, not an error: the
