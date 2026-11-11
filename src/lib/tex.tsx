@@ -156,7 +156,7 @@ export function useTexEnabled(): boolean {
 // display $$…$$ may still span lines.
 const MATH_RE = /\$\$([\s\S]+?)\$\$|\$(?!\s)([^$\n]*?[^$\s])\$/g;
 
-function mathHtml(tex: string, display: boolean): string | null {
+export function mathHtml(tex: string, display: boolean): string | null {
   if (!tex.trim()) return null;
   try {
     return adaptor.outerHTML(mjDoc.convert(tex, { display }));

@@ -1,0 +1,66 @@
+/* tiny-mde ships a fixed light palette; these map it onto the app theme.
+   Loaded after the vendored sheets and scoped under .live-editor to win. */
+.live-editor .TinyMDE {
+  background-color: transparent;
+  color: var(--color-text);
+  padding: 20px 24px;
+}
+.live-editor .TinyMDE.TinyMDE_empty::before,
+.live-editor .TMMark {
+  color: var(--color-muted);
+}
+.live-editor .TMMark_TMH1,
+.live-editor .TMMark_TMH2,
+.live-editor .TMMark_TMUL,
+.live-editor .TMMark_TMOL,
+.live-editor .TMInfoString,
+.live-editor .TMLink,
+.live-editor .TMMath,
+.live-editor .TMFencedMath {
+  color: var(--color-accent);
+}
+.live-editor .TMFencedCodeBacktick,
+.live-editor .TMFencedCodeTilde,
+.live-editor .TMIndentedCode,
+.live-editor .TMCode,
+.live-editor .TMMath,
+.live-editor .TMFencedMath {
+  background-color: var(--color-panel);
+  border-color: var(--color-border);
+}
+.live-editor .TMCodeFenceBacktickOpen,
+.live-editor .TMCodeFenceTildeOpen,
+.live-editor .TMCodeFenceBacktickClose,
+.live-editor .TMCodeFenceTildeClose,
+.live-editor .TMMathFenceOpen,
+.live-editor .TMMathFenceClose,
+.live-editor .TMBlockquote {
+  border-color: var(--color-border);
+}
+.live-editor .TMCheckbox {
+  caret-color: var(--color-text);
+}
+.live-editor .TMCommandBar {
+  background-color: var(--color-panel);
+  border-color: var(--color-panel);
+  border-bottom: 1px solid var(--color-border);
+}
+.live-editor .TMCommandButton,
+.live-editor .TMCommandButton_Inactive {
+  background-color: transparent;
+  color: var(--color-text);
+  fill: var(--color-text);
+}
+.live-editor .TMCommandButton_Disabled {
+  color: var(--color-muted);
+  fill: var(--color-muted);
+}
+.live-editor .TMCommandButton_Active,
+.live-editor .TMCommandButton:hover {
+  background-color: var(--color-accent-tint);
+  color: var(--color-accent);
+  fill: var(--color-accent);
+}
+.live-editor .TMCommandDivider {
+  border-color: var(--color-border);
+}

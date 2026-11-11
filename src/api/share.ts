@@ -47,7 +47,7 @@ export function shareErrText(e: unknown): string {
 // The share endpoints live behind their own `share_api` Tauri command (its own
 // ShareState + iroh node), NOT the main `api` one. That node runs only in the
 // desktop app, so these `invoke` calls are unavailable in browser dev.
-async function shareApi<T>(
+export async function shareApi<T>(
   method: string,
   path: string,
   body?: unknown

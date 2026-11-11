@@ -125,6 +125,14 @@ pub struct ShareNode {
     // None when the keyhive auth state failed to load.
     #[cfg(feature = "sync-beelay")]
     beelay: Option<linxiv_p2p::BeelayNode>,
+    // Heads of each live doc as last written, so `live_save` skips clean ones.
+    live_saved: std::sync::Mutex<std::collections::HashMap<String, Vec<automerge::ChangeHash>>>,
+    // Peers' selections per live doc, by peer id. Memory only.
+    live_cursors: std::sync::Mutex<
+        std::collections::HashMap<String, std::collections::HashMap<String, PeerCursor>>,
+    >,
+    // Bumped whenever `live_cursors` changes; wakes waiting editors.
+    live_rev: tokio::sync::watch::Sender<u32>,
 }
 
 impl ShareNode {
@@ -179,6 +187,9 @@ impl ShareNode {
             share_dir,
             #[cfg(feature = "sync-beelay")]
             beelay,
+            live_saved: Default::default(),
+            live_cursors: Default::default(),
+            live_rev: tokio::sync::watch::channel(0).0,
         };
         // Serve only what is published at the top level of share_dir; received/
         // mirrors land in the p2p registry after a join.
@@ -186,7 +197,12 @@ impl ShareNode {
         node.inner.set_access_check(Arc::new(move |_peer, id| {
             valid_share_id(id) && super::doc_path(&allowed_dir, id).is_file()
         }));
+        // Live peers write, so they reach live docs only, never a share.
+        let live_dir = node.share_dir.clone();
+        node.inner
+            .set_live_access_check(Arc::new(move |_peer, id| live_hosted(&live_dir, id)));
         node.register_published().await?;
+        node.register_live();
         Ok(node)
     }
 
@@ -404,6 +420,494 @@ impl ShareNode {
         #[cfg(feature = "sync-beelay")]
         beelay_res?;
         inner_res
+    }
+}
+
+// --- live text docs ----------------------------------------------------------
+
+const LIVE_SUBDIR: &str = "live";
+const LIVE_TEXT: &str = "text";
+
+/// Live text docs: `share_dir/live/<id>.automerge`, plus a `.ticket` sidecar
+/// naming the host for the ones joined rather than hosted here.
+pub fn live_dir(share_dir: &Path) -> PathBuf {
+    share_dir.join(LIVE_SUBDIR)
+}
+
+/// `live-` + 32 lowercase hex: the unguessable part is the whole capability.
+pub fn valid_live_id(id: &str) -> bool {
+    id.strip_prefix("live-").is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+
+fn live_path(share_dir: &Path, id: &str, ext: &str) -> PathBuf {
+    live_dir(share_dir).join(format!("{id}.{ext}"))
+}
+
+/// Served to peers only when hosted here; a joined doc is its host's to serve.
+fn live_hosted(share_dir: &Path, id: &str) -> bool {
+    valid_live_id(id)
+        && live_path(share_dir, id, "automerge").is_file()
+        && !live_path(share_dir, id, "ticket").is_file()
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// One editor's view of a live doc. `heads` names the version `text` is at;
+/// `own` names the version holding exactly the text the editor sent.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LiveState {
+    /// False until a joined doc's first sync lands; `text` is not editable before.
+    pub ready: bool,
+    pub text: String,
+    pub heads: Vec<String>,
+    pub own: Vec<String>,
+    pub peers: usize,
+    pub hosted: bool,
+    pub cursors: Vec<LiveCursor>,
+    /// Version of `cursors`; moves whenever a peer's selection does.
+    pub rev: u32,
+}
+
+/// A peer's selection, as UTF-16 offsets into the accompanying text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveCursor {
+    pub peer: String,
+    pub anchor: u32,
+    pub focus: u32,
+}
+
+/// A peer's selection as received: automerge cursors, so it stays put while
+/// text around it changes.
+struct PeerCursor {
+    anchor: automerge::Cursor,
+    focus: automerge::Cursor,
+    seen: std::time::Instant,
+}
+
+/// The ephemeral cursor message. `None` ends clear the sender's selection.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CursorWire {
+    peer: String,
+    anchor: Option<String>,
+    focus: Option<String>,
+}
+
+/// A selection not refreshed for this long is gone (its owner left).
+const CURSOR_TTL: std::time::Duration = std::time::Duration::from_secs(12);
+/// Bounds what forged peer ids can make a doc remember.
+const MAX_CURSORS: usize = 64;
+
+// Editors count UTF-16 units; automerge text here indexes code points.
+fn utf16_to_index(text: &str, utf16: u32) -> usize {
+    let mut units = 0;
+    for (i, c) in text.chars().enumerate() {
+        if units >= utf16 {
+            return i;
+        }
+        units += c.len_utf16() as u32;
+    }
+    text.chars().count()
+}
+
+fn index_to_utf16(text: &str, index: usize) -> u32 {
+    text.chars().take(index).map(|c| c.len_utf16() as u32).sum()
+}
+
+/// The text object and its content, once the doc has one.
+fn live_text(doc: &Automerge) -> Option<(automerge::ObjId, String)> {
+    use automerge::ReadDoc;
+    let (_, obj) = doc.get(automerge::ROOT, LIVE_TEXT).ok()??;
+    let text = doc.text(&obj).ok()?;
+    Some((obj, text))
+}
+
+fn hex_heads(doc: &Automerge) -> Vec<String> {
+    doc.get_heads().iter().map(|h| h.to_string()).collect()
+}
+
+fn live_read(doc: &Automerge) -> Result<LiveState> {
+    use automerge::ReadDoc;
+    let Some((_, obj)) = doc.get(automerge::ROOT, LIVE_TEXT).map_err(super::crdt)? else {
+        return Ok(LiveState::default());
+    };
+    Ok(LiveState {
+        ready: true,
+        text: doc.text(&obj).map_err(super::crdt)?,
+        heads: hex_heads(doc),
+        ..LiveState::default()
+    })
+}
+
+/// Rewrites the doc's text to `text`, as an edit made on top of `base`.
+/// Returns the heads of the version holding exactly `text`.
+fn live_write(doc: &mut Automerge, text: &str, base: &[String]) -> Result<Vec<String>> {
+    use automerge::{transaction::Transactable, ReadDoc};
+    let (_, obj) = doc
+        .get(automerge::ROOT, LIVE_TEXT)
+        .map_err(super::crdt)?
+        .ok_or_else(|| ShareError::Transport("live doc has not synced yet".into()))?;
+    let put = |d: &mut Automerge| {
+        d.transact(|tx| tx.update_text(&obj, text))
+            .map(|_| ())
+            .map_err(|e| super::crdt(e.error))
+    };
+    let mut sorted = base.to_vec();
+    sorted.sort();
+    if hex_heads(doc) == sorted {
+        if doc.text(&obj).map_err(super::crdt)? != text {
+            put(doc)?;
+        }
+        return Ok(hex_heads(doc));
+    }
+    // The editor typed against an older version: replay its text there, then
+    // merge, so edits that landed meanwhile survive.
+    let base = base
+        .iter()
+        .map(|h| h.parse::<automerge::ChangeHash>().map_err(super::crdt))
+        .collect::<Result<Vec<_>>>()?;
+    let mut fork = doc.fork_at(&base).map_err(super::crdt)?;
+    put(&mut fork)?;
+    let own = hex_heads(&fork);
+    doc.merge(&mut fork).map_err(super::crdt)?;
+    Ok(own)
+}
+
+impl ShareNode {
+    /// Ids of every live doc on disk, hosted or joined.
+    pub fn live_ids(&self) -> Vec<String> {
+        let Ok(entries) = std::fs::read_dir(live_dir(&self.share_dir)) else {
+            return Vec::new();
+        };
+        let mut ids: Vec<String> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "automerge"))
+            .filter_map(|p| Some(p.file_stem()?.to_str()?.to_string()))
+            .filter(|id| valid_live_id(id))
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    fn register_live(&self) {
+        for id in self.live_ids() {
+            let loaded = std::fs::read(live_path(&self.share_dir, &id, "automerge"))
+                .map_err(ShareError::from)
+                .and_then(|bytes| Automerge::load(&bytes).map_err(super::crdt));
+            match loaded {
+                Ok(doc) => self.inner.register(id, doc),
+                Err(e) => tracing::warn!("live doc {id} failed to load, skipped: {e}"),
+            }
+        }
+    }
+
+    fn live_known(&self, id: &str) -> Result<()> {
+        if valid_live_id(id) && live_path(&self.share_dir, id, "automerge").is_file() {
+            Ok(())
+        } else {
+            Err(ShareError::NotFound(id.to_string()))
+        }
+    }
+
+    /// Starts hosting a new live doc seeded with `text`; returns its id.
+    pub fn live_host(&self, text: &str) -> Result<String> {
+        use automerge::transaction::Transactable;
+        let id = format!("live-{}", automerge::ActorId::random().to_hex_string());
+        let mut doc = Automerge::new();
+        doc.transact(|tx| {
+            let obj = tx.put_object(automerge::ROOT, LIVE_TEXT, automerge::ObjType::Text)?;
+            tx.splice_text(&obj, 0, 0, text)
+        })
+        .map_err(|e| super::crdt(e.error))?;
+        std::fs::create_dir_all(live_dir(&self.share_dir))?;
+        // File first: the access check serves only docs that have one.
+        write_atomic(&live_path(&self.share_dir, &id, "automerge"), &doc.save())?;
+        self.inner.register(id.clone(), doc);
+        Ok(id)
+    }
+
+    /// The pasteable ticket for a live doc: minted when hosted here, the
+    /// host's own when joined.
+    pub fn live_ticket(&self, id: &str) -> Result<String> {
+        self.live_known(id)?;
+        match std::fs::read_to_string(live_path(&self.share_dir, id, "ticket")) {
+            Ok(ticket) => Ok(ticket),
+            Err(_) => Ok(self.inner.ticket(id).map_err(net)?.to_string()),
+        }
+    }
+
+    /// Adopts a live doc from its host's ticket; [`Self::live_dial`] then
+    /// connects. Re-joining keeps the local copy. Returns the doc id.
+    pub fn live_join(&self, ticket: &ShareTicket) -> Result<String> {
+        let id = ticket.project_id();
+        if !valid_live_id(id) {
+            return Err(ShareError::NotFound(id.to_string()));
+        }
+        if live_hosted(&self.share_dir, id) {
+            return Ok(id.to_string());
+        }
+        std::fs::create_dir_all(live_dir(&self.share_dir))?;
+        let doc_path = live_path(&self.share_dir, id, "automerge");
+        if !doc_path.is_file() {
+            // Empty until the first sync: the host's text object must arrive
+            // before anything is typed, or two rival objects would diverge.
+            let doc = Automerge::new();
+            write_atomic(&doc_path, &doc.save())?;
+            self.inner.register(id, doc);
+        }
+        write_atomic(
+            &live_path(&self.share_dir, id, "ticket"),
+            ticket.to_string().as_bytes(),
+        )?;
+        Ok(id.to_string())
+    }
+
+    /// Holds a live session to a joined doc's host until it drops; `Ok(false)`
+    /// when the doc is hosted here and there is nobody to dial.
+    pub async fn live_dial(&self, id: &str) -> Result<bool> {
+        self.live_known(id)?;
+        let Ok(raw) = std::fs::read_to_string(live_path(&self.share_dir, id, "ticket")) else {
+            return Ok(false);
+        };
+        let ticket: ShareTicket = raw.trim().parse().map_err(net)?;
+        self.inner.live(&ticket).await.map_err(net)?;
+        Ok(true)
+    }
+
+    /// Stops hosting (or leaves) a live doc and deletes the local copy.
+    pub fn live_close(&self, id: &str) -> Result<()> {
+        self.live_known(id)?;
+        self.inner.unregister(id);
+        self.live_saved.lock().unwrap().remove(id);
+        for ext in ["automerge", "ticket"] {
+            let _ = std::fs::remove_file(live_path(&self.share_dir, id, ext));
+        }
+        Ok(())
+    }
+
+    /// The doc as it stands, without touching it.
+    pub fn live_state(&self, id: &str) -> Result<LiveState> {
+        self.live_known(id)?;
+        let state = self
+            .inner
+            .read_doc(id, |doc| {
+                Ok::<_, ShareError>(LiveState {
+                    cursors: self.live_cursors_in(id, doc),
+                    ..live_read(doc)?
+                })
+            })
+            .ok_or_else(|| ShareError::NotFound(id.to_string()))??;
+        Ok(self.live_stamp(id, state))
+    }
+
+    fn live_stamp(&self, id: &str, state: LiveState) -> LiveState {
+        LiveState {
+            peers: self.inner.live_peers(id),
+            hosted: live_hosted(&self.share_dir, id),
+            rev: *self.live_rev.borrow(),
+            ..state
+        }
+    }
+
+    /// Peers' selections resolved against `doc` as it stands.
+    fn live_cursors_in(&self, id: &str, doc: &Automerge) -> Vec<LiveCursor> {
+        use automerge::ReadDoc;
+        let Some((obj, text)) = live_text(doc) else {
+            return Vec::new();
+        };
+        let at = |c: &automerge::Cursor| {
+            let index = doc.get_cursor_position(&obj, c, None).ok()?;
+            Some(index_to_utf16(&text, index))
+        };
+        let cursors = self.live_cursors.lock().unwrap();
+        let mut out: Vec<LiveCursor> = cursors
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter_map(|(peer, c)| {
+                Some(LiveCursor {
+                    peer: peer.clone(),
+                    anchor: at(&c.anchor)?,
+                    focus: at(&c.focus)?,
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| a.peer.cmp(&b.peer));
+        out
+    }
+
+    /// Tells live peers where this editor's selection is (UTF-16 offsets into
+    /// the doc's text), or that it has none.
+    pub fn live_set_cursor(&self, id: &str, selection: Option<(u32, u32)>) -> Result<()> {
+        use automerge::ReadDoc;
+        self.live_known(id)?;
+        let ends = selection.and_then(|(anchor, focus)| {
+            self.inner.read_doc(id, |doc| {
+                let (obj, text) = live_text(doc)?;
+                let pin = |utf16: u32| {
+                    let index = utf16_to_index(&text, utf16);
+                    let position = if index >= text.chars().count() {
+                        automerge::CursorPosition::End
+                    } else {
+                        automerge::CursorPosition::Index(index)
+                    };
+                    Some(doc.get_cursor(&obj, position, None).ok()?.to_string())
+                };
+                Some((pin(anchor)?, pin(focus)?))
+            })?
+        });
+        let wire = CursorWire {
+            peer: self.endpoint_id(),
+            anchor: ends.as_ref().map(|e| e.0.clone()),
+            focus: ends.map(|e| e.1),
+        };
+        self.inner
+            .live_send(id, serde_json::to_vec(&wire).map_err(super::crdt)?);
+        Ok(())
+    }
+
+    /// Ephemeral messages crossing this node; feed them to
+    /// [`Self::live_cursor_received`].
+    pub fn live_messages(&self) -> tokio::sync::broadcast::Receiver<linxiv_p2p::LiveMessage> {
+        self.inner.live_messages()
+    }
+
+    /// Records a peer's selection from its ephemeral message. Junk is ignored:
+    /// the sender is an admitted peer, but nothing here is trusted.
+    pub fn live_cursor_received(&self, msg: &linxiv_p2p::LiveMessage) {
+        if !msg.is_remote() || !valid_live_id(&msg.project_id) {
+            return;
+        }
+        let Ok(wire) = serde_json::from_slice::<CursorWire>(&msg.bytes) else {
+            return;
+        };
+        if wire.peer.is_empty() || wire.peer.len() > 128 || wire.peer == self.endpoint_id() {
+            return;
+        }
+        let parse = |s: Option<String>| automerge::Cursor::try_from(s?).ok();
+        let mut cursors = self.live_cursors.lock().unwrap();
+        let doc = cursors.entry(msg.project_id.clone()).or_default();
+        match (parse(wire.anchor), parse(wire.focus)) {
+            (Some(anchor), Some(focus)) => {
+                if doc.len() >= MAX_CURSORS && !doc.contains_key(&wire.peer) {
+                    return;
+                }
+                let seen = std::time::Instant::now();
+                doc.insert(
+                    wire.peer,
+                    PeerCursor {
+                        anchor,
+                        focus,
+                        seen,
+                    },
+                );
+            }
+            _ => {
+                doc.remove(&wire.peer);
+            }
+        }
+        drop(cursors);
+        self.live_rev.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
+    /// Drops selections whose owner went quiet or whose doc has no peers left.
+    pub fn live_expire_cursors(&self) {
+        let mut cursors = self.live_cursors.lock().unwrap();
+        let before: usize = cursors.values().map(|d| d.len()).sum();
+        cursors.retain(|id, doc| {
+            doc.retain(|_, c| c.seen.elapsed() < CURSOR_TTL);
+            !doc.is_empty() && self.inner.live_peers(id) > 0
+        });
+        let after: usize = cursors.values().map(|d| d.len()).sum();
+        drop(cursors);
+        if after != before {
+            self.live_rev.send_modify(|n| *n = n.wrapping_add(1));
+        }
+    }
+
+    /// Applies an editor's full `text`, typed on top of version `base`, and
+    /// returns the merged doc; live peers get the edit at once.
+    pub fn live_edit(&self, id: &str, text: &str, base: &[String]) -> Result<LiveState> {
+        self.live_known(id)?;
+        let state = self
+            .inner
+            .with_doc(id, |doc| {
+                let own = live_write(doc, text, base)?;
+                Ok::<_, ShareError>(LiveState {
+                    own,
+                    cursors: self.live_cursors_in(id, doc),
+                    ..live_read(doc)?
+                })
+            })
+            .ok_or_else(|| ShareError::NotFound(id.to_string()))??;
+        Ok(self.live_stamp(id, state))
+    }
+
+    /// Resolves once the doc differs from what the editor last saw (`heads`,
+    /// `peers`, cursor `rev`), or after `timeout` with the unchanged state.
+    pub async fn live_wait(
+        &self,
+        id: &str,
+        heads: &[String],
+        peers: usize,
+        rev: u32,
+        timeout: std::time::Duration,
+    ) -> Result<LiveState> {
+        let mut ticks = self.inner.changes();
+        let mut revs = self.live_rev.subscribe();
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            ticks.borrow_and_update();
+            revs.borrow_and_update();
+            let state = self.live_state(id)?;
+            if state.heads != heads || state.peers != peers || state.rev != rev {
+                return Ok(state);
+            }
+            let moved = async {
+                tokio::select! {
+                    r = ticks.changed() => r.is_ok(),
+                    r = revs.changed() => r.is_ok(),
+                }
+            };
+            if !matches!(tokio::time::timeout_at(deadline, moved).await, Ok(true)) {
+                return Ok(state);
+            }
+        }
+    }
+
+    /// Ticks when any doc on this node may have changed; drives the saver.
+    pub fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.inner.changes()
+    }
+
+    /// Writes every live doc whose heads moved since its last write.
+    pub fn live_save(&self) -> Result<()> {
+        for id in self.live_ids() {
+            let Some((heads, bytes)) = self
+                .inner
+                .read_doc(&id, |doc| {
+                    let heads = doc.get_heads();
+                    let clean = self.live_saved.lock().unwrap().get(&id) == Some(&heads);
+                    (!clean).then(|| (heads, doc.save()))
+                })
+                .flatten()
+            else {
+                continue;
+            };
+            // Closed between the listing and here: don't resurrect the file.
+            let path = live_path(&self.share_dir, &id, "automerge");
+            if path.is_file() {
+                write_atomic(&path, &bytes)?;
+                self.live_saved.lock().unwrap().insert(id, heads);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1239,6 +1743,164 @@ mod tests {
     }
 
     #[cfg(feature = "sync-beelay")]
+    mod live {
+        use super::*;
+
+        /// The next ephemeral message a peer sent.
+        async fn next_remote(
+            inbox: &mut tokio::sync::broadcast::Receiver<linxiv_p2p::LiveMessage>,
+        ) -> linxiv_p2p::LiveMessage {
+            loop {
+                let m = with_timeout(inbox.recv()).await.unwrap();
+                if m.is_remote() {
+                    return m;
+                }
+            }
+        }
+
+        /// Text of `doc` as of `heads`.
+        fn text_at(doc: &Automerge, heads: &[String]) -> String {
+            let heads: Vec<automerge::ChangeHash> =
+                heads.iter().map(|h| h.parse().unwrap()).collect();
+            live_read(&doc.fork_at(&heads).unwrap()).unwrap().text
+        }
+
+        #[test]
+        fn stale_editor_text_merges_instead_of_clobbering() {
+            use automerge::transaction::Transactable;
+            let mut doc = Automerge::new();
+            doc.transact(|tx| {
+                let obj = tx.put_object(automerge::ROOT, LIVE_TEXT, automerge::ObjType::Text)?;
+                tx.splice_text(&obj, 0, 0, "hello")
+            })
+            .unwrap();
+            let base = hex_heads(&doc);
+
+            // A peer's edit lands while the editor still shows `base`.
+            let mut peer = doc.fork();
+            live_write(&mut peer, "hello world", &base).unwrap();
+            doc.merge(&mut peer).unwrap();
+
+            let own = live_write(&mut doc, "hello!", &base).unwrap();
+            assert_eq!(text_at(&doc, &own), "hello!");
+            let merged = live_read(&doc).unwrap();
+            assert!(merged.ready);
+            assert!(
+                merged.text.contains('!') && merged.text.contains(" world"),
+                "{}",
+                merged.text
+            );
+
+            // Typing on from `own` adds only the new keystroke: nothing replays.
+            live_write(&mut doc, "hello!?", &own).unwrap();
+            let text = live_read(&doc).unwrap().text;
+            assert_eq!(text.matches("hello").count(), 1, "{text}");
+            assert_eq!(text.matches('!').count(), 1, "{text}");
+            assert!(text.contains('?') && text.contains(" world"), "{text}");
+
+            // Same text on current heads is a no-op, not an empty change.
+            let heads = hex_heads(&doc);
+            assert_eq!(live_write(&mut doc, &text, &heads).unwrap(), heads);
+        }
+
+        #[tokio::test]
+        async fn host_join_edit_save_close_over_loopback() {
+            let (a_dir, b_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+            let a = Arc::new(node(a_dir.path()).await);
+            let b = Arc::new(node(b_dir.path()).await);
+
+            let id = a.live_host("hi").unwrap();
+            assert!(!valid_share_id(&id) || valid_live_id(&id));
+            let ticket: ShareTicket = a.live_ticket(&id).unwrap().parse().unwrap();
+            assert_eq!(b.live_join(&ticket).unwrap(), id);
+            assert!(!b.live_state(&id).unwrap().ready);
+            // The joiner hands out the host's ticket, not one for itself.
+            assert_eq!(b.live_ticket(&id).unwrap(), ticket.to_string());
+
+            let dial = tokio::spawn({
+                let (b, id) = (b.clone(), id.clone());
+                async move { b.live_dial(&id).await }
+            });
+            let wait = std::time::Duration::from_secs(10);
+            let got = b.live_wait(&id, &[], 0, 0, wait).await.unwrap();
+            let got = if got.ready {
+                got
+            } else {
+                b.live_wait(&id, &[], got.peers, 0, wait).await.unwrap()
+            };
+            assert_eq!((got.ready, got.text.as_str()), (true, "hi"));
+
+            // The joiner types; the host's waiting editor wakes with the edit.
+            let seen = a.live_state(&id).unwrap();
+            b.live_edit(&id, "hi there", &got.heads).unwrap();
+            let mut woke = a
+                .live_wait(&id, &seen.heads, seen.peers, seen.rev, wait)
+                .await
+                .unwrap();
+            if woke.heads == seen.heads {
+                woke = a
+                    .live_wait(&id, &seen.heads, woke.peers, woke.rev, wait)
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(woke.text, "hi there");
+            assert!(woke.hosted && woke.peers == 1);
+
+            // The joiner's selection shows up on the host and tracks the text:
+            // an astral char typed before it shifts its UTF-16 offsets by two.
+            let mut inbox = a.live_messages();
+            b.live_set_cursor(&id, Some((3, 8))).unwrap();
+            a.live_cursor_received(&next_remote(&mut inbox).await);
+            let seen = a.live_state(&id).unwrap();
+            assert_eq!(seen.rev, woke.rev.wrapping_add(1));
+            let want = |anchor, focus| LiveCursor {
+                peer: b.endpoint_id(),
+                anchor,
+                focus,
+            };
+            assert_eq!(seen.cursors, vec![want(3, 8)]);
+            let woke = a.live_edit(&id, "\u{1F600}hi there", &seen.heads).unwrap();
+            assert_eq!(woke.cursors, vec![want(5, 10)]);
+            // Junk changes nothing; a cleared selection disappears.
+            b.inner
+                .live_send(&id, b"{\"peer\":\"x\",\"anchor\":7}".to_vec());
+            a.live_cursor_received(&next_remote(&mut inbox).await);
+            assert_eq!(a.live_state(&id).unwrap().cursors, vec![want(5, 10)]);
+            b.live_set_cursor(&id, None).unwrap();
+            a.live_cursor_received(&next_remote(&mut inbox).await);
+            assert!(a.live_state(&id).unwrap().cursors.is_empty());
+
+            // Saved docs survive a restart of the host.
+            a.live_save().unwrap();
+            let bytes = std::fs::read(live_path(a_dir.path(), &id, "automerge")).unwrap();
+            assert_eq!(
+                live_read(&Automerge::load(&bytes).unwrap()).unwrap().text,
+                woke.text
+            );
+
+            // A live ticket for anything but a hosted live doc is refused:
+            // the joined copy on b, and a plain share's id.
+            for (dialer, host, bad) in [(&a, &b, id.as_str()), (&b, &a, "7")] {
+                let forged = ShareTicket::new(
+                    host.inner
+                        .ticket(&id)
+                        .map(|t| t.endpoint_addr().clone())
+                        .unwrap(),
+                    bad,
+                );
+                let err = with_timeout(dialer.inner.live(&forged)).await.unwrap_err();
+                assert!(matches!(err, JoinError::Refused), "{bad}: {err}");
+            }
+
+            // Closing ends the joiner's session; the id is gone on the host.
+            a.live_close(&id).unwrap();
+            assert!(with_timeout(dial).await.unwrap().is_err());
+            assert!(matches!(a.live_state(&id), Err(ShareError::NotFound(_))));
+            assert!(a.live_ids().is_empty());
+            assert_eq!(b.live_ids(), vec![id]);
+        }
+    }
+
     mod admin_meta {
         use super::*;
         use crate::MemberMeta;

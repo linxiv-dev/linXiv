@@ -1081,6 +1081,118 @@ export type MemberCode = {
   code: string,
 };
 
+export type LiveRow = {
+  id: string,
+  /**
+   * First non-blank line of the text.
+   */
+  title: string,
+  /**
+   * Hosted on this device, as opposed to joined from a ticket.
+   */
+  hosted: boolean,
+};
+
+export type LiveListing = {
+  docs: Array<LiveRow>,
+};
+
+export type LiveHostBody = {
+  /**
+   * Initial text.
+   */
+  text?: string,
+};
+
+export type LiveJoinBody = {
+  ticket: string,
+};
+
+export type LiveOpened = {
+  id: string,
+};
+
+export type LiveTicket = {
+  ticket: string,
+};
+
+export type LiveClosed = {
+  id: string,
+};
+
+export type LiveSyncBody = {
+  /**
+   * The editor's whole text, when it changed; absent to just read.
+   */
+  text?: string,
+  /**
+   * Version the editor's text was typed on: the last `heads` or `own` it got.
+   */
+  base: Array<string>,
+  /**
+   * With no `text`: hold the request until the doc moves past `base` or the
+   * peer count leaves `peers`.
+   */
+  wait: boolean,
+  peers: number,
+  /**
+   * The cursor `rev` last seen; `wait` also returns when it moves.
+   */
+  rev: number,
+};
+
+export type LiveCursorBody = {
+  /**
+   * Selection ends as UTF-16 offsets into the text; both absent when the
+   * editor has no selection (blurred).
+   */
+  anchor?: number,
+  focus?: number,
+};
+
+export type LiveCursorSent = {
+  sent: boolean,
+};
+
+export type LiveCursorRow = {
+  /**
+   * The peer's node id; stable, so it can key a color.
+   */
+  peer: string,
+  anchor: number,
+  focus: number,
+};
+
+export type LiveSynced = {
+  /**
+   * False until a joined doc's first sync lands; not editable before.
+   */
+  ready: boolean,
+  /**
+   * The merged text, at `heads`.
+   */
+  text: string,
+  heads: Array<string>,
+  /**
+   * Version holding exactly the posted `text`; the next `base` if the
+   * editor has typed on since posting.
+   */
+  own: Array<string>,
+  /**
+   * Open live sessions: joiners when hosted, 1 when connected to the host.
+   */
+  peers: number,
+  hosted: boolean,
+  /**
+   * Where other people's selections are.
+   */
+  cursors: Array<LiveCursorRow>,
+  /**
+   * Version of `cursors`; echo it in the next `wait`.
+   */
+  rev: number,
+};
+
 export type InviteMinted = {
   invite: string,
 };

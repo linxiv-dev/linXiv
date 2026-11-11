@@ -31,6 +31,7 @@ pub(crate) mod editor; // request-body structs rendered by ts_bindings
 pub mod feed; // refresh reused by the headless bin's feed poll loop
 mod graph;
 pub(crate) mod history; // response + body types via ts_bindings
+pub(crate) mod live; // /api/share/live arms, entered from share::dispatch
 pub(crate) mod notes; // request-body structs rendered by ts_bindings
 pub(crate) mod orcid; // request-body structs rendered by ts_bindings
 pub(crate) mod papers; // ingest_full_text reused by the background full-text worker

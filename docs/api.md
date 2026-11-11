@@ -87,6 +87,20 @@ Source: [`route/history.rs`](../src-tauri/crates/server/src/route/history.rs)
 | GET | `/api/history/share/{id}` |  |  |  |
 | GET | `/api/history/share/{id}/diff` |  |  |  |
 
+## live
+
+Source: [`route/live.rs`](../src-tauri/crates/server/src/route/live.rs)
+
+| Method | Path | Body | Response | Notes |
+|---|---|---|---|---|
+| GET | `/api/share/live` |  | `LiveListing` | every live doc on this device, hosted or joined. |
+| POST | `/api/share/live` | `LiveHostBody` | `LiveOpened` | start hosting a new live doc. |
+| POST | `/api/share/live/join` | `LiveJoinBody` | `LiveOpened` | adopt a live doc from its host's ticket. The first sync connects; the doc reports `ready` once the host's text arrives. |
+| GET | `/api/share/live/{id}/ticket` |  | `LiveTicket` | the pasteable invite. Anyone holding it can read and edit the doc. |
+| POST | `/api/share/live/{id}/sync` | `LiveSyncBody` | `LiveSynced` | the editor's one call: post text typed on `base` and get the merged doc back, or `wait` for a peer's edit. |
+| POST | `/api/share/live/{id}/cursor` | `LiveCursorBody` | `LiveCursorSent` | tell live peers where this editor's selection is. Never stored; repeat it every few seconds or it expires. |
+| DELETE | `/api/share/live/{id}` |  | `LiveClosed` | stop hosting (peers are cut off) or leave, and delete the local copy. |
+
 ## top-level
 
 Source: [`route/mod.rs`](../src-tauri/crates/server/src/route/mod.rs)

@@ -49,6 +49,8 @@ pub struct ShareState {
     // Remote Query Mode (headless only): re-applied to every fresh node, so
     // a relay reconnect's rebind doesn't silently drop the api handler.
     api_installer: std::sync::Mutex<Option<ApiInstallFn>>,
+    // Redial tasks for joined live docs (route/live.rs).
+    pub(crate) live_dials: super::live::Dials,
 }
 
 /// Installs the `linxiv-api/1` handler on a freshly bound node (headless bin;
@@ -64,6 +66,7 @@ impl ShareState {
             write_locks: Mutex::new(HashMap::new()),
             sync_started: AtomicBool::new(false),
             api_installer: std::sync::Mutex::new(None),
+            live_dials: Default::default(),
         }
     }
 
@@ -75,6 +78,7 @@ impl ShareState {
             write_locks: Mutex::new(HashMap::new()),
             sync_started: AtomicBool::new(false),
             api_installer: std::sync::Mutex::new(None),
+            live_dials: Default::default(),
         }
     }
 
@@ -139,7 +143,9 @@ impl ShareState {
         if let Some(install) = self.api_installer.lock().unwrap().clone() {
             install(&fresh);
         }
-        *guard = Some(Arc::new(fresh));
+        let fresh = Arc::new(fresh);
+        super::live::spawn_tasks(&fresh);
+        *guard = Some(fresh);
         Ok(())
     }
 
@@ -175,7 +181,13 @@ pub async fn startup_share_state(dek: Option<[u8; 32]>) -> std::io::Result<(Shar
                 _ => None,
             };
             match ShareNode::bind_with_dek(share_dir.clone(), &p2p_dir, dek, relay).await {
-                Ok(node) => (ShareState::with_node(share_dir, node), true),
+                Ok(node) => {
+                    let state = ShareState::with_node(share_dir, node);
+                    if let Some(node) = state.node().await {
+                        super::live::spawn_tasks(&node);
+                    }
+                    (state, true)
+                }
                 Err(e) => {
                     eprintln!(
                         "warning: share node bind failed, sharing (plain and e2ee) and background sync disabled: {e}"
@@ -460,7 +472,9 @@ pub async fn dispatch(
 /// ponytail: presence still rides the interval pass, which is its whole SLA.
 fn nudges_sync(method: &str, path: &str) -> bool {
     let path = path.split('?').next().unwrap_or(path);
-    method != "GET" && split_segments(path).join("/") != "api/share/presence"
+    // Live docs are not mirrored content, and their sync fires per keystroke.
+    let path = split_segments(path).join("/");
+    method != "GET" && path != "api/share/presence" && !path.starts_with("api/share/live")
 }
 
 async fn dispatch_inner(
@@ -480,6 +494,9 @@ async fn dispatch_inner(
         body: req.body.as_ref(),
     };
 
+    if let Some(res) = super::live::dispatch(share, &ctx).await {
+        return res;
+    }
     // Arms that `.await` (iroh, the write lock) live here, not in the sync
     // `handle` dispatcher below that the Phase-0 store arms share.
     match (ctx.method, ctx.segs) {

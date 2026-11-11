@@ -18,6 +18,7 @@ import {
   Upload,
   AlertCircle,
   Globe,
+  Radio,
 } from "lucide-react";
 import { useUiStore, type SidebarPageKey } from "../../stores/ui";
 import { showContextMenu } from "../../lib/contextMenu";
@@ -52,6 +53,7 @@ const NAV_ITEMS: NavItem[] = [
   // sidebar toggle (ADR 0004). /notes stays reachable by URL with no page
   // behind it.
   { to: "/editor", label: "Editor", icon: <FileCode size={16} />, pageKey: "notes" },
+  { to: "/live", label: "Live", icon: <Radio size={16} /> },
   { to: "/settings", label: "Settings", icon: <Settings size={16} /> },
 ];
 

@@ -22,6 +22,7 @@ const TagPage = lazy(() => import("./pages/TagPage"));
 const AuthorPage = lazy(() => import("./pages/AuthorPage"));
 const PdfPreviewPage = lazy(() => import("./pages/PdfPreviewPage"));
 const NotePage = lazy(() => import("./pages/NotePage"));
+const LivePage = lazy(() => import("./pages/LivePage"));
 
 // Forces a full remount of PaperDetailPage when sfk changes, so all
 // useState initializers run fresh and no stale state drives incorrect queries.
@@ -52,6 +53,8 @@ const router = createBrowserRouter([
       { path: "authors/:id", id: "author", element: <AuthorPage /> },
       { path: "notes", id: "notes", element: null },
       { path: "notes/:id", id: "note", element: <NotePage /> },
+      { path: "live", id: "live", element: <LivePage /> },
+      { path: "live/:id", id: "live-doc", element: <LivePage /> },
       { path: "doi", id: "doi", element: <DoiPage /> },
       { path: "settings", id: "settings", element: <SettingsPage /> },
       { path: "pdf-preview", id: "pdf-preview", element: <PdfPreviewPage /> },
