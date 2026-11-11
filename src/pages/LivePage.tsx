@@ -166,7 +166,6 @@ function applyRemote(editor: Editor, text: string) {
   // so undoing takes back the user's typing and not the peer's.
   for (const state of [...inner.undoStack, ...inner.redoStack]) {
     const content = rebaseSnapshot(state.content, before, text);
-    if (content === null) continue;
     const moved = (pos: Position | null) =>
       pos &&
       offsetToPos(

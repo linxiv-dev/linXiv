@@ -49,8 +49,29 @@ test("rebaseSnapshot carries a peer's edit into an undo snapshot", () => {
   assert.equal(rebaseSnapshot("ab\ncd", "ab\ncdXY", ">ab\ncdXY"), ">ab\ncd");
   // The user deleted since the snapshot; the peer edits after the hole.
   assert.equal(rebaseSnapshot("abcdef", "abef", "abef!"), "abcdef!");
-  // The peer edits inside what the user typed: no honest rebase.
-  assert.equal(rebaseSnapshot("ab", "aXYZb", "aX!YZb"), null);
+  // The peer types inside what the user typed: undo drops the user's text
+  // and keeps the peer's, where it stood.
+  assert.equal(rebaseSnapshot("ab", "aXYZb", "aX!YZb"), "a!b");
+  // The peer deletes part of the user's typing: nothing of theirs to keep.
+  assert.equal(rebaseSnapshot("ab", "aXYZb", "aXb"), "ab");
+  // The peer replaces from before the user's text into it.
+  assert.equal(rebaseSnapshot("abcd", "abXYcd", "a?Ycd"), "a?cd");
+  // The peer replaces from inside the user's text past its end.
+  assert.equal(rebaseSnapshot("abcd", "abXYcd", "abX?d"), "ab?d");
+  // The user replaced a selection; the peer types inside the replacement.
+  assert.equal(rebaseSnapshot("a[old]b", "aNEWb", "aN!EWb"), "a[old]!b");
+  // A peer typing forward inside the user's word, a character per edit,
+  // keeps its order in every snapshot.
+  for (const snapshot of ["", "m", "mi", "min"]) {
+    let [snap, text] = [snapshot, "mine"];
+    for (const [n, ch] of [..."PEER"].entries()) {
+      const next = text.slice(0, 2 + n) + ch + text.slice(2 + n);
+      snap = rebaseSnapshot(snap, text, next);
+      text = next;
+    }
+    assert.equal(text, "miPEERne");
+    assert.equal(snap, snapshot.slice(0, 2) + "PEER" + snapshot.slice(2), snapshot);
+  }
 });
 
 /** A backend whose replies the test releases one at a time. */

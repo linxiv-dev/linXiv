@@ -60,28 +60,29 @@ export function caretAfter(before: string, after: string, caret: number): number
 
 /**
  * An undo snapshot with a peer's edit (`before` to `after`) carried into it,
- * so undoing to it keeps the peer's text. Null when the peer's edit overlaps
- * what the user changed since the snapshot: there is no honest answer then.
+ * so undoing to it takes back the user's own typing and keeps the peer's.
+ * Where the peer edited inside text the user typed since the snapshot, that
+ * text is not in the snapshot: what the peer inserted lands where it stood.
  */
 export function rebaseSnapshot(
   snapshot: string,
   before: string,
   after: string
-): string | null {
+): string {
   const local = textDiff(snapshot, before);
   const remote = textDiff(before, after);
-  // The user's own change occupies [local.start, localEnd) of `before`.
+  // The user's own change occupies [local.start, localEnd) of `before`,
+  // standing in for [local.start, local.end) of the snapshot.
   const localEnd = local.start + local.insert.length;
-  let shift: number;
-  if (remote.end <= local.start) shift = 0;
-  else if (remote.start >= localEnd)
-    shift = local.end - local.start - local.insert.length;
-  else return null;
-  return (
-    snapshot.slice(0, remote.start + shift) +
-    remote.insert +
-    snapshot.slice(remote.end + shift)
-  );
+  const shift = local.end - local.start - local.insert.length;
+  const outside = (pos: number) =>
+    pos <= local.start ? pos : pos >= localEnd ? pos + shift : null;
+  // A peer edit starting inside the user's text lands after the stretch of
+  // snapshot that text replaced. After, not before: a peer typing forward
+  // arrives one character at a time, and each must follow the last.
+  const start = outside(remote.start) ?? local.end;
+  const end = Math.max(start, outside(remote.end) ?? local.start);
+  return snapshot.slice(0, start) + remote.insert + snapshot.slice(end);
 }
 
 export function offsetToPos(text: string, offset: number) {
