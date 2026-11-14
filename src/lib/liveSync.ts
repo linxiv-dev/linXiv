@@ -187,6 +187,9 @@ export class LiveSession {
         });
         if (this.stopped) return;
         wait = true;
+        // `res.can_edit` false: just made a viewer. A post would be refused,
+        // forever; the reply is taken instead, and it locks the editor.
+        const canPost = this.status.ready && this.status.canEdit && res.can_edit;
         if (this.base !== base) {
           // A post landed while this poll was out (the post itself wakes it):
           // the reply predates what the editor now holds. Applying it would
@@ -195,11 +198,7 @@ export class LiveSession {
           await this.sleep(BUSY_MS);
         } else if (this.pushing) {
           await this.pushing; // its reply is fresher than this one
-        } else if (
-          this.status.ready &&
-          this.status.canEdit &&
-          this.editor.getText() !== this.shadow
-        ) {
+        } else if (canPost && this.editor.getText() !== this.shadow) {
           const posted = this.shadow;
           await this.push();
           // Still unposted: the push failed. Don't spin on it.

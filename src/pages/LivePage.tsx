@@ -327,6 +327,8 @@ function LiveDoc({ id }: { id: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<Editor | null>(null);
+  // An IME composition is open in the editor: remote text must wait.
+  const composing = useRef(false);
   const [status, setStatus] = useState<LiveStatus | null>(null);
   const [marks, setMarks] = useState<Mark[]>([]);
   // Bumped when the layout under the marks moves without a status change.
@@ -350,13 +352,12 @@ function LiveDoc({ id }: { id: string }) {
     new CommandBar({ element: bar, editor });
     editorRef.current = editor;
     const el = editor.e!;
-    let composing = false;
     const session = new LiveSession(
       (body) => syncLiveDoc(id, body),
       {
         getText: () => editor.getContent(),
         applyRemote: (text) => applyRemote(editor, text),
-        busy: () => composing,
+        busy: () => composing.current,
       },
       setStatus
     );
@@ -365,9 +366,9 @@ function LiveDoc({ id }: { id: string }) {
       void session.push();
       relayout();
     });
-    el.addEventListener("compositionstart", () => (composing = true));
+    el.addEventListener("compositionstart", () => (composing.current = true));
     el.addEventListener("compositionend", () => {
-      composing = false;
+      composing.current = false;
       void session.push();
     });
 
@@ -421,9 +422,22 @@ function LiveDoc({ id }: { id: string }) {
   }, [id, queryClient]);
 
   // Typing before the first sync would fork the doc from its host's copy.
+  // (Declared after the effect that creates the editor: it needs it.)
   useEffect(() => {
     const el = editorRef.current?.e;
-    if (el) el.contentEditable = ready ? "true" : "false";
+    if (!el) return;
+    el.contentEditable = ready ? "true" : "false";
+    // tiny-mde sets `webkitUserModify` too, and WebKit lets it override
+    // contentEditable.
+    el.style.setProperty("-webkit-user-modify", ready ? "read-write-plaintext-only" : "read-only");
+    // The toolbar edits through the editor's API, whatever the element allows.
+    barRef.current!.inert = !ready;
+    if (!ready) {
+      // Locked while focused: its hotkeys would still fire.
+      el.blur();
+      // Locked mid-composition, it may never end: don't wait on it forever.
+      composing.current = false;
+    }
   }, [ready]);
 
   // Peers' carets are drawn over the text, so they are placed after it renders.

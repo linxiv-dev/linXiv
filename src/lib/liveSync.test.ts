@@ -260,6 +260,17 @@ test("a viewer's editor never posts", async () => {
   session.stop();
 });
 
+test("an editor made a viewer mid-typing takes the doc's text, not a post", async () => {
+  const { calls, editor, session, tick, open } = harness("hi");
+  await open();
+  editor.text = "hi, unposted";
+  calls.shift()!.reply({ text: "hi", heads: ["h0"], can_edit: false });
+  await tick();
+  assert.equal(editor.text, "hi");
+  assert.ok(calls.every((call) => call.body.text === undefined));
+  session.stop();
+});
+
 test("a 404 closes the session", async () => {
   let status: { closed: boolean } = { closed: false };
   const session = new LiveSession(

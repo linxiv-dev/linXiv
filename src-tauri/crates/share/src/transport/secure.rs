@@ -233,6 +233,11 @@ impl ShareNode {
             let role = doc.live.role(auth).await;
             if doc.role.lock().unwrap().replace(role) != Some(role) {
                 self.bump_rev();
+                if role.is_some_and(|role| role < Role::Edit) {
+                    // A reader, maybe demoted mid-typing: say hello now, so
+                    // an editor's reply drops what we typed and nobody took.
+                    *doc.hello.lock().unwrap() = None;
+                }
             }
             if role.is_none() {
                 continue;

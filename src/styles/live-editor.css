@@ -64,3 +64,6 @@
 .live-editor .TMCommandDivider {
   border-color: var(--color-border);
 }
+.live-editor [inert] {
+  opacity: 0.4;
+}
