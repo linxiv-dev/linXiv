@@ -99,6 +99,10 @@ wedged node.
   drives both.
 - `GET /api/status` is the one-call health/config aggregate; the
   container healthcheck itself probes the lighter `GET /api/papers`.
+
+> [!TODO]
+> Allow configurable, important for defaults to not be blank
+
 - Relay settings are the same on-disk user settings as the app
   (`p2p_relay_url` / `p2p_relay_auth_token` / `p2p_relay_only`): set them
   via `PATCH /api/settings`, then `POST /api/share/relay/reconnect` to
