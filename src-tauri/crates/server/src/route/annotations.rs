@@ -12,6 +12,8 @@ use crate::route::{path_i64, to_value, ApiError, ReqCtx};
 use crate::state::AppState;
 
 /// Returns `Some(result)` if this group owns `(method, path)`, else `None`.
+/// TODO: Overly handwrapped, I now know better and am working on this
+/// NOTE: Great options like crudcrate and my helper crate
 pub(crate) async fn handle(state: &AppState, ctx: &ReqCtx<'_>) -> Option<Result<Value, ApiError>> {
     match (ctx.method, ctx.segs) {
         ("GET", ["api", "annotations"]) => Some(list(state, ctx)),
