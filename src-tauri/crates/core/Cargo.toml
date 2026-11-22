@@ -26,7 +26,7 @@ rusqlite = { version = "0.40", features = ["bundled", "chrono", "serde_json"] }
 directories = "6"
 tracing = "0.1"
 # .lxproj is a deflate-compressed ZIP; no other codecs needed.
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 # Sources: HTTP + async + XML/PDF/tar parsing. rustls-tls = no OpenSSL system dep.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "fs", "time", "net"] }

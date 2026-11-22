@@ -297,7 +297,10 @@ pub fn commit_import(
         let mut entry = archive
             .by_index(i)
             .map_err(|e| CoreError::Internal(e.to_string()))?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|e| CoreError::Internal(e.to_string()))?
+            .into_owned();
         if name.starts_with("pdfs/") && name.ends_with(".pdf") {
             let mut bytes = Vec::new();
             entry
