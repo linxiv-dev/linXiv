@@ -67,6 +67,15 @@ fn main() {
     if std::env::var_os("WEBKIT_SKIA_GPU_PAINTING_THREADS").is_none() {
         std::env::set_var("WEBKIT_SKIA_GPU_PAINTING_THREADS", "0");
     }
+    // ponytail: on the proprietary NVIDIA driver, WebKit's DMA-BUF renderer fails
+    // DRM_IOCTL_MODE_CREATE_DUMB (EACCES) and the window never paints. Fall back
+    // to the non-DMA-BUF path only there; drop once WebKit/NVIDIA fix it upstream.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+        && std::path::Path::new("/proc/driver/nvidia").exists()
+    {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
